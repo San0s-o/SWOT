@@ -1,5 +1,26 @@
+# ── Secrets & Lizenz ───────────────────────────────────
 license_config.json
-supabase/functions/.env
+license.json
+*.secret
+.env
+.env.*
+!.env.example
+
+# ── Supabase (Edge Functions, SQL, Secrets) ────────────
+supabase/
+
+# ── Interne Admin-Tools (Keygen, DB-Updater) ──────────
+app/tools/
+LICENSE_COMMANDS.md
+
+# ── Game-Assets & lokale Nutzerdaten ──────────────────
+app/assets/
+app/data/
+app/config/build_presets.json
+app/config/saved_optimizations.json
+app/config/team_presets.json
+
+# ── Python ─────────────────────────────────────────────
 .venv/
 venv/
 __pycache__/
@@ -8,23 +29,32 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .ruff_cache/
+
+# ── Build-Artefakte ────────────────────────────────────
 build/
 dist/
+*.spec
 *.spec.bak
+*.exe
+*.msi
+*.zip
+*.tar.gz
+
+# ── Kryptografie-Material ──────────────────────────────
+*.pem
+*.key
+*.cert
+*.p12
+
+# ── IDE & Editor ───────────────────────────────────────
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# ── Sonstiges ──────────────────────────────────────────
 *.log
 *.tmp
-nul
-supabase/.temp/
 .claude/
-app/assets/
-app/tools/
-app/data/
-app/config/build_presets.json
-app/config/saved_optimizations.json
-app/config/team_presets.json
 tests/
-supabase/
-SWOT.spec
-LICENSE_COMMANDS.md

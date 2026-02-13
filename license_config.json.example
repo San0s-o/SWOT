@@ -1,0 +1,6 @@
+{
+  "supabase_url": "https://YOUR-PROJECT.supabase.co",
+  "supabase_anon_key": "YOUR_ANON_KEY",
+  "app_id": "SWOT",
+  "app_version": "1.0.0"
+}
