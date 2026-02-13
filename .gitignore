@@ -20,3 +20,7 @@ supabase/.temp/
 .claude/
 app/assets/
 app/tools/
+app/data/
+app/config/build_presets.json
+app/config/saved_optimizations.json
+app/config/team_presets.json
