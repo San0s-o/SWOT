@@ -18,3 +18,5 @@ dist/
 nul
 supabase/.temp/
 .claude/
+app/assets/
+app/tools/
