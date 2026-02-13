@@ -50,6 +50,14 @@ def _runtime_base_dir() -> Path:
     return Path.cwd()
 
 
+def _candidate_config_paths() -> list[Path]:
+    base = _runtime_base_dir()
+    candidates = [base / CONFIG_FILENAME]
+    if getattr(sys, "frozen", False):
+        candidates.append(base / "_internal" / CONFIG_FILENAME)
+    return candidates
+
+
 def _load_local_license_data() -> dict[str, Any]:
     path = _license_path()
     if not path.exists():
@@ -70,15 +78,17 @@ def _save_local_license_data(payload: dict[str, Any]) -> None:
 
 
 def _load_online_config() -> dict[str, str]:
-    cfg_path = _runtime_base_dir() / CONFIG_FILENAME
     cfg_raw: dict[str, Any] = {}
-    if cfg_path.exists():
+    for cfg_path in _candidate_config_paths():
+        if not cfg_path.exists():
+            continue
         try:
             parsed = json.loads(cfg_path.read_text(encoding="utf-8"))
             if isinstance(parsed, dict):
                 cfg_raw = parsed
+                break
         except Exception:
-            cfg_raw = {}
+            continue
 
     supabase_url = (os.environ.get("SWOT_SUPABASE_URL") or cfg_raw.get("supabase_url") or "").strip()
     supabase_anon_key = (
@@ -231,4 +241,3 @@ def load_license_key() -> Optional[str]:
     raw = _load_local_license_data()
     key = str(raw.get("key", "")).strip()
     return key or None
-

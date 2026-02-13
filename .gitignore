@@ -58,3 +58,4 @@ dist/
 *.tmp
 .claude/
 tests/
+app/services/license_service.py
