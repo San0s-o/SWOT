@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python -c:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(dir:*)",
+      "Bash(cd:*)",
+      "Bash(findstr:*)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}

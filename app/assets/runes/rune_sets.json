@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "sets": {
+    "1": {
+      "set_id": 1,
+      "slug": "energy",
+      "icon": "runes/sets/1_energy.png"
+    },
+    "2": {
+      "set_id": 2,
+      "slug": "guard",
+      "icon": "runes/sets/2_guard.png"
+    },
+    "3": {
+      "set_id": 3,
+      "slug": "swift",
+      "icon": "runes/sets/3_swift.png"
+    },
+    "4": {
+      "set_id": 4,
+      "slug": "blade",
+      "icon": "runes/sets/4_blade.png"
+    },
+    "5": {
+      "set_id": 5,
+      "slug": "rage",
+      "icon": "runes/sets/5_rage.png"
+    },
+    "6": {
+      "set_id": 6,
+      "slug": "focus",
+      "icon": "runes/sets/6_focus.png"
+    },
+    "7": {
+      "set_id": 7,
+      "slug": "endure",
+      "icon": "runes/sets/7_endure.png"
+    },
+    "8": {
+      "set_id": 8,
+      "slug": "fatal",
+      "icon": "runes/sets/8_fatal.png"
+    },
+    "10": {
+      "set_id": 10,
+      "slug": "despair",
+      "icon": "runes/sets/10_despair.png"
+    },
+    "11": {
+      "set_id": 11,
+      "slug": "vampire",
+      "icon": "runes/sets/11_vampire.png"
+    },
+    "13": {
+      "set_id": 13,
+      "slug": "violent",
+      "icon": "runes/sets/13_violent.png"
+    },
+    "14": {
+      "set_id": 14,
+      "slug": "nemesis",
+      "icon": "runes/sets/14_nemesis.png"
+    },
+    "15": {
+      "set_id": 15,
+      "slug": "will",
+      "icon": "runes/sets/15_will.png"
+    },
+    "16": {
+      "set_id": 16,
+      "slug": "shield",
+      "icon": "runes/sets/16_shield.png"
+    },
+    "17": {
+      "set_id": 17,
+      "slug": "revenge",
+      "icon": "runes/sets/17_revenge.png"
+    },
+    "18": {
+      "set_id": 18,
+      "slug": "destroy",
+      "icon": "runes/sets/18_destroy.png"
+    },
+    "19": {
+      "set_id": 19,
+      "slug": "fight",
+      "icon": "runes/sets/19_fight.png"
+    },
+    "20": {
+      "set_id": 20,
+      "slug": "determination",
+      "icon": "runes/sets/20_determination.png"
+    },
+    "21": {
+      "set_id": 21,
+      "slug": "enhance",
+      "icon": "runes/sets/21_enhance.png"
+    },
+    "22": {
+      "set_id": 22,
+      "slug": "accuracy",
+      "icon": "runes/sets/22_accuracy.png"
+    },
+    "23": {
+      "set_id": 23,
+      "slug": "tolerance",
+      "icon": "runes/sets/23_tolerance.png"
+    },
+    "24": {
+      "set_id": 24,
+      "slug": "seal",
+      "icon": "runes/sets/24_seal.png"
+    },
+    "25": {
+      "set_id": 25,
+      "slug": "intangible",
+      "icon": "runes/sets/25_intangible.png"
+    }
+  }
+}

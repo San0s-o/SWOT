@@ -1,0 +1,1199 @@
+{
+  "version": "2026-02-07",
+  "modes": {
+    "siege": {
+      "by_unit_id": {
+        "8553558990": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 2,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "ATK%"
+                ],
+                "6": [
+                  "ATK%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "11950849374": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 3,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Swift"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "20907818819": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 4,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "26262414021": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 1,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Violent",
+                  "Shield"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "20545972656": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 5,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Violent",
+                  "Focus"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "11142299560": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 6,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "18360218638": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 7,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "CR"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "8251940031": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 8,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Swift"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "19847917915": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 9,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Violent",
+                  "Focus"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {
+                "ACC": 70
+              }
+            }
+          ]
+        },
+        "9812183131": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 10,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Despair",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "15124216489": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 11,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Vampire",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "CD"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {
+                "CR": 85
+              }
+            }
+          ]
+        },
+        "21677609130": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 12,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Violent",
+                  "Revenge"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "CD"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        }
+      }
+    },
+    "wgb": {
+      "by_unit_id": {
+        "26262414021": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 1,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Violent",
+                  "Shield"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "16030376593": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 2,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Swift"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "21679870699": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 3,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "24876721181": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 4,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "17493710984": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 5,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Despair",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "7482672618": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 6,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Despair",
+                  "Revenge"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "8553558990": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 7,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "ATK%"
+                ],
+                "6": [
+                  "ATK%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "20907818819": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 8,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "11950849374": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 9,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Swift"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "19875800003": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 10,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Energy",
+                  "Energy",
+                  "Energy"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "11131799362": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 11,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Violent",
+                  "Revenge"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "6094861487": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 12,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "CD"
+                ],
+                "6": [
+                  "ATK%"
+                ]
+              },
+              "min_stats": {
+                "CR": 85
+              }
+            }
+          ]
+        },
+        "16136151282": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 13,
+              "turn_order": 2,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "HP%"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "20545972656": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 14,
+              "turn_order": 1,
+              "set_options": [
+                [
+                  "Despair",
+                  "Focus"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "7073239140": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 15,
+              "turn_order": 3,
+              "set_options": [
+                [
+                  "Violent",
+                  "Will"
+                ]
+              ],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "CD"
+                ],
+                "6": [
+                  "DEF%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        }
+      }
+    },
+    "rta": {
+      "by_unit_id": {
+        "11813462812": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 1,
+              "turn_order": 1,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "10360801362": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 2,
+              "turn_order": 2,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "7073340025": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 3,
+              "turn_order": 3,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "12125435342": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 4,
+              "turn_order": 4,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "3491205089": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 5,
+              "turn_order": 5,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "14714587542": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 6,
+              "turn_order": 6,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "8743780145": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 7,
+              "turn_order": 7,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "14910262502": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 8,
+              "turn_order": 8,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "12685446538": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 9,
+              "turn_order": 9,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "11148018291": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 10,
+              "turn_order": 10,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "7804912634": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 11,
+              "turn_order": 11,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "7561127647": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 12,
+              "turn_order": 12,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "18671017868": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 13,
+              "turn_order": 13,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "15500032772": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 14,
+              "turn_order": 14,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        },
+        "17684538283": {
+          "builds": [
+            {
+              "id": "default",
+              "name": "Default",
+              "enabled": true,
+              "priority": 1,
+              "optimize_order": 15,
+              "turn_order": 15,
+              "set_options": [],
+              "mainstats": {
+                "2": [
+                  "SPD"
+                ],
+                "4": [
+                  "HP%"
+                ],
+                "6": [
+                  "HP%"
+                ]
+              },
+              "min_stats": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+}
