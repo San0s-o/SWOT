@@ -24,3 +24,7 @@ app/data/
 app/config/build_presets.json
 app/config/saved_optimizations.json
 app/config/team_presets.json
+tests/
+supabase/
+SWOT.spec
+LICENSE_COMMANDS.md
