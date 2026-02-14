@@ -154,7 +154,7 @@ def _post_function(function_name: str, payload: dict[str, Any], cfg: dict[str, s
     try:
         data = response.json()
     except Exception:
-        data = {"ok": False, "message": f"UngÃ¼ltige Serverantwort ({response.status_code})."}
+        data = {"ok": False, "message": f"Ungültige Serverantwort ({response.status_code})."}
     if response.status_code >= 400:
         if "message" not in data:
             data["message"] = f"Serverfehler ({response.status_code})."
@@ -220,7 +220,7 @@ def _validate_online(key: str, session_token: str, cfg: dict[str, str]) -> Licen
     }
     data = _post_function("validate", payload, cfg)
     if not bool(data.get("ok")):
-        return LicenseValidation(False, str(data.get("message", "LizenzprÃ¼fung fehlgeschlagen.")))
+        return LicenseValidation(False, str(data.get("message", "Lizenzprüfung fehlgeschlagen.")))
     current = _load_local_license_data()
 
     # Optional token rotation from backend
@@ -239,7 +239,7 @@ def _validate_online(key: str, session_token: str, cfg: dict[str, str]) -> Licen
     expires_at = _parse_expires_at(data.get("license_expires_at", current.get("license_expires_at")))
     return LicenseValidation(
         True,
-        str(data.get("message", "Lizenz gÃ¼ltig.")),
+        str(data.get("message", "Lizenz gültig.")),
         license_type=license_type,
         expires_at=expires_at,
     )
@@ -253,7 +253,7 @@ def validate_license_key(key: str, now_ts: Optional[int] = None) -> LicenseValid
 
     cfg = _load_online_config()
     if not cfg["supabase_url"] or not cfg["supabase_anon_key"]:
-        return LicenseValidation(False, "Lizenz-Server nicht konfiguriert (license_config.json fehlt/ist unvollstÃ¤ndig).")
+        return LicenseValidation(False, "Lizenz-Server nicht konfiguriert (license_config.json fehlt/ist unvollständig).")
 
     local_data = _load_local_license_data()
     local_key = str(local_data.get("key", "")).strip()
