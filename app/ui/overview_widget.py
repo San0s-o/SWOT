@@ -305,7 +305,21 @@ class _IndexedLineChartView(QChartView):
             self._popup_label.setText(tooltip_fn(item, i, series_name))
             self._popup.adjustSize()
             gpos = event.globalPosition().toPoint()
-            self._popup.move(gpos.x() + 14, gpos.y() + 14)
+            popup_size = self._popup.sizeHint()
+            screen = self.screen()
+            if screen:
+                avail = screen.availableGeometry()
+                x = gpos.x() + 14
+                y = gpos.y() + 14
+                # Flip left if popup would exceed right edge
+                if x + popup_size.width() > avail.right():
+                    x = gpos.x() - popup_size.width() - 14
+                # Flip up if popup would exceed bottom edge
+                if y + popup_size.height() > avail.bottom():
+                    y = gpos.y() - popup_size.height() - 14
+                self._popup.move(x, y)
+            else:
+                self._popup.move(gpos.x() + 14, gpos.y() + 14)
             self._popup.show()
         super().mouseMoveEvent(event)
 

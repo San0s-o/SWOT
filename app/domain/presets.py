@@ -36,7 +36,7 @@ SET_SIZES: dict[int, int] = {
     10: 4,  # Despair
     11: 4,  # Vampire
     13: 4,  # Violent
-    24: 4,  # Seal
+    24: 2,  # Seal
     25: 4,  # Intangible
 }
 

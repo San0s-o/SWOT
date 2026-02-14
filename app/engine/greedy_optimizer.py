@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Set, Optional
+from typing import Dict, List, Tuple, Set, Optional, Callable
 
 from ortools.sat.python import cp_model
 
@@ -38,6 +38,11 @@ SET_SCORE_BONUS: Dict[int, int] = {
     5: 60,    # Rage
     8: 60,    # Fatal
 }
+
+# Penalty weight for excessive turn-order speed gaps during multi-pass selection.
+# Applied on squared excess above the minimum legal gap (1 SPD).
+TURN_ORDER_GAP_PENALTY_WEIGHT = 35
+INTANGIBLE_SET_ID = 25
 
 
 def _score_stat(eff_id: int, value: int) -> int:
@@ -93,7 +98,11 @@ class GreedyRequest:
     unit_ids_in_order: List[int]   # Reihenfolge = Priorität (wie SWOP)
     time_limit_per_unit_s: float = 10.0
     workers: int = 8
-    enforce_turn_order: bool = False
+    multi_pass_enabled: bool = True
+    multi_pass_count: int = 3
+    multi_pass_time_factor: float = 0.2
+    progress_callback: Optional[Callable[[int, int], None]] = None
+    enforce_turn_order: bool = True
     unit_team_index: Dict[int, int] | None = None
     unit_team_turn_order: Dict[int, int] | None = None
 
@@ -113,6 +122,14 @@ class GreedyResult:
     ok: bool
     message: str
     results: List[GreedyUnitResult]
+
+
+@dataclass
+class _PassOutcome:
+    pass_idx: int
+    order: List[int]
+    results: List[GreedyUnitResult]
+    score: Tuple[int, int, int, int, int, int, int]
 
 
 def _allowed_runes_for_mode(account: AccountData, selected_unit_ids: List[int]) -> List[Rune]:
@@ -228,10 +245,32 @@ def _diagnose_single_unit_infeasible(pool: List[Rune], builds: List[Build]) -> s
                 reasons.append(f"Build '{b.name}': Set-Option {opt} verlangt {total_pieces} Teile (>6).")
                 continue
             ok_opt = True
+            intangible_avail = 0
+            for slot in range(1, 7):
+                intangible_avail += sum(
+                    1 for r in runes_by_slot[slot] if int(r.set_id or 0) == int(INTANGIBLE_SET_ID)
+                )
+            intangible_budget = 1 if intangible_avail > 0 else 0
             for set_id, pieces in needed.items():
                 avail = 0
                 for slot in range(1, 7):
-                    avail += sum(1 for r in runes_by_slot[slot] if int(r.set_id) == int(set_id))
+                    avail += sum(1 for r in runes_by_slot[slot] if int(r.set_id or 0) == int(set_id))
+                if int(set_id) == int(INTANGIBLE_SET_ID):
+                    if avail < pieces:
+                        ok_opt = False
+                        reasons.append(
+                            f"Build '{b.name}': Set {set_id} braucht {pieces}, verfügbar {avail}."
+                        )
+                        break
+                    continue
+
+                deficit = max(0, int(pieces) - int(avail))
+                if deficit <= 0:
+                    continue
+                if deficit == 1 and intangible_budget > 0:
+                    intangible_budget -= 1
+                    continue
+
                 if avail < pieces:
                     ok_opt = False
                     reasons.append(
@@ -314,6 +353,14 @@ def _solve_single_unit_best(
         use_build[b_idx] = model.NewBoolVar(f"use_build_u{uid}_b{b_idx}")
     model.Add(sum(use_build.values()) == 1)
 
+    set_choice_vars: Dict[int, List[cp_model.IntVar]] = {}
+    for slot in range(1, 7):
+        for r in runes_by_slot[slot]:
+            sid = int(r.set_id or 0)
+            set_choice_vars.setdefault(sid, []).append(x[(slot, r.rune_id)])
+    intangible_piece_vars = set_choice_vars.get(int(INTANGIBLE_SET_ID), [])
+    intangible_piece_count_expr = sum(intangible_piece_vars) if intangible_piece_vars else 0
+
     # for each build, add constraints only if chosen
     # set options: if present => choose one option if build chosen
     for b_idx, b in enumerate(builds):
@@ -341,17 +388,32 @@ def _solve_single_unit_best(
             for o_idx, opt in enumerate(b.set_options):
                 vo = opt_vars[o_idx]
                 needed = _count_required_set_pieces([str(s) for s in opt])
+                replacement_vars: List[cp_model.IntVar] = []
 
                 for set_id, pieces in needed.items():
-                    chosen_set_vars = []
-                    for slot in range(1, 7):
-                        for r in runes_by_slot[slot]:
-                            if r.set_id == set_id:
-                                chosen_set_vars.append(x[(slot, r.rune_id)])
-                    if not chosen_set_vars:
-                        model.Add(vo == 0)
+                    sid = int(set_id)
+                    needed_pieces = int(pieces)
+                    chosen_set_vars = set_choice_vars.get(sid, [])
+                    set_count_expr = sum(chosen_set_vars) if chosen_set_vars else 0
+
+                    # Intangible set requirement itself cannot be fulfilled via replacement.
+                    if sid == int(INTANGIBLE_SET_ID):
+                        if not chosen_set_vars:
+                            model.Add(vo == 0)
+                            continue
+                        model.Add(set_count_expr >= needed_pieces).OnlyEnforceIf(vo)
                         continue
-                    model.Add(sum(chosen_set_vars) >= int(pieces)).OnlyEnforceIf(vo)
+
+                    rep = model.NewIntVar(0, 1, f"rep_u{uid}_b{b_idx}_o{o_idx}_s{sid}")
+                    replacement_vars.append(rep)
+                    model.Add(set_count_expr + rep >= needed_pieces).OnlyEnforceIf(vo)
+
+                if replacement_vars:
+                    model.Add(sum(replacement_vars) <= 1).OnlyEnforceIf(vo)
+                    if intangible_piece_vars:
+                        model.Add(sum(replacement_vars) <= intangible_piece_count_expr).OnlyEnforceIf(vo)
+                    else:
+                        model.Add(sum(replacement_vars) == 0).OnlyEnforceIf(vo)
 
         # min stat thresholds
         min_stats = dict(getattr(b, "min_stats", {}) or {})
@@ -473,17 +535,7 @@ def _solve_single_unit_best(
     )
 
 
-def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyRequest) -> GreedyResult:
-    """
-    SWOP-like greedy:
-    - iterates units in given order
-    - for each unit: solve best assignment under current pool
-    - remove chosen runes from pool (block)
-    """
-    unit_ids = list(req.unit_ids_in_order)
-    if not unit_ids:
-        return GreedyResult(False, "Keine Units.", [])
-
+def _reorder_for_turn_order(req: GreedyRequest, unit_ids: List[int]) -> List[int]:
     # When enforce_turn_order is active, reorder units within each team
     # so that lower turn_order values are optimized first.  This ensures
     # the speed cap mechanism works correctly (unit with turn_order=1 is
@@ -512,7 +564,118 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
                 team_iters[t] += 1
             else:
                 reordered.append(int(uid))
-        unit_ids = reordered
+        return reordered
+    return list(unit_ids)
+
+
+def _build_pass_orders(base_unit_ids: List[int], pass_count: int) -> List[List[int]]:
+    out: List[List[int]] = []
+    seen: Set[Tuple[int, ...]] = set()
+    n = len(base_unit_ids)
+    if n == 0:
+        return out
+
+    def _push(order: List[int]) -> None:
+        key = tuple(int(x) for x in order)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(list(order))
+
+    _push(base_unit_ids)
+    if n > 1:
+        _push(list(reversed(base_unit_ids)))
+
+    shift = 1
+    while len(out) < max(1, int(pass_count)) and shift < n:
+        rotated = base_unit_ids[shift:] + base_unit_ids[:shift]
+        _push(rotated)
+        if len(out) < max(1, int(pass_count)):
+            _push(list(reversed(rotated)))
+        shift += 1
+
+    return out[:max(1, int(pass_count))]
+
+
+def _evaluate_pass_score(
+    account: AccountData,
+    req: GreedyRequest,
+    results: List[GreedyUnitResult],
+) -> Tuple[int, int, int, int, int, int, int]:
+    runes_by_id = account.runes_by_id()
+    rta_equip = account.rta_rune_equip if req.mode == "rta" else {}
+
+    ok_count = 0
+    unit_scores: List[int] = []
+    speed_sum = 0
+    unit_speed_by_uid: Dict[int, int] = {}
+    for res in results:
+        if not res.ok or not res.runes_by_slot:
+            continue
+        uid = int(res.unit_id)
+        rta_rids: Optional[Set[int]] = None
+        if rta_equip:
+            rta_rids = set(int(rid) for rid in rta_equip.get(uid, []))
+        unit_quality = 0
+        for rid in res.runes_by_slot.values():
+            rune = runes_by_id.get(int(rid))
+            if rune is None:
+                continue
+            unit_quality += _rune_quality_score(rune, uid, rta_rids)
+        ok_count += 1
+        unit_scores.append(int(unit_quality))
+        speed_sum += int(res.final_speed or 0)
+        unit_speed_by_uid[uid] = int(res.final_speed or 0)
+
+    gap_excess_squared = 0
+    if req.enforce_turn_order and req.unit_team_index and req.unit_team_turn_order and unit_speed_by_uid:
+        team_rows: Dict[int, List[Tuple[int, int]]] = {}
+        for uid, spd in unit_speed_by_uid.items():
+            team = req.unit_team_index.get(int(uid))
+            turn = int(req.unit_team_turn_order.get(int(uid), 0) or 0)
+            if team is None or turn <= 0:
+                continue
+            team_rows.setdefault(int(team), []).append((turn, int(spd)))
+        for rows in team_rows.values():
+            rows.sort(key=lambda x: int(x[0]))
+            for i in range(1, len(rows)):
+                prev_spd = int(rows[i - 1][1])
+                cur_spd = int(rows[i][1])
+                # Legal minimum is 1 SPD gap; penalize anything beyond that.
+                excess = max(0, (prev_spd - cur_spd) - 1)
+                gap_excess_squared += int(excess * excess)
+
+    # Score ordering:
+    # 1) as many successful units as possible
+    # 2) maximize effective quality (total quality minus turn-gap penalty)
+    # 3) maximize total quality
+    # 4) maximize average quality (scaled int) for stability if success count differs
+    # 5) minimize excessive turn gaps (direct tie-break)
+    # 6) maximize weakest successful unit (fairness tie-break)
+    # 7) maximize total speed (final tie-break)
+    min_unit_quality = min(unit_scores) if unit_scores else -10**9
+    total_quality = sum(unit_scores)
+    avg_quality_scaled = int((total_quality * 1000) / max(1, ok_count))
+    effective_quality = int(total_quality - (gap_excess_squared * TURN_ORDER_GAP_PENALTY_WEIGHT))
+    return (
+        int(ok_count),
+        int(effective_quality),
+        int(total_quality),
+        int(avg_quality_scaled),
+        int(-gap_excess_squared),
+        int(min_unit_quality),
+        int(speed_sum),
+    )
+
+
+def _run_greedy_pass(
+    account: AccountData,
+    presets: BuildStore,
+    req: GreedyRequest,
+    unit_ids: List[int],
+    time_limit_per_unit_s: float,
+) -> List[GreedyUnitResult]:
+    unit_ids = _reorder_for_turn_order(req, unit_ids)
 
     # initial pool
     pool = _allowed_runes_for_mode(account, unit_ids)
@@ -564,7 +727,7 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
             uid=uid,
             pool=cur_pool,
             builds=builds,
-            time_limit_s=req.time_limit_per_unit_s,
+            time_limit_s=float(time_limit_per_unit_s),
             workers=req.workers,
             base_spd=base_spd,
             base_cr=base_cr,
@@ -583,9 +746,107 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
             # SWOP-like: keep going, but mark as failed
             # (alternativ: break; wenn du "alles muss klappen" willst)
             pass
-
-    ok_all = all(r.ok for r in results)
-    msg = "OK" if ok_all else "Fertig, aber mindestens ein Monster konnte nicht gebaut werden."
-    return GreedyResult(ok_all, msg, results)
+    return results
 
 
+def _results_signature(results: List[GreedyUnitResult]) -> Tuple[Tuple[int, bool, Tuple[Tuple[int, int], ...], int, str], ...]:
+    sig: List[Tuple[int, bool, Tuple[Tuple[int, int], ...], int, str]] = []
+    for r in results:
+        runes = tuple(
+            (int(slot), int(rid))
+            for slot, rid in sorted((r.runes_by_slot or {}).items(), key=lambda x: int(x[0]))
+        )
+        sig.append(
+            (
+                int(r.unit_id),
+                bool(r.ok),
+                runes,
+                int(r.final_speed or 0),
+                str(r.chosen_build_id or ""),
+            )
+        )
+    sig.sort(key=lambda x: x[0])
+    return tuple(sig)
+
+
+def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyRequest) -> GreedyResult:
+    """
+    Extended SWOP-like greedy:
+    - runs one or multiple greedy passes with different optimization orders
+    - keeps the best full-account outcome (units built + fair quality distribution)
+    """
+    base_unit_ids = list(req.unit_ids_in_order)
+    if not base_unit_ids:
+        return GreedyResult(False, "Keine Units.", [])
+
+    pass_orders = [base_unit_ids]
+    if bool(req.multi_pass_enabled) and len(base_unit_ids) > 1:
+        pass_orders = _build_pass_orders(base_unit_ids, int(req.multi_pass_count or 1))
+
+    outcomes: List[_PassOutcome] = []
+    seen_signatures: Set[Tuple[Tuple[int, bool, Tuple[Tuple[int, int], ...], int, str], ...]] = set()
+    best_score: Optional[Tuple[int, int, int, int, int, int, int]] = None
+    no_improve_streak = 0
+    early_stop_reason = ""
+    total_passes = len(pass_orders)
+    for idx, unit_ids in enumerate(pass_orders):
+        if req.progress_callback:
+            try:
+                req.progress_callback(idx + 1, total_passes)
+            except Exception:
+                pass
+        pass_time = float(req.time_limit_per_unit_s)
+        if idx > 0:
+            pass_time = max(0.5, float(req.time_limit_per_unit_s) * float(req.multi_pass_time_factor))
+        pass_results = _run_greedy_pass(
+            account=account,
+            presets=presets,
+            req=req,
+            unit_ids=unit_ids,
+            time_limit_per_unit_s=pass_time,
+        )
+        outcome = _PassOutcome(
+            pass_idx=idx,
+            order=list(unit_ids),
+            results=pass_results,
+            score=_evaluate_pass_score(account, req, pass_results),
+        )
+        outcomes.append(outcome)
+
+        sig = _results_signature(pass_results)
+        repeated_solution = sig in seen_signatures
+        seen_signatures.add(sig)
+
+        improved = best_score is None or outcome.score > best_score
+        if improved:
+            best_score = outcome.score
+            no_improve_streak = 0
+        else:
+            no_improve_streak += 1
+
+        if idx > 0:
+            if repeated_solution and not improved:
+                early_stop_reason = "stabile Lösung ohne weiteren Gewinn"
+                break
+            if no_improve_streak >= 2:
+                early_stop_reason = "keine Verbesserung in aufeinanderfolgenden Durchläufen"
+                break
+
+    best = max(outcomes, key=lambda o: o.score)
+    ok_all = all(r.ok for r in best.results)
+
+    if len(outcomes) <= 1:
+        msg = "OK" if ok_all else "Fertig, aber mindestens ein Monster konnte nicht gebaut werden."
+        return GreedyResult(ok_all, msg, best.results)
+
+    msg_prefix = "OK" if ok_all else "Fertig, aber mindestens ein Monster konnte nicht gebaut werden."
+    planned = len(pass_orders)
+    used = len(outcomes)
+    msg = f"{msg_prefix} Multi-Pass aktiv: bestes Ergebnis aus {used} Durchläufen (Pass {best.pass_idx + 1})."
+    if early_stop_reason and used < planned:
+        msg = (
+            f"{msg_prefix} Multi-Pass aktiv: bestes Ergebnis aus {used} von {planned} "
+            f"geplanten Durchläufen (Pass {best.pass_idx + 1}); vorzeitig gestoppt "
+            f"({early_stop_reason})."
+        )
+    return GreedyResult(ok_all, msg, best.results)

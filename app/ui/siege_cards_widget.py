@@ -15,6 +15,7 @@ from app.domain.models import AccountData, Rune, Unit, compute_unit_stats
 from app.domain.monster_db import MonsterDB
 from app.domain.optimization_store import SavedOptimization
 from app.domain.presets import EFFECT_ID_TO_MAINSTAT_KEY, SET_NAMES
+from app.engine.efficiency import rune_efficiency
 
 
 # ── colour palette for main-stat pie slices ──────────────────
@@ -260,6 +261,15 @@ class MonsterCard(QFrame):
         sets_row.addWidget(set_lbl)
         sets_row.addStretch()
         stats_box.addLayout(sets_row)
+
+        if equipped_runes:
+            avg_eff = sum(rune_efficiency(r) for r in equipped_runes) / len(equipped_runes)
+            eff_lbl = QLabel(f"Ø Rune-Effizienz: <b>{avg_eff:.2f}%</b>")
+        else:
+            eff_lbl = QLabel("Ø Rune-Effizienz: <b>—</b>")
+        eff_lbl.setTextFormat(Qt.RichText)
+        eff_lbl.setStyleSheet("font-size: 8pt; color: #bbb;")
+        stats_box.addWidget(eff_lbl)
 
         # stats 4x2 grid
         stats_grid = QGridLayout()

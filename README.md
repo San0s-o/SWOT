@@ -47,11 +47,12 @@ Klicke auf **Builds (Sets+Mainstats)** um pro Monster festzulegen:
 
 | Einstellung | Beschreibung |
 |---|---|
-| **Set-Optionen** | Erlaubte Runen-Set-Kombinationen (z.B. Despair+Will, Swift+Will) |
-| **Mainstats** | Erlaubte Mainstats pro Slot (2, 4, 6) |
+| **Set-Optionen** | Set 1 und Set 2 erlauben Mehrfachauswahl. Pro Set-Slot sind nur gleich große Sets (2er/4er) erlaubt. Set 3 ist nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind. |
+| **Mainstats** | Erlaubte Mainstats pro Slot (2, 4, 6), Mehrfachauswahl möglich |
 | **Min-Stats** | Mindest-Werte (z.B. min. 200 SPD) |
 | **Priorität** | Niedrigere Zahl = bekommt zuerst die besten Runen |
-| **Turn-Order** | Erzwingt Speed-Reihenfolge innerhalb eines Teams |
+| **Turn-Order** | Reihenfolge pro Team (wird bei der Optimierung immer erzwungen) |
+| **Durchläufe** | Anzahl Multi-Pass-Durchläufe (1–10), mit vorzeitigem Stop bei keiner Verbesserung |
 
 ### 6. Validieren
 
@@ -67,7 +68,8 @@ Klicke auf **Optimieren (Runen)**. Der Optimizer:
 1. Weist Runen in Prioritäts-Reihenfolge zu (wichtigste Monster zuerst)
 2. Beachtet alle Set- und Mainstat-Vorgaben
 3. Maximiert Runen-Effizienz und Stat-Gewichtung
-4. Berücksichtigt optional die Turn-Order innerhalb von Teams
+4. Erzwingt Turn-Order innerhalb der Teams
+5. Nutzt auf Wunsch mehrere Durchläufe und stoppt automatisch, wenn keine Verbesserung mehr gefunden wird
 
 Das Ergebnis zeigt pro Monster:
 - Zugewiesene Runen (Slot 1–6) mit allen Stats

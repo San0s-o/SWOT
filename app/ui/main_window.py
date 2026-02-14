@@ -3,19 +3,21 @@
 import json
 import sys
 import webbrowser
+from itertools import product
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Set, Dict, Callable, Any
 
-from PySide6.QtCore import Qt, QSize, QTimer
-from PySide6.QtGui import QColor, QIcon, QPalette, QStandardItem, QStandardItemModel
+from PySide6.QtCore import Qt, QSize, QTimer, QSortFilterProxyModel, QRegularExpression, Signal
+from PySide6.QtGui import QColor, QIcon, QPalette, QStandardItem, QStandardItemModel, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QTableWidget, QTableWidgetItem,
     QMessageBox, QTabWidget, QGroupBox, QGridLayout, QComboBox, QSpacerItem,
     QSizePolicy, QDialog, QDialogButtonBox, QLineEdit, QListWidget,
-    QListWidgetItem, QScrollArea, QFrame, QCheckBox, QAbstractItemView, QSpinBox, QAbstractSpinBox
+    QListWidgetItem, QScrollArea, QFrame, QAbstractItemView, QSpinBox, QAbstractSpinBox, QCompleter,
+    QHeaderView
 )
 
 from app.importer.sw_json_importer import load_account_from_data
@@ -33,6 +35,7 @@ from app.domain.presets import (
     EFFECT_ID_TO_MAINSTAT_KEY,
 )
 from app.engine.greedy_optimizer import optimize_greedy, GreedyRequest, GreedyUnitResult
+from app.engine.efficiency import rune_efficiency
 from app.services.account_persistence import AccountPersistence
 from app.services.license_service import (
     LicenseValidation,
@@ -70,6 +73,325 @@ class _NoScrollComboBox(QComboBox):
     """ComboBox that ignores mouse-wheel events to prevent accidental changes."""
     def wheelEvent(self, event):
         event.ignore()
+
+
+class _UnitSearchComboBox(_NoScrollComboBox):
+    """Unit combo with in-popup text filtering."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._suspend_filter: bool = False
+        self._proxy_model = QSortFilterProxyModel(self)
+        self._proxy_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
+        self._proxy_model.setFilterKeyColumn(0)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        self._completer = QCompleter(self._proxy_model, self)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.setFilterMode(Qt.MatchContains)
+        self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._completer.activated.connect(self._on_completer_activated)
+        self.setCompleter(self._completer)
+        line_edit = self.lineEdit()
+        if line_edit is not None:
+            line_edit.setClearButtonEnabled(False)
+            line_edit.setPlaceholderText("Monster suchen...")
+            line_edit.textChanged.connect(self._on_filter_text_edited)
+        self.activated.connect(self._on_item_activated)
+
+    def set_filter_suspended(self, suspended: bool) -> None:
+        self._suspend_filter = bool(suspended)
+
+    def set_source_model(self, model: QStandardItemModel) -> None:
+        self._proxy_model.setSourceModel(model)
+        self.setModel(model)
+        self._completer.setModel(self._proxy_model)
+
+    def showPopup(self) -> None:
+        super().showPopup()
+        QTimer.singleShot(0, self._focus_search_field)
+
+    def hidePopup(self) -> None:
+        super().hidePopup()
+        self._reset_search_field()
+
+    def _on_filter_text_edited(self, text: str) -> None:
+        if self._suspend_filter:
+            return
+        query = (text or "").strip()
+        if not query:
+            self._proxy_model.setFilterRegularExpression(QRegularExpression())
+            self._completer.popup().hide()
+            return
+        escaped = QRegularExpression.escape(query)
+        self._proxy_model.setFilterRegularExpression(
+            QRegularExpression(f".*{escaped}.*", QRegularExpression.CaseInsensitiveOption)
+        )
+        self._completer.complete()
+
+    def _focus_search_field(self) -> None:
+        line_edit = self.lineEdit()
+        if line_edit is None:
+            return
+        line_edit.setFocus(Qt.PopupFocusReason)
+        line_edit.selectAll()
+
+    def _reset_search_field(self, *_args) -> None:
+        if self._suspend_filter:
+            return
+        line_edit = self.lineEdit()
+        if line_edit is None:
+            return
+        line_edit.blockSignals(True)
+        line_edit.clear()
+        line_edit.blockSignals(False)
+
+    def _on_item_activated(self, _index: int) -> None:
+        self._reset_search_field()
+
+    def _on_completer_activated(self, _text: str) -> None:
+        idx = self._completer.currentIndex()
+        if not idx.isValid():
+            return
+        src_idx = self._proxy_model.mapToSource(idx)
+        if not src_idx.isValid():
+            return
+        self.setCurrentIndex(src_idx.row())
+        self._reset_search_field()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        line_edit = self.lineEdit()
+        if line_edit is not None:
+            key = event.key()
+            if key == Qt.Key_Backspace:
+                line_edit.backspace()
+                event.accept()
+                return
+            if key == Qt.Key_Delete:
+                line_edit.del_()
+                event.accept()
+                return
+            text = event.text()
+            if text and not (event.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)):
+                line_edit.insert(text)
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+
+class _SetMultiCombo(_NoScrollComboBox):
+    """Checkable multi-select combo for rune sets with optional size enforcement."""
+
+    selection_changed = Signal()
+
+    ROLE_SET_ID = Qt.UserRole
+    ROLE_SET_SIZE = Qt.UserRole + 1
+    EXCLUDED_SET_IDS = {25}  # Intangible is handled automatically by the optimizer.
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._block_hide_once = False
+        self._enforced_size: int | None = None
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        le = self.lineEdit()
+        if le is not None:
+            le.setReadOnly(True)
+            le.setPlaceholderText("—")
+        model = QStandardItemModel(self)
+        self.setModel(model)
+        for sid in sorted(SET_NAMES.keys()):
+            if int(sid) in self.EXCLUDED_SET_IDS:
+                continue
+            name = str(SET_NAMES[sid])
+            ssize = int(SET_SIZES.get(int(sid), 2))
+            item = QStandardItem(f"{name} ({sid})")
+            item.setData(int(sid), self.ROLE_SET_ID)
+            item.setData(int(ssize), self.ROLE_SET_SIZE)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setData(Qt.Unchecked, Qt.CheckStateRole)
+            model.appendRow(item)
+        self.view().pressed.connect(self._on_item_pressed)
+        self._apply_size_constraints()
+        self._refresh_text()
+
+    def _on_item_pressed(self, index) -> None:
+        if not index.isValid():
+            return
+        item = self.model().item(index.row())
+        if item is None or not item.isEnabled():
+            return
+        new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+        item.setCheckState(new_state)
+        self._block_hide_once = True
+        self._apply_size_constraints()
+        self._refresh_text()
+        self.selection_changed.emit()
+
+    def hidePopup(self) -> None:
+        if self._block_hide_once:
+            self._block_hide_once = False
+            return
+        super().hidePopup()
+
+    def checked_ids(self) -> List[int]:
+        out: List[int] = []
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            if item.checkState() == Qt.Checked:
+                out.append(int(item.data(self.ROLE_SET_ID) or 0))
+        return [x for x in out if x > 0]
+
+    def checked_sizes(self) -> Set[int]:
+        out: Set[int] = set()
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            if item.checkState() == Qt.Checked:
+                out.add(int(item.data(self.ROLE_SET_SIZE) or 0))
+        return out
+
+    def selected_size(self) -> int | None:
+        sizes = self.checked_sizes()
+        if len(sizes) == 1:
+            return int(next(iter(sizes)))
+        return None
+
+    def set_enforced_size(self, size: int | None) -> None:
+        self._enforced_size = int(size) if size in (2, 4) else None
+        self._apply_size_constraints()
+        self._refresh_text()
+
+    def clear_checked(self) -> None:
+        self.set_checked_ids([])
+
+    def set_checked_ids(self, set_ids: List[int]) -> None:
+        selected = [int(x) for x in (set_ids or []) if int(x) > 0]
+        selected_set = set(selected)
+        size_by_id = {int(sid): int(SET_SIZES.get(int(sid), 2)) for sid in selected}
+        target_size = self._enforced_size
+        if target_size is None and selected:
+            first_id = int(selected[0])
+            target_size = int(size_by_id.get(first_id, 0) or 0) or None
+
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            sid = int(item.data(self.ROLE_SET_ID) or 0)
+            ssize = int(item.data(self.ROLE_SET_SIZE) or 0)
+            should_check = sid in selected_set and (target_size is None or ssize == int(target_size))
+            item.setCheckState(Qt.Checked if should_check else Qt.Unchecked)
+        self._apply_size_constraints()
+        self._refresh_text()
+
+    def _effective_size(self) -> int | None:
+        if self._enforced_size in (2, 4):
+            return int(self._enforced_size)
+        sizes = self.checked_sizes()
+        if len(sizes) == 1:
+            return int(next(iter(sizes)))
+        return None
+
+    def _apply_size_constraints(self) -> None:
+        eff_size = self._effective_size()
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            ssize = int(item.data(self.ROLE_SET_SIZE) or 0)
+            allowed = eff_size is None or ssize == int(eff_size)
+            item.setEnabled(bool(allowed))
+            if not allowed and item.checkState() == Qt.Checked:
+                item.setCheckState(Qt.Unchecked)
+
+    def _refresh_text(self) -> None:
+        ids = self.checked_ids()
+        if not ids:
+            text = "—"
+        else:
+            names = [str(SET_NAMES.get(int(sid), sid)) for sid in ids]
+            text = ", ".join(names)
+        le = self.lineEdit()
+        if le is not None:
+            le.setText(text)
+
+
+class _MainstatMultiCombo(_NoScrollComboBox):
+    """Checkable multi-select combo for allowed mainstats."""
+
+    def __init__(self, options: List[str], parent: QWidget | None = None):
+        super().__init__(parent)
+        self._block_hide_once = False
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        le = self.lineEdit()
+        if le is not None:
+            le.setReadOnly(True)
+            le.setPlaceholderText("Any")
+        model = QStandardItemModel(self)
+        self.setModel(model)
+        for key in options:
+            item = QStandardItem(str(key))
+            item.setData(str(key), Qt.UserRole)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setData(Qt.Unchecked, Qt.CheckStateRole)
+            model.appendRow(item)
+        self.view().pressed.connect(self._on_item_pressed)
+        self._refresh_text()
+
+    def _on_item_pressed(self, index) -> None:
+        if not index.isValid():
+            return
+        item = self.model().item(index.row())
+        if item is None:
+            return
+        new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+        item.setCheckState(new_state)
+        self._block_hide_once = True
+        self._refresh_text()
+
+    def hidePopup(self) -> None:
+        if self._block_hide_once:
+            self._block_hide_once = False
+            return
+        super().hidePopup()
+
+    def checked_values(self) -> List[str]:
+        out: List[str] = []
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            if item.checkState() == Qt.Checked:
+                out.append(str(item.data(Qt.UserRole) or item.text() or ""))
+        return [x for x in out if x]
+
+    def set_checked_values(self, values: List[str]) -> None:
+        selected = {str(v) for v in (values or []) if str(v)}
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            key = str(item.data(Qt.UserRole) or item.text() or "")
+            item.setCheckState(Qt.Checked if key in selected else Qt.Unchecked)
+        self._refresh_text()
+
+    def _refresh_text(self) -> None:
+        vals = self.checked_values()
+        text = "Any" if not vals else ", ".join(vals)
+        le = self.lineEdit()
+        if le is not None:
+            le.setText(text)
 
 
 class BuildDialog(QDialog):
@@ -177,7 +499,14 @@ class BuildDialog(QDialog):
             "Slot 2 Main", "Slot 4 Main", "Slot 6 Main",
             "Min SPD", "Min CR", "Min CD", "Min RES", "Min ACC"
         ])
-        self.table.horizontalHeader().setStretchLastSection(True)
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(False)
+        # Combo columns (Monster, Set 1-3, Slot 2/4/6 Main) stretch to fill space
+        for col in range(7):
+            header.setSectionResizeMode(col, QHeaderView.Stretch)
+        # Stat columns (Min SPD, CR, CD, RES, ACC) stay compact
+        for col in range(7, 12):
+            header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setDragDropMode(QAbstractItemView.InternalMove)
@@ -189,12 +518,12 @@ class BuildDialog(QDialog):
         self.table.setDragDropOverwriteMode(False)
         layout.addWidget(self.table, 1)
 
-        self._set1_combo: Dict[int, QComboBox] = {}
-        self._set2_combo: Dict[int, QComboBox] = {}
-        self._set3_combo: Dict[int, QComboBox] = {}
-        self._ms2_combo: Dict[int, QComboBox] = {}
-        self._ms4_combo: Dict[int, QComboBox] = {}
-        self._ms6_combo: Dict[int, QComboBox] = {}
+        self._set1_combo: Dict[int, _SetMultiCombo] = {}
+        self._set2_combo: Dict[int, _SetMultiCombo] = {}
+        self._set3_combo: Dict[int, _SetMultiCombo] = {}
+        self._ms2_combo: Dict[int, _MainstatMultiCombo] = {}
+        self._ms4_combo: Dict[int, _MainstatMultiCombo] = {}
+        self._ms6_combo: Dict[int, _MainstatMultiCombo] = {}
         self._min_spd_spin: Dict[int, QSpinBox] = {}
         self._min_cr_spin: Dict[int, QSpinBox] = {}
         self._min_cd_spin: Dict[int, QSpinBox] = {}
@@ -225,40 +554,29 @@ class BuildDialog(QDialog):
             monster_item.setData(Qt.UserRole, int(unit_id))
             self.table.setItem(r, 0, monster_item)
 
-            cmb_set1 = _NoScrollComboBox()
-            cmb_set2 = _NoScrollComboBox()
-            cmb_set3 = _NoScrollComboBox()
-            for cmb_set in (cmb_set1, cmb_set2, cmb_set3):
-                cmb_set.addItem("—", 0)
-                for sid in sorted(SET_NAMES.keys()):
-                    cmb_set.addItem(f"{SET_NAMES[sid]} ({sid})", sid)
+            cmb_set1 = _SetMultiCombo()
+            cmb_set2 = _SetMultiCombo()
+            cmb_set3 = _SetMultiCombo()
+            cmb_set1.setToolTip("Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).")
+            cmb_set2.setToolTip("Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).")
+            cmb_set3.setToolTip("Nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind.")
 
             builds = self.preset_store.get_unit_builds(self.mode, unit_id)
             b0 = builds[0] if builds else Build.default_any()
 
-            req_set_ids: List[int] = []
-            if b0.set_options:
-                opt0 = b0.set_options[0]
-                if isinstance(opt0, list):
-                    for opt_name in opt0[:3]:
-                        name = str(opt_name)
-                        for sid, sname in SET_NAMES.items():
-                            if sname == name:
-                                req_set_ids.append(int(sid))
-                                break
-            for cmb_set, sid in zip((cmb_set1, cmb_set2, cmb_set3), req_set_ids):
-                idx = cmb_set.findData(sid)
-                cmb_set.setCurrentIndex(idx if idx >= 0 else 0)
+            slot1_ids, slot2_ids, slot3_ids = self._parse_set_options_to_slot_ids(b0.set_options or [])
+            cmb_set1.set_checked_ids(slot1_ids)
+            cmb_set2.set_checked_ids(slot2_ids)
+            cmb_set3.set_checked_ids(slot3_ids)
+            cmb_set1.selection_changed.connect(lambda _uid=int(unit_id): self._sync_set_combo_constraints_for_unit(_uid))
+            cmb_set2.selection_changed.connect(lambda _uid=int(unit_id): self._sync_set_combo_constraints_for_unit(_uid))
+            cmb_set3.selection_changed.connect(lambda _uid=int(unit_id): self._sync_set_combo_constraints_for_unit(_uid))
 
-            def _mk_ms_combo(defaults: List[str]) -> _NoScrollComboBox:
-                cmb = _NoScrollComboBox()
-                cmb.addItem("Any", "")
-                for k in MAINSTAT_KEYS:
-                    cmb.addItem(k, k)
+            def _mk_ms_combo(defaults: List[str]) -> _MainstatMultiCombo:
+                cmb = _MainstatMultiCombo(MAINSTAT_KEYS)
                 if defaults:
-                    di = cmb.findData(defaults[0])
-                    if di >= 0:
-                        cmb.setCurrentIndex(di)
+                    cmb.set_checked_values([str(defaults[0])])
+                cmb.setToolTip("Mehrfachauswahl möglich. Keine Auswahl = Any.")
                 return cmb
 
             cmb2 = _mk_ms_combo(SLOT2_DEFAULT)
@@ -283,17 +601,11 @@ class BuildDialog(QDialog):
 
             if b0.mainstats:
                 if 2 in b0.mainstats and b0.mainstats[2]:
-                    di = cmb2.findData(b0.mainstats[2][0])
-                    if di >= 0:
-                        cmb2.setCurrentIndex(di)
+                    cmb2.set_checked_values([str(x) for x in (b0.mainstats[2] or [])])
                 if 4 in b0.mainstats and b0.mainstats[4]:
-                    di = cmb4.findData(b0.mainstats[4][0])
-                    if di >= 0:
-                        cmb4.setCurrentIndex(di)
+                    cmb4.set_checked_values([str(x) for x in (b0.mainstats[4] or [])])
                 if 6 in b0.mainstats and b0.mainstats[6]:
-                    di = cmb6.findData(b0.mainstats[6][0])
-                    if di >= 0:
-                        cmb6.setCurrentIndex(di)
+                    cmb6.set_checked_values([str(x) for x in (b0.mainstats[6] or [])])
 
             self.table.setCellWidget(r, 1, cmb_set1)
             self.table.setCellWidget(r, 2, cmb_set2)
@@ -310,6 +622,7 @@ class BuildDialog(QDialog):
             self._set1_combo[unit_id] = cmb_set1
             self._set2_combo[unit_id] = cmb_set2
             self._set3_combo[unit_id] = cmb_set3
+            self._sync_set_combo_constraints_for_unit(int(unit_id))
             self._ms2_combo[unit_id] = cmb2
             self._ms4_combo[unit_id] = cmb4
             self._ms6_combo[unit_id] = cmb6
@@ -323,6 +636,77 @@ class BuildDialog(QDialog):
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+
+    def _parse_set_options_to_slot_ids(self, set_options: List[List[str]]) -> Tuple[List[int], List[int], List[int]]:
+        parsed: List[List[int]] = []
+        for opt in (set_options or []):
+            if not isinstance(opt, list):
+                continue
+            row: List[int] = []
+            for name in opt:
+                sid = next((int(k) for k, sname in SET_NAMES.items() if sname == str(name)), 0)
+                if sid > 0:
+                    row.append(int(sid))
+            if row:
+                parsed.append(row)
+
+        if not parsed:
+            return [], [], []
+
+        lengths = {len(r) for r in parsed if r}
+        if len(lengths) == 1 and 1 <= next(iter(lengths)) <= 3:
+            width = int(next(iter(lengths)))
+            slots: List[List[int]] = []
+            for pos in range(width):
+                vals: List[int] = []
+                seen: Set[int] = set()
+                for row in parsed:
+                    sid = int(row[pos])
+                    if sid <= 0 or sid in seen:
+                        continue
+                    seen.add(sid)
+                    vals.append(sid)
+                slots.append(vals)
+            while len(slots) < 3:
+                slots.append([])
+            return slots[0], slots[1], slots[2]
+
+        first = [int(x) for x in (parsed[0] if parsed else [])]
+        while len(first) < 3:
+            first.append(0)
+        return [first[0]] if first[0] > 0 else [], [first[1]] if first[1] > 0 else [], [first[2]] if first[2] > 0 else []
+
+    def _is_set3_allowed_for_unit(self, unit_id: int) -> bool:
+        c1 = self._set1_combo.get(int(unit_id))
+        c2 = self._set2_combo.get(int(unit_id))
+        if c1 is None or c2 is None:
+            return False
+        s1 = c1.checked_sizes()
+        s2 = c2.checked_sizes()
+        if not c1.checked_ids() or not c2.checked_ids():
+            return False
+        return s1 == {2} and s2 == {2}
+
+    def _sync_set_combo_constraints_for_unit(self, unit_id: int) -> None:
+        c1 = self._set1_combo.get(int(unit_id))
+        c2 = self._set2_combo.get(int(unit_id))
+        c3 = self._set3_combo.get(int(unit_id))
+        if c1 is None or c2 is None or c3 is None:
+            return
+
+        # Set 1/2: internal size lock based on current selection.
+        c1.set_enforced_size(None)
+        c2.set_enforced_size(None)
+
+        # Set 3 is only available for 2-set + 2-set setups.
+        allow_set3 = self._is_set3_allowed_for_unit(int(unit_id))
+        if allow_set3:
+            c3.setEnabled(True)
+            c3.set_enforced_size(2)
+        else:
+            c3.clear_checked()
+            c3.set_enforced_size(None)
+            c3.setEnabled(False)
 
     def _optimize_order_by_unit(self) -> Dict[int, int]:
         if not self._opt_order_list:
@@ -352,22 +736,57 @@ class BuildDialog(QDialog):
         team_turn_order_by_uid = self._team_turn_order_by_unit()
 
         for unit_id in self._set1_combo.keys():
-            selected_set_ids = [
-                int(self._set1_combo[unit_id].currentData() or 0),
-                int(self._set2_combo[unit_id].currentData() or 0),
-                int(self._set3_combo[unit_id].currentData() or 0),
-            ]
-            total_required_pieces = sum(int(SET_SIZES.get(sid, 2)) for sid in selected_set_ids if sid in SET_NAMES)
-            if total_required_pieces > 6:
+            self._sync_set_combo_constraints_for_unit(int(unit_id))
+
+            set1_ids = [int(x) for x in self._set1_combo[unit_id].checked_ids()]
+            set2_ids = [int(x) for x in self._set2_combo[unit_id].checked_ids()]
+            set3_ids = [int(x) for x in self._set3_combo[unit_id].checked_ids()] if self._is_set3_allowed_for_unit(int(unit_id)) else []
+
+            groups: List[List[int]] = []
+            if set1_ids:
+                groups.append(set1_ids)
+            if set2_ids:
+                groups.append(set2_ids)
+            if set3_ids:
+                groups.append(set3_ids)
+
+            option_ids: List[List[int]] = []
+            if groups:
+                option_ids = [list(opt) for opt in product(*groups)]
+
+            # Normalize (dedupe within each option) and keep only feasible options (<= 6 pieces).
+            normalized_options: List[List[int]] = []
+            seen_opts: Set[Tuple[int, ...]] = set()
+            for opt in option_ids:
+                cleaned: List[int] = []
+                seen_local: Set[int] = set()
+                for sid in opt:
+                    sid_i = int(sid)
+                    if sid_i <= 0 or sid_i not in SET_NAMES or sid_i in seen_local:
+                        continue
+                    seen_local.add(sid_i)
+                    cleaned.append(sid_i)
+                if not cleaned:
+                    continue
+                total_pieces = sum(int(SET_SIZES.get(sid, 2)) for sid in cleaned)
+                if total_pieces > 6:
+                    continue
+                key = tuple(cleaned)
+                if key in seen_opts:
+                    continue
+                seen_opts.add(key)
+                normalized_options.append(cleaned)
+
+            if option_ids and not normalized_options:
                 unit_label = self._unit_label_by_id.get(unit_id, str(unit_id))
                 raise ValueError(
                     f"Ungültige Set-Kombi für {unit_label}: "
-                    f"{total_required_pieces} Pflicht-Teile (> 6)."
+                    f"keine der Set-Optionen passt in 6 Slots."
                 )
 
-            ms2 = str(self._ms2_combo[unit_id].currentData() or "")
-            ms4 = str(self._ms4_combo[unit_id].currentData() or "")
-            ms6 = str(self._ms6_combo[unit_id].currentData() or "")
+            ms2_values = [str(x) for x in self._ms2_combo[unit_id].checked_values()]
+            ms4_values = [str(x) for x in self._ms4_combo[unit_id].checked_values()]
+            ms6_values = [str(x) for x in self._ms6_combo[unit_id].checked_values()]
             optimize_order = int(optimize_order_by_uid.get(unit_id, 0) or 0)
             turn_order = int(team_turn_order_by_uid.get(unit_id, 0) or 0)
             min_stats: Dict[str, int] = {}
@@ -383,17 +802,18 @@ class BuildDialog(QDialog):
                 min_stats["ACC"] = int(self._min_acc_spin[unit_id].value())
 
             set_options = []
-            selected_names = [SET_NAMES[sid] for sid in selected_set_ids if sid in SET_NAMES]
-            if selected_names:
-                set_options = [selected_names]
+            for opt in normalized_options:
+                names = [SET_NAMES[sid] for sid in opt if sid in SET_NAMES]
+                if names:
+                    set_options.append(names)
 
             mainstats: Dict[int, List[str]] = {}
-            if ms2:
-                mainstats[2] = [ms2]
-            if ms4:
-                mainstats[4] = [ms4]
-            if ms6:
-                mainstats[6] = [ms6]
+            if ms2_values:
+                mainstats[2] = ms2_values
+            if ms4_values:
+                mainstats[4] = ms4_values
+            if ms6_values:
+                mainstats[6] = ms6_values
 
             b = Build(
                 id="default",
@@ -775,6 +1195,17 @@ class OptimizeResultDialog(QDialog):
         title = QLabel(f"<b>{label}</b>" if result.ok else f"<b>{label} (Fehler)</b>")
         title.setTextFormat(Qt.RichText)
         v.addWidget(title)
+
+        rune_ids = list((result.runes_by_slot or {}).values())
+        eff_values = [rune_efficiency(r) for rid in rune_ids if (r := self._rune_lookup.get(int(rid)))]
+        if eff_values:
+            avg_eff = sum(eff_values) / len(eff_values)
+            eff_lbl = QLabel(f"Ø Rune-Effizienz: <b>{avg_eff:.2f}%</b>")
+        else:
+            eff_lbl = QLabel("Ø Rune-Effizienz: <b>—</b>")
+        eff_lbl.setTextFormat(Qt.RichText)
+        eff_lbl.setStyleSheet("color: #bbb;")
+        v.addWidget(eff_lbl)
 
         if not result.ok:
             msg = QLabel(result.message)
@@ -1166,12 +1597,19 @@ class MainWindow(QMainWindow):
             "<h3>4. Builds definieren</h3>"
             "<p>Klicke auf <b>Builds (Sets+Mainstats)…</b> um je Monster "
             "die gewünschten Runen-Sets und Slot-2/4/6-Hauptstats festzulegen. "
+            "Bei Mainstats ist Mehrfachauswahl möglich (keine Auswahl = Any). "
+            "Set-Logik: In Set 1 und Set 2 ist Mehrfachauswahl möglich. "
+            "Pro Set-Slot sind nur gleich große Sets erlaubt (2er oder 4er). "
+            "Set 3 ist nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind. "
             "Hier kannst du auch Mindest-Werte (z.B. min SPD) definieren.</p>"
 
             "<h3>5. Optimieren</h3>"
             "<p>Klicke auf <b>Optimieren (Runen)</b> um die automatische "
             "Runen-Verteilung zu starten. Der Optimizer verteilt deine Runen "
             "so, dass die Vorgaben möglichst effizient erfüllt werden. "
+            "Die Turn-Order innerhalb von Teams wird dabei immer erzwungen. "
+            "Über <b>Durchläufe</b> kannst du 1-10 Multi-Pass-Runs wählen; "
+            "wenn keine Verbesserung mehr möglich ist, stoppt der Optimizer vorzeitig. "
             "Das Ergebnis kannst du als Karten mit allen Stats und Runen-Details sehen.</p>"
 
             "<h3>6. Ergebnisse speichern</h3>"
@@ -1287,6 +1725,15 @@ class MainWindow(QMainWindow):
         else:
             source_label = source_name
         self._apply_saved_account(account, source_label)
+
+    def _build_pass_progress_callback(self, label: QLabel, prefix: str) -> Callable[[int, int], None]:
+        def _cb(current_pass: int, total_passes: int) -> None:
+            text = f"{prefix}: Durchlauf {int(current_pass)}/{int(total_passes)}..."
+            label.setText(text)
+            self.statusBar().showMessage(text)
+            QApplication.processEvents()
+        return _cb
+
     # ============================================================
     # Helpers: names+icons
     # ============================================================
@@ -1337,10 +1784,18 @@ class MainWindow(QMainWindow):
         prev_uid = int(cmb.currentData() or 0)
 
         cmb.blockSignals(True)
-        cmb.setModel(model)
+        if isinstance(cmb, _UnitSearchComboBox):
+            cmb.set_filter_suspended(True)
+            cmb.set_source_model(model)
+        else:
+            cmb.setModel(model)
         cmb.setModelColumn(0)
         cmb.setIconSize(QSize(40, 40))
-        cmb.setCurrentIndex(self._unit_combo_index_by_uid.get(prev_uid, 0))
+        idx = cmb.findData(prev_uid, role=Qt.UserRole)
+        cmb.setCurrentIndex(idx if idx >= 0 else 0)
+        if isinstance(cmb, _UnitSearchComboBox):
+            cmb.set_filter_suspended(False)
+            cmb._reset_search_field()
         cmb.blockSignals(False)
 
     def _build_unit_combo_model(self) -> QStandardItemModel:
@@ -1353,8 +1808,13 @@ class MainWindow(QMainWindow):
         index_by_uid[0] = 0
 
         if self.account:
-            for uid in sorted(self.account.units_by_id.keys()):
-                u = self.account.units_by_id[uid]
+            unit_rows: List[Tuple[str, str, int, Any]] = []
+            for uid, u in self.account.units_by_id.items():
+                name = self.monster_db.name_for(u.unit_master_id)
+                elem = self.monster_db.element_for(u.unit_master_id)
+                unit_rows.append((name.lower(), elem.lower(), int(uid), u))
+
+            for _, _, uid, u in sorted(unit_rows, key=lambda x: (x[0], x[1], x[2])):
                 name = self.monster_db.name_for(u.unit_master_id)
                 elem = self.monster_db.element_for(u.unit_master_id)
                 self._unit_text_cache_by_uid[int(uid)] = f"{name} ({elem}) | lvl {u.unit_level}"
@@ -1534,7 +1994,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(QLabel(f"Verteidigung {t+1}"), t, 0)
             row: List[QComboBox] = []
             for s in range(3):
-                cmb = _NoScrollComboBox()
+                cmb = _UnitSearchComboBox()
                 cmb.setMinimumWidth(300)
                 self._all_unit_combos.append(cmb)
                 grid.addWidget(cmb, t, 1 + s)
@@ -1564,9 +2024,13 @@ class MainWindow(QMainWindow):
         self.btn_optimize_siege.clicked.connect(self.on_optimize_siege)
         btn_row.addWidget(self.btn_optimize_siege)
 
-        self.chk_turn_order_siege = QCheckBox("Turn Order erzwingen")
-        self.chk_turn_order_siege.setChecked(False)
-        btn_row.addWidget(self.chk_turn_order_siege)
+        btn_row.addWidget(QLabel("Durchläufe"))
+        self.spin_multi_pass_siege = QSpinBox()
+        self.spin_multi_pass_siege.setRange(1, 10)
+        self.spin_multi_pass_siege.setValue(3)
+        self.spin_multi_pass_siege.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_siege.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
+        btn_row.addWidget(self.spin_multi_pass_siege)
 
         btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -1586,7 +2050,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(QLabel(f"Verteidigung {t+1}"), t, 0)
             row: List[QComboBox] = []
             for s in range(3):
-                cmb = _NoScrollComboBox()
+                cmb = _UnitSearchComboBox()
                 cmb.setMinimumWidth(300)
                 self._all_unit_combos.append(cmb)
                 grid.addWidget(cmb, t, 1 + s)
@@ -1612,9 +2076,13 @@ class MainWindow(QMainWindow):
         self.btn_optimize_wgb.clicked.connect(self.on_optimize_wgb)
         btn_row.addWidget(self.btn_optimize_wgb)
 
-        self.chk_turn_order_wgb = QCheckBox("Turn Order erzwingen")
-        self.chk_turn_order_wgb.setChecked(False)
-        btn_row.addWidget(self.chk_turn_order_wgb)
+        btn_row.addWidget(QLabel("Durchläufe"))
+        self.spin_multi_pass_wgb = QSpinBox()
+        self.spin_multi_pass_wgb.setRange(1, 10)
+        self.spin_multi_pass_wgb.setValue(3)
+        self.spin_multi_pass_wgb.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_wgb.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
+        btn_row.addWidget(self.spin_multi_pass_wgb)
 
         btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -1634,7 +2102,7 @@ class MainWindow(QMainWindow):
 
         # Top row: combo selector + add/remove + load current
         top_row = QHBoxLayout()
-        self.rta_add_combo = _NoScrollComboBox()
+        self.rta_add_combo = _UnitSearchComboBox()
         self.rta_add_combo.setMinimumWidth(350)
         self._all_unit_combos.append(self.rta_add_combo)
         top_row.addWidget(self.rta_add_combo, 1)
@@ -1681,9 +2149,13 @@ class MainWindow(QMainWindow):
         self.btn_optimize_rta.clicked.connect(self.on_optimize_rta)
         btn_row.addWidget(self.btn_optimize_rta)
 
-        self.chk_turn_order_rta = QCheckBox("Turn Order erzwingen")
-        self.chk_turn_order_rta.setChecked(False)
-        btn_row.addWidget(self.chk_turn_order_rta)
+        btn_row.addWidget(QLabel("Durchläufe"))
+        self.spin_multi_pass_rta = QSpinBox()
+        self.spin_multi_pass_rta.setRange(1, 10)
+        self.spin_multi_pass_rta.setValue(3)
+        self.spin_multi_pass_rta.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_rta.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
+        btn_row.addWidget(self.spin_multi_pass_rta)
 
         btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -1716,9 +2188,19 @@ class MainWindow(QMainWindow):
         self.btn_optimize_team.clicked.connect(self._optimize_team)
         layout.addWidget(self.btn_optimize_team)
 
-        self.chk_turn_order_team = QCheckBox("Turn Order erzwingen")
-        self.chk_turn_order_team.setChecked(False)
-        layout.addWidget(self.chk_turn_order_team)
+        pass_row = QHBoxLayout()
+        pass_row.addWidget(QLabel("Durchläufe"))
+        self.spin_multi_pass_team = QSpinBox()
+        self.spin_multi_pass_team.setRange(1, 10)
+        self.spin_multi_pass_team.setValue(3)
+        self.spin_multi_pass_team.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_team.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
+        pass_row.addWidget(self.spin_multi_pass_team)
+        pass_row.addStretch(1)
+        layout.addLayout(pass_row)
+
+        self.lbl_team_opt_status = QLabel("—")
+        layout.addWidget(self.lbl_team_opt_status)
 
         self.lbl_team_units = QLabel("Importiere zuerst ein Konto.")
         layout.addWidget(self.lbl_team_units)
@@ -1840,6 +2322,11 @@ class MainWindow(QMainWindow):
         if not self.account or not team:
             QMessageBox.warning(self, "Team", "Bitte zuerst einen Import laden und ein Team auswählen.")
             return
+        pass_count = int(self.spin_multi_pass_team.value())
+        progress_cb = self._build_pass_progress_callback(
+            self.lbl_team_opt_status,
+            f"Team '{team.name}' Optimierung läuft",
+        )
         ordered_unit_ids = self._units_by_turn_order("siege", team.unit_ids)
         team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in team.unit_ids}
         team_turn_by_uid: Dict[int, int] = {}
@@ -1855,11 +2342,16 @@ class MainWindow(QMainWindow):
                 unit_ids_in_order=ordered_unit_ids,
                 time_limit_per_unit_s=5.0,
                 workers=8,
-                enforce_turn_order=bool(self.chk_turn_order_team.isChecked()),
+                multi_pass_enabled=bool(pass_count > 1),
+                multi_pass_count=pass_count,
+                progress_callback=progress_cb,
+                enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
             ),
         )
+        self.lbl_team_opt_status.setText(res.message)
+        self.statusBar().showMessage(res.message, 7000)
         self._show_optimize_results(
             f"Team Optimierung: {team.name}", res.message, res.results,
             mode="siege", teams=[team.unit_ids],
@@ -2294,6 +2786,11 @@ class MainWindow(QMainWindow):
     def on_optimize_siege(self):
         if not self.account:
             return
+        pass_count = int(self.spin_multi_pass_siege.value())
+        progress_cb = self._build_pass_progress_callback(
+            self.lbl_siege_validate,
+            "Siege Optimierung läuft",
+        )
         selections = self._collect_siege_selections()
         ok, msg, all_units = self._validate_team_structure("Siege", selections, must_have_team_size=3)
         if not ok:
@@ -2318,11 +2815,16 @@ class MainWindow(QMainWindow):
                 unit_ids_in_order=ordered_unit_ids,
                 time_limit_per_unit_s=5.0,
                 workers=8,
-                enforce_turn_order=bool(self.chk_turn_order_siege.isChecked()),
+                multi_pass_enabled=bool(pass_count > 1),
+                multi_pass_count=pass_count,
+                progress_callback=progress_cb,
+                enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
             ),
         )
+        self.lbl_siege_validate.setText(res.message)
+        self.statusBar().showMessage(res.message, 7000)
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
         siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
         self._show_optimize_results(
@@ -2435,6 +2937,11 @@ class MainWindow(QMainWindow):
     def on_optimize_wgb(self):
         if not self.account:
             return
+        pass_count = int(self.spin_multi_pass_wgb.value())
+        progress_cb = self._build_pass_progress_callback(
+            self.lbl_wgb_validate,
+            "WGB Optimierung läuft",
+        )
         selections = self._collect_wgb_selections()
         ok, msg, all_units = self._validate_team_structure("WGB", selections, must_have_team_size=3)
         if not ok:
@@ -2463,11 +2970,16 @@ class MainWindow(QMainWindow):
                 unit_ids_in_order=ordered_unit_ids,
                 time_limit_per_unit_s=5.0,
                 workers=8,
-                enforce_turn_order=bool(self.chk_turn_order_wgb.isChecked()),
+                multi_pass_enabled=bool(pass_count > 1),
+                multi_pass_count=pass_count,
+                progress_callback=progress_cb,
+                enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
             ),
         )
+        self.lbl_wgb_validate.setText(res.message)
+        self.statusBar().showMessage(res.message, 7000)
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
         wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
         self._show_optimize_results(
@@ -2587,6 +3099,11 @@ class MainWindow(QMainWindow):
     def on_optimize_rta(self):
         if not self.account:
             return
+        pass_count = int(self.spin_multi_pass_rta.value())
+        progress_cb = self._build_pass_progress_callback(
+            self.lbl_rta_validate,
+            "RTA Optimierung läuft",
+        )
         ids = self._collect_rta_unit_ids()
         if not ids:
             QMessageBox.critical(self, "RTA", "Bitte erst Monster auswählen.")
@@ -2606,11 +3123,16 @@ class MainWindow(QMainWindow):
                 unit_ids_in_order=ids,
                 time_limit_per_unit_s=5.0,
                 workers=8,
-                enforce_turn_order=bool(self.chk_turn_order_rta.isChecked()),
+                multi_pass_enabled=bool(pass_count > 1),
+                multi_pass_count=pass_count,
+                progress_callback=progress_cb,
+                enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
             ),
         )
+        self.lbl_rta_validate.setText(res.message)
+        self.statusBar().showMessage(res.message, 7000)
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
         rta_teams = [ids]
         self._show_optimize_results(
