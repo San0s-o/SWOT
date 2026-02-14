@@ -3,11 +3,12 @@
 import json
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Set, Dict, Callable, Any
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QTableWidget, QTableWidgetItem,
@@ -33,6 +34,7 @@ from app.domain.presets import (
 from app.engine.greedy_optimizer import optimize_greedy, GreedyRequest, GreedyUnitResult
 from app.services.account_persistence import AccountPersistence
 from app.services.license_service import (
+    LicenseValidation,
     load_license_key,
     save_license_key,
     validate_license_key,
@@ -889,15 +891,19 @@ class OptimizeResultDialog(QDialog):
                 continue
             eff_id = int(sec[0] or 0)
             value = int(sec[1] or 0)
+            gem_flag = int(sec[2] or 0) if len(sec) >= 3 else 0
             grind = int(sec[3] or 0) if len(sec) >= 4 else 0
             key = EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, f"Effect {eff_id}")
+            total = value + grind
             if self._runes_detailed:
                 if grind:
-                    text = f"{key} {value} <span style='color: #FFD700;'>(+{grind})</span>"
+                    text = f"{key} {total} <span style='color: #FFD700;'>({value}+{grind})</span>"
                 else:
                     text = f"{key} {value}"
             else:
-                text = f"{key} {value + grind}"
+                text = f"{key} {total}"
+            if gem_flag:
+                text = f"<span style='color:#1abc9c'>{text} [Gem]</span>"
             lbl = QLabel(text)
             lbl.setTextFormat(Qt.RichText)
             lbl.setStyleSheet("font-size: 8pt;")
@@ -969,6 +975,16 @@ class MainWindow(QMainWindow):
         self.lbl_status = QLabel("Kein Import geladen.")
         self.lbl_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         top.addWidget(self.lbl_status, 1)
+
+        btn_help = QPushButton("?")
+        btn_help.setFixedSize(32, 32)
+        btn_help.setStyleSheet(
+            "QPushButton { background: #2b2b2b; color: #ddd; border: 1px solid #3a3a3a;"
+            " border-radius: 16px; font-size: 14pt; font-weight: bold; }"
+            "QPushButton:hover { background: #3498db; color: #fff; }"
+        )
+        btn_help.clicked.connect(self._show_help_dialog)
+        top.addWidget(btn_help)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -1087,6 +1103,84 @@ class MainWindow(QMainWindow):
         )
 
     # ============================================================
+    # Help dialog
+    # ============================================================
+    def _show_help_dialog(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Anleitung")
+        dlg.resize(620, 520)
+        layout = QVBoxLayout(dlg)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        layout.addWidget(scroll)
+
+        content = QLabel()
+        content.setTextFormat(Qt.RichText)
+        content.setWordWrap(True)
+        content.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        content.setContentsMargins(16, 12, 16, 12)
+        content.setStyleSheet("font-size: 10pt; line-height: 1.5;")
+        content.setText(
+            "<h2>SW Team Optimizer – Kurzanleitung</h2>"
+
+            "<h3>1. JSON importieren</h3>"
+            "<p>Klicke auf <b>JSON importieren</b> und wähle deinen "
+            "Summoners War JSON-Export aus. Nach dem Import siehst du "
+            "auf dem <b>Übersicht</b>-Tab deine Account-Statistiken, "
+            "Runen-Effizienz-Charts und die Set-Verteilung.</p>"
+
+            "<h3>2. Aktuelle Aufstellungen ansehen</h3>"
+            "<p><b>Siege Verteidigungen (aktuell)</b> – Zeigt deine im Spiel "
+            "eingestellten Siege-Verteidigungen als Karten mit Runen-Details.<br>"
+            "<b>RTA (aktuell)</b> – Zeigt deine aktuell für RTA gerüsteten Monster.</p>"
+
+            "<h3>3. Teams zusammenstellen</h3>"
+            "<p>In den <b>Builder</b>-Tabs (Siege / WGB / RTA) kannst du "
+            "eigene Team-Aufstellungen erstellen:</p>"
+            "<ul>"
+            "<li><b>Monster wählen</b> – Über die Dropdowns je Verteidigung (Siege/WGB) "
+            "oder per Hinzufügen-Button (RTA).</li>"
+            "<li><b>Aktuelle übernehmen</b> – Übernimmt die im Spiel eingestellten Teams.</li>"
+            "<li><b>Validieren</b> – Prüft ob Runen-Pools kollidieren und zeigt Warnungen.</li>"
+            "</ul>"
+
+            "<h3>4. Builds definieren</h3>"
+            "<p>Klicke auf <b>Builds (Sets+Mainstats)…</b> um je Monster "
+            "die gewünschten Runen-Sets und Slot-2/4/6-Hauptstats festzulegen. "
+            "Hier kannst du auch Mindest-Werte (z.B. min SPD) definieren.</p>"
+
+            "<h3>5. Optimieren</h3>"
+            "<p>Klicke auf <b>Optimieren (Runen)</b> um die automatische "
+            "Runen-Verteilung zu starten. Der Optimizer verteilt deine Runen "
+            "so, dass die Vorgaben möglichst effizient erfüllt werden. "
+            "Das Ergebnis kannst du als Karten mit allen Stats und Runen-Details sehen.</p>"
+
+            "<h3>6. Ergebnisse speichern</h3>"
+            "<p>Optimierungen werden automatisch gespeichert und können "
+            "in den <b>Optimierungen (gespeichert)</b>-Tabs jederzeit "
+            "wieder aufgerufen oder gelöscht werden.</p>"
+
+            "<h3>Tipps</h3>"
+            "<ul>"
+            "<li>Im Runen-Chart kannst du mit <b>Strg+Mausrad</b> die Anzahl "
+            "der angezeigten Top-Runen ändern.</li>"
+            "<li>Fahre mit der Maus über einen Datenpunkt im Chart, um "
+            "Runen-Details inkl. Subs und Grinds zu sehen.</li>"
+            "<li>Subs die mit einem <span style='color:#1abc9c'><b>Gem</b></span> "
+            "getauscht wurden, werden farblich hervorgehoben.</li>"
+            "</ul>"
+        )
+        scroll.setWidget(content)
+
+        btn_close = QPushButton("Schließen")
+        btn_close.clicked.connect(dlg.accept)
+        layout.addWidget(btn_close, 0, Qt.AlignRight)
+
+        dlg.exec()
+
+    # ============================================================
     # Import
     # ============================================================
     def on_import(self):
@@ -1100,7 +1194,7 @@ class MainWindow(QMainWindow):
             return
         try:
             raw_json = json.loads(Path(path).read_text(encoding="utf-8", errors="replace"))
-            self.account_persistence.save(raw_json)
+            self.account_persistence.save(raw_json, source_name=Path(path).name)
             account = load_account_from_data(raw_json)
         except Exception as e:
             QMessageBox.critical(self, "Import fehlgeschlagen", str(e))
@@ -1151,7 +1245,26 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, "Snapshot laden", f"Snapshot konnte nicht geladen werden:\n{exc}")
             return
-        self._apply_saved_account(account, "letzter Snapshot")
+        meta = self.account_persistence.load_meta()
+        source_name = str(meta.get("source_name", "")).strip() or "Originalname unbekannt"
+        imported_at_raw = str(meta.get("imported_at", "")).strip()
+        imported_at = None
+        if imported_at_raw:
+            try:
+                imported_at = datetime.fromisoformat(imported_at_raw)
+            except ValueError:
+                imported_at = None
+        if imported_at is None:
+            try:
+                imported_at = datetime.fromtimestamp(self.account_persistence.snapshot_path.stat().st_mtime)
+            except OSError:
+                imported_at = None
+
+        if imported_at is not None:
+            source_label = f"{source_name} ({imported_at.strftime('%d.%m.%Y %H:%M')})"
+        else:
+            source_label = source_name
+        self._apply_saved_account(account, source_label)
     # ============================================================
     # Helpers: names+icons
     # ============================================================
@@ -2415,11 +2528,36 @@ class MainWindow(QMainWindow):
         )
 
 
+def _apply_dark_palette(app: QApplication) -> None:
+    """Force a dark colour palette so the app looks correct on any OS theme."""
+    p = QPalette()
+    p.setColor(QPalette.Window, QColor("#1e1e1e"))
+    p.setColor(QPalette.WindowText, QColor("#dddddd"))
+    p.setColor(QPalette.Base, QColor("#2b2b2b"))
+    p.setColor(QPalette.AlternateBase, QColor("#333333"))
+    p.setColor(QPalette.ToolTipBase, QColor("#1f242a"))
+    p.setColor(QPalette.ToolTipText, QColor("#e6edf3"))
+    p.setColor(QPalette.Text, QColor("#dddddd"))
+    p.setColor(QPalette.Button, QColor("#2b2b2b"))
+    p.setColor(QPalette.ButtonText, QColor("#dddddd"))
+    p.setColor(QPalette.BrightText, QColor("#ffffff"))
+    p.setColor(QPalette.Link, QColor("#3498db"))
+    p.setColor(QPalette.Highlight, QColor("#3498db"))
+    p.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    p.setColor(QPalette.Disabled, QPalette.Text, QColor("#666666"))
+    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#666666"))
+    app.setPalette(p)
+    app.setStyleSheet("QToolTip { color: #e6edf3; background: #1f242a; border: 1px solid #3a3f46; }")
+
+
 def run_app():
     app = QApplication(sys.argv)
-    if not _ensure_license_accepted():
+    _apply_dark_palette(app)
+    license_info = _ensure_license_accepted()
+    if not license_info:
         sys.exit(1)
     w = MainWindow()
+    _apply_license_title(w, license_info)
     w.show()
     sys.exit(app.exec())
 
@@ -2427,6 +2565,7 @@ def run_app():
 class LicenseDialog(QDialog):
     def __init__(self, parent: QWidget | None = None, initial_key: str = ""):
         super().__init__(parent)
+        self.validation_result: LicenseValidation | None = None
         self.setWindowTitle("Lizenz Aktivierung")
         self.resize(520, 180)
 
@@ -2434,7 +2573,7 @@ class LicenseDialog(QDialog):
         layout.addWidget(QLabel("Bitte gib deinen Serial Key ein."))
 
         self.edit_key = QLineEdit()
-        self.edit_key.setPlaceholderText("SWOT-...")
+        self.edit_key.setPlaceholderText("SWTO-...")
         self.edit_key.setText(initial_key)
         layout.addWidget(self.edit_key)
 
@@ -2456,17 +2595,45 @@ class LicenseDialog(QDialog):
         result = validate_license_key(self.key_text)
         if result.valid:
             save_license_key(self.key_text)
+            self.validation_result = result
             self.accept()
             return
         self.lbl_status.setText(result.message)
 
 
-def _ensure_license_accepted() -> bool:
+def _format_trial_remaining(expires_at: int, now_ts: int | None = None) -> str:
+    now = int(now_ts if now_ts is not None else datetime.now().timestamp())
+    remaining_s = max(0, int(expires_at) - now)
+    if remaining_s >= 24 * 60 * 60:
+        days = max(1, remaining_s // (24 * 60 * 60))
+        return f"{days} Tage"
+    if remaining_s >= 60 * 60:
+        hours = max(1, remaining_s // (60 * 60))
+        return f"{hours} Stunden"
+    minutes = max(1, remaining_s // 60)
+    return f"{minutes} Minuten"
+
+
+def _apply_license_title(window: QMainWindow, result: LicenseValidation) -> None:
+    base_title = "SW Team Optimizer"
+    license_type = (result.license_type or "").strip().lower()
+    if "trial" not in license_type:
+        return
+    if result.expires_at:
+        remaining = _format_trial_remaining(result.expires_at)
+        window.setWindowTitle(f"{base_title} - Trial ({remaining} gültig)")
+        return
+    window.setWindowTitle(f"{base_title} - Trial")
+
+
+def _ensure_license_accepted() -> LicenseValidation | None:
     existing = load_license_key()
     if existing:
         check = validate_license_key(existing)
         if check.valid:
-            return True
+            return check
 
     dlg = LicenseDialog(initial_key=existing or "")
-    return dlg.exec() == QDialog.Accepted
+    if dlg.exec() == QDialog.Accepted:
+        return dlg.validation_result
+    return None

@@ -44,14 +44,14 @@ _ELEMENT_COLOURS: Dict[str, str] = {
 }
 
 _STAT_LABELS_DE: Dict[str, str] = {
-    "HP": "LP",
-    "ATK": "Angriff",
-    "DEF": "Verteidigung",
-    "SPD": "Tempo",
-    "CR": "Krit.-Rate",
-    "CD": "Krit.-Schaden",
-    "RES": "Widerstand",
-    "ACC": "Präzision",
+    "HP": "HP",
+    "ATK": "ATK",
+    "DEF": "DEF",
+    "SPD": "SPD",
+    "CR": "Krit. Rate",
+    "CD": "Krit. Schdn",
+    "RES": "RES",
+    "ACC": "ACC",
 }
 
 
@@ -74,10 +74,14 @@ def _rune_rich_tooltip(rune: Rune) -> str:
             eff_id = int(sec[0] or 0)
             val = int(sec[1] or 0)
             key = EFFECT_ID_TO_MAINSTAT_KEY.get(eff_id, f"Eff {eff_id}")
+            gem_flag = int(sec[2] or 0) if len(sec) >= 3 else 0
             grind = int(sec[3] or 0) if len(sec) >= 4 else 0
-            txt = f"&nbsp;&nbsp;{key} +{val}"
+            total = val + grind
+            txt = f"&nbsp;&nbsp;{key} +{total}"
             if grind:
-                txt += f" <span style='color:#f39c12'>(+{grind})</span>"
+                txt += f" <span style='color:#f39c12'>({val}+{grind})</span>"
+            if gem_flag:
+                txt = f"<span style='color:#1abc9c'>{txt} [Gem]</span>"
             lines.append(txt)
     return "<br>".join(lines)
 
@@ -105,8 +109,10 @@ class RunePieChart(QWidget):
             return
 
         margin = 4
-        legend_h = 11 * len(self._stats)
-        chart_size = min(self.width() - margin * 2, self.height() - margin - legend_h) - 2
+        row_h = 12
+        legend_h = row_h * len(self._stats) + 2
+        chart_area_h = self.height() - (margin * 2) - legend_h
+        chart_size = min(self.width() - margin * 2, chart_area_h) - 2
         if chart_size < 20:
             chart_size = 20
         cx = self.width() / 2
@@ -130,7 +136,7 @@ class RunePieChart(QWidget):
         font = QFont()
         font.setPointSize(8)
         painter.setFont(font)
-        ly = cy + chart_size / 2 + 2
+        ly = self.height() - margin - legend_h + 2
         for key, value in self._stats:
             colour = _STAT_COLOURS.get(key, _DEFAULT_COLOUR)
             painter.setBrush(QBrush(colour))
@@ -138,7 +144,7 @@ class RunePieChart(QWidget):
             painter.drawRect(QRectF(margin, ly, 8, 8))
             painter.setPen(QColor(220, 220, 220))
             painter.drawText(QRectF(margin + 10, ly - 1, 86, 12), Qt.AlignLeft, key)
-            ly += 12
+            ly += row_h
 
         painter.end()
 

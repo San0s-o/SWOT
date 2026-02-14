@@ -152,6 +152,9 @@ def _rune_quality_class(rune: Rune) -> int:
     return origin if origin else int(rune.rune_class or 0)
 
 
+_GEM_COLOR = "#1abc9c"  # teal for gem-swapped subs
+
+
 def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
     set_name = SET_NAMES.get(int(rune.set_id or 0), f"Set {int(rune.set_id or 0)}")
     cls_id = _rune_quality_class(rune)
@@ -173,12 +176,19 @@ def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
                 continue
             eff_id = int(sec[0] or 0)
             val = sec[1] if len(sec) > 1 else 0
+            gem_flag = int(sec[2] or 0) if len(sec) > 2 else 0
             grind = int(sec[3] or 0) if len(sec) > 3 else 0
-            sub_line = f"  â€¢ {_stat_label(eff_id, val)}"
+            total = int(val) + grind
+            label = _stat_label(eff_id, total)
+            extras = ""
             if grind:
-                sub_line += f" (Grind +{grind})"
-            lines.append(sub_line)
-    return "\n".join(lines)
+                extras += f" <span style=\"color:#f39c12\">({int(val)}+{grind})</span>"
+            if gem_flag:
+                extras += " [Gem]"
+                lines.append(f'  <span style="color:{_GEM_COLOR}">\u2022 {label}{extras}</span>')
+            else:
+                lines.append(f"  \u2022 {label}{extras}")
+    return "<br>".join(lines)
 
 
 def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
@@ -198,23 +208,23 @@ def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
             eff_id = int(sec[0] or 0)
             val = sec[1] if len(sec) > 1 else 0
             upgrades = int(sec[2] or 0) if len(sec) > 2 else 0
-            lines.append(f"  â€¢ {_stat_label(eff_id, val)} (Rolls {upgrades})")
-    return "\n".join(lines)
+            lines.append(f"  \u2022 {_stat_label(eff_id, val)} (Rolls {upgrades})")
+    return "<br>".join(lines)
 
 
 def _rune_curve_tooltip(item: Tuple[float, Any], idx: int, series_name: str) -> str:
     eff, payload = item
     rune, eff_curr, eff_hero, eff_legend = payload
-    lines = [f"{series_name}", _rune_detail_text(rune, idx, eff)]
+    lines = [f"<b>{series_name}</b>", _rune_detail_text(rune, idx, eff)]
     lines.append(f"Aktuell: {eff_curr:.2f}%")
     lines.append(f"Hero max (Grind/Gem): {eff_hero:.2f}%")
     lines.append(f"Legend max (Grind/Gem): {eff_legend:.2f}%")
-    return "\n".join(lines)
+    return "<br>".join(lines)
 
 
 def _artifact_curve_tooltip(item: Tuple[float, Any], idx: int, series_name: str) -> str:
     eff, art = item
-    return f"{series_name}\n{_artifact_detail_text(art, idx, eff)}"
+    return f"<b>{series_name}</b><br>{_artifact_detail_text(art, idx, eff)}"
 
 
 class _IndexedLineChartView(QChartView):
@@ -236,6 +246,7 @@ class _IndexedLineChartView(QChartView):
         self._popup_layout = QVBoxLayout(self._popup)
         self._popup_layout.setContentsMargins(0, 0, 0, 0)
         self._popup_label = QLabel("")
+        self._popup_label.setTextFormat(Qt.RichText)
         self._popup_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self._popup_label.setWordWrap(False)
         self._popup_layout.addWidget(self._popup_label)
@@ -343,18 +354,18 @@ class OverviewWidget(QWidget):
         self._cards_grid.setSpacing(8)
         self._top_overview_row.addWidget(self._cards_host, 3)
 
-        self._card_units = _SummaryCard("Monster", "â€”")
-        self._card_runes = _SummaryCard("Runen", "â€”")
-        self._card_artifacts = _SummaryCard("Artefakte", "â€”")
-        self._card_rune_avg = _SummaryCard("Runen Eff. (%)", "â€”", _GREEN)
+        self._card_units = _SummaryCard("Monster", "\u2014")
+        self._card_runes = _SummaryCard("Runen", "\u2014")
+        self._card_artifacts = _SummaryCard("Artefakte", "\u2014")
+        self._card_rune_avg = _SummaryCard("Runen Eff. (%)", "\u2014", _GREEN)
         self._card_art_avg_t1 = _SummaryCard("Attribut-Artefakt Eff. (%)", "—", _PURPLE)
         self._card_art_avg_t2 = _SummaryCard("Typ-Artefakt Eff. (%)", "—", _PURPLE)
-        self._card_rune_best = _SummaryCard("Beste Rune", "â€”", _ORANGE)
+        self._card_rune_best = _SummaryCard("Beste Rune", "\u2014", _ORANGE)
 
         self._set_eff_cards: dict[int, _SummaryCard] = {}
         for sid in _IMPORTANT_SET_IDS:
             name = SET_NAMES.get(sid, f"Set {sid}")
-            card = _SummaryCard(f"{name} Eff. (%)", "â€”", _GREEN)
+            card = _SummaryCard(f"{name} Eff. (%)", "\u2014", _GREEN)
             self._set_eff_cards[sid] = card
 
         # row 1: count cards
@@ -460,7 +471,7 @@ class OverviewWidget(QWidget):
             if vals:
                 card.update_value(f"{(sum(vals) / len(vals)):.1f}%")
             else:
-                card.update_value("â€”")
+                card.update_value("\u2014")
 
     # â”€â”€ charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _clear_grid(self) -> None:

@@ -1,4 +1,4 @@
-# SWOT - Summoners War Optimization Tool
+# SWTO - Summoners War Team Optimizer
 
 Runen-Optimierer und Team-Builder für Summoners War. Verteilt Runen automatisch optimal auf deine Monster – für Siege, WGB und RTA.
 

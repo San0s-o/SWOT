@@ -8,6 +8,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -144,6 +145,25 @@ def _post_function(function_name: str, payload: dict[str, Any], cfg: dict[str, s
     return data
 
 
+def _parse_expires_at(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        ts = int(value)
+        return ts if ts > 0 else None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        ts = int(raw)
+        return ts if ts > 0 else None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return int(parsed.timestamp())
+    except ValueError:
+        return None
+
+
 def _activate_online(key: str, cfg: dict[str, str]) -> LicenseValidation:
     payload = {
         "key": key,
@@ -169,7 +189,7 @@ def _activate_online(key: str, cfg: dict[str, str]) -> LicenseValidation:
         True,
         str(data.get("message", "Lizenz aktiviert.")),
         license_type=str(data.get("license_type", "")).strip() or None,
-        expires_at=None,
+        expires_at=_parse_expires_at(data.get("license_expires_at")),
     )
 
 
@@ -184,12 +204,12 @@ def _validate_online(key: str, session_token: str, cfg: dict[str, str]) -> Licen
     data = _post_function("validate", payload, cfg)
     if not bool(data.get("ok")):
         return LicenseValidation(False, str(data.get("message", "Lizenzprüfung fehlgeschlagen.")))
+    current = _load_local_license_data()
 
     # Optional token rotation from backend
     new_token = str(data.get("session_token", "")).strip()
     new_exp = str(data.get("session_expires_at", "")).strip()
     if new_token:
-        current = _load_local_license_data()
         current["key"] = key.strip()
         current["session_token"] = new_token
         current["session_expires_at"] = new_exp
@@ -198,11 +218,13 @@ def _validate_online(key: str, session_token: str, cfg: dict[str, str]) -> Licen
         current["saved_at"] = int(time.time())
         _save_local_license_data(current)
 
+    license_type = str(data.get("license_type", current.get("license_type", ""))).strip() or None
+    expires_at = _parse_expires_at(data.get("license_expires_at", current.get("license_expires_at")))
     return LicenseValidation(
         True,
         str(data.get("message", "Lizenz gültig.")),
-        license_type=str(data.get("license_type", "")).strip() or None,
-        expires_at=None,
+        license_type=license_type,
+        expires_at=expires_at,
     )
 
 
