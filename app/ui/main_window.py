@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, List, Tuple, Set, Dict, Callable, Any
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtGui import QColor, QIcon, QPalette, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QTableWidget, QTableWidgetItem,
@@ -415,12 +415,14 @@ class TeamEditorDialog(QDialog):
         unit_label_fn: Callable[[int], str],
         unit_icon_fn: Callable[[int], QIcon],
         team: Team | None = None,
+        unit_combo_model: QStandardItemModel | None = None,
     ):
         super().__init__(parent)
         self.account = account
         self.unit_label_fn = unit_label_fn
         self.unit_icon_fn = unit_icon_fn
         self.team = team
+        self._unit_combo_model = unit_combo_model
 
         title = "Team bearbeiten" if team else "Neues Team"
         self.setWindowTitle(title)
@@ -461,6 +463,13 @@ class TeamEditorDialog(QDialog):
         layout.addWidget(buttons)
 
     def _populate_unit_combo(self) -> None:
+        if self._unit_combo_model is not None:
+            self.unit_combo.blockSignals(True)
+            self.unit_combo.setModel(self._unit_combo_model)
+            self.unit_combo.setModelColumn(0)
+            self.unit_combo.setCurrentIndex(0)
+            self.unit_combo.blockSignals(False)
+            return
         self.unit_combo.clear()
         self.unit_combo.addItem("—", 0)
         if not self.account:
@@ -941,6 +950,10 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1360, 820)
 
         self.account: Optional[AccountData] = None
+        self._icon_cache: Dict[int, QIcon] = {}
+        self._unit_combo_model: Optional[QStandardItemModel] = None
+        self._unit_combo_index_by_uid: Dict[int, int] = {}
+        self._unit_text_cache_by_uid: Dict[int, str] = {}
 
         # paths
         self.project_root = Path(__file__).resolve().parents[2]
@@ -1048,6 +1061,8 @@ class MainWindow(QMainWindow):
         # Team Manager (fixed + custom teams)
         self.tab_team_builder = QWidget()
         self._init_team_tab_ui()
+        self._unit_dropdowns_populated = False
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self._try_restore_snapshot()
 
@@ -1205,13 +1220,18 @@ class MainWindow(QMainWindow):
     def _apply_saved_account(self, account: AccountData, source_label: str) -> None:
         self.account = account
         self.monster_db.load()
+        self._unit_dropdowns_populated = False
+        self._icon_cache = {}
+        self._unit_combo_model = None
+        self._unit_combo_index_by_uid = {}
+        self._unit_text_cache_by_uid = {}
 
         self.lbl_status.setText(f"Import: {source_label}")
         self.overview_widget.set_data(account)
 
         self._render_siege_raw()
         self.rta_overview.set_context(account, self.monster_db, self.assets_dir)
-        self._populate_all_dropdowns()
+        self._on_tab_changed(self.tabs.currentIndex())
 
         self.btn_take_current_siege.setEnabled(True)
         self.btn_validate_siege.setEnabled(True)
@@ -1269,11 +1289,18 @@ class MainWindow(QMainWindow):
     # Helpers: names+icons
     # ============================================================
     def _icon_for_master_id(self, master_id: int) -> QIcon:
+        cached = self._icon_cache.get(int(master_id))
+        if cached is not None:
+            return cached
         rel = self.monster_db.icon_path_for(master_id)
         if not rel:
-            return QIcon()
+            icon = QIcon()
+            self._icon_cache[int(master_id)] = icon
+            return icon
         p = (self.assets_dir / rel).resolve()
-        return QIcon(str(p)) if p.exists() else QIcon()
+        icon = QIcon(str(p)) if p.exists() else QIcon()
+        self._icon_cache[int(master_id)] = icon
+        return icon
 
     def _rune_set_icon(self, set_id: int) -> QIcon:
         name = SET_NAMES.get(set_id, "")
@@ -1292,25 +1319,76 @@ class MainWindow(QMainWindow):
         elem = self.monster_db.element_for(u.unit_master_id)
         return f"{name} ({elem}) | lvl {u.unit_level}"
 
+    def _unit_text_cached(self, unit_id: int) -> str:
+        uid = int(unit_id)
+        cached = self._unit_text_cache_by_uid.get(uid)
+        if cached is not None:
+            return cached
+        txt = self._unit_text(uid)
+        self._unit_text_cache_by_uid[uid] = txt
+        return txt
+
     def _populate_combo_with_units(self, cmb: QComboBox):
         if not self.account:
             return
-        unit_ids_sorted = sorted(self.account.units_by_id.keys())
+        model = self._ensure_unit_combo_model()
+        prev_uid = int(cmb.currentData() or 0)
 
         cmb.blockSignals(True)
-        cmb.clear()
-        cmb.addItem("—", 0)
+        cmb.setModel(model)
+        cmb.setModelColumn(0)
         cmb.setIconSize(QSize(40, 40))
-        for uid in unit_ids_sorted:
-            u = self.account.units_by_id[uid]
-            name = self.monster_db.name_for(u.unit_master_id)
-            elem = self.monster_db.element_for(u.unit_master_id)
-            cmb.addItem(self._icon_for_master_id(u.unit_master_id), f"{name} ({elem})", uid)
+        cmb.setCurrentIndex(self._unit_combo_index_by_uid.get(prev_uid, 0))
         cmb.blockSignals(False)
+
+    def _build_unit_combo_model(self) -> QStandardItemModel:
+        model = QStandardItemModel()
+        index_by_uid: Dict[int, int] = {}
+
+        placeholder = QStandardItem("—")
+        placeholder.setData(0, Qt.UserRole)
+        model.appendRow(placeholder)
+        index_by_uid[0] = 0
+
+        if self.account:
+            for uid in sorted(self.account.units_by_id.keys()):
+                u = self.account.units_by_id[uid]
+                name = self.monster_db.name_for(u.unit_master_id)
+                elem = self.monster_db.element_for(u.unit_master_id)
+                self._unit_text_cache_by_uid[int(uid)] = f"{name} ({elem}) | lvl {u.unit_level}"
+                item = QStandardItem(f"{name} ({elem})")
+                item.setIcon(self._icon_for_master_id(u.unit_master_id))
+                item.setData(int(uid), Qt.UserRole)
+                model.appendRow(item)
+                index_by_uid[int(uid)] = model.rowCount() - 1
+
+        self._unit_combo_index_by_uid = index_by_uid
+        return model
+
+    def _ensure_unit_combo_model(self) -> QStandardItemModel:
+        if self._unit_combo_model is None:
+            self._unit_combo_model = self._build_unit_combo_model()
+        return self._unit_combo_model
 
     def _populate_all_dropdowns(self):
         for cmb in getattr(self, "_all_unit_combos", []):
             self._populate_combo_with_units(cmb)
+
+    def _tab_needs_unit_dropdowns(self, tab: QWidget | None) -> bool:
+        return tab in (self.tab_siege_builder, self.tab_wgb_builder, self.tab_rta_builder)
+
+    def _on_tab_changed(self, index: int) -> None:
+        if not self.account:
+            return
+        tab = self.tabs.widget(index)
+        if self._tab_needs_unit_dropdowns(tab):
+            self._ensure_unit_dropdowns_populated()
+
+    def _ensure_unit_dropdowns_populated(self) -> None:
+        if self._unit_dropdowns_populated or not self.account:
+            return
+        self._populate_all_dropdowns()
+        self._unit_dropdowns_populated = True
 
     # ============================================================
     # Saved Optimization Tabs
@@ -1697,13 +1775,19 @@ class MainWindow(QMainWindow):
     def _team_units_text(self, team: Team) -> str:
         if not team.unit_ids:
             return "Keine Units."
-        return "\n".join(self._unit_text(uid) for uid in team.unit_ids)
+        return "\n".join(self._unit_text_cached(uid) for uid in team.unit_ids)
 
     def _on_new_team(self) -> None:
         if not self.account:
             QMessageBox.warning(self, "Team", "Bitte zuerst einen Import laden.")
             return
-        dlg = TeamEditorDialog(self, self.account, self._unit_text, self._icon_for_master_id)
+        dlg = TeamEditorDialog(
+            self,
+            self.account,
+            self._unit_text_cached,
+            self._icon_for_master_id,
+            unit_combo_model=self._ensure_unit_combo_model(),
+        )
         if dlg.exec() != QDialog.Accepted:
             return
         try:
@@ -1722,7 +1806,14 @@ class MainWindow(QMainWindow):
         team = self._current_team()
         if not team:
             return
-        dlg = TeamEditorDialog(self, self.account, self._unit_text, self._icon_for_master_id, team=team)
+        dlg = TeamEditorDialog(
+            self,
+            self.account,
+            self._unit_text_cached,
+            self._icon_for_master_id,
+            team=team,
+            unit_combo_model=self._ensure_unit_combo_model(),
+        )
         if dlg.exec() != QDialog.Accepted:
             return
         try:
@@ -2127,6 +2218,7 @@ class MainWindow(QMainWindow):
         self.lbl_siege_validate.setText("Aktuelle Verteidigungen übernommen. Bitte validieren.")
 
     def _collect_siege_selections(self) -> List[TeamSelection]:
+        self._ensure_unit_dropdowns_populated()
         selections: List[TeamSelection] = []
         for t, row in enumerate(self.siege_team_combos):
             ids = []
@@ -2267,6 +2359,7 @@ class MainWindow(QMainWindow):
     # WGB Builder
     # ============================================================
     def _collect_wgb_selections(self) -> List[TeamSelection]:
+        self._ensure_unit_dropdowns_populated()
         selections: List[TeamSelection] = []
         for t, row in enumerate(self.wgb_team_combos):
             ids = []
@@ -2399,6 +2492,7 @@ class MainWindow(QMainWindow):
     # RTA Builder
     # ============================================================
     def _on_rta_add_monster(self):
+        self._ensure_unit_dropdowns_populated()
         uid = int(self.rta_add_combo.currentData() or 0)
         if uid == 0:
             return
