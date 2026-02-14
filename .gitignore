@@ -56,6 +56,5 @@ dist/
 # ── Sonstiges ──────────────────────────────────────────
 *.log
 *.tmp
-.claude/
 tests/
 app/services/license_service.py

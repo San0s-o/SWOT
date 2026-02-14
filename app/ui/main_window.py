@@ -2,12 +2,13 @@
 
 import json
 import sys
+import webbrowser
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Set, Dict, Callable, Any
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QIcon, QPalette, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -39,6 +40,7 @@ from app.services.license_service import (
     save_license_key,
     validate_license_key,
 )
+from app.services.update_service import check_latest_release
 from app.domain.team_store import TeamStore, Team
 from app.domain.optimization_store import OptimizationStore, SavedUnitResult
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
@@ -708,7 +710,7 @@ class OptimizeResultDialog(QDialog):
             out.append((team_idx, arr))
         return out
 
-    # ── detail rendering (tabs) ────────────────────────────
+    # -- detail rendering (tabs) ----------------------------
 
     def _team_unit_ids_for(self, unit_id: int) -> List[int]:
         if self._unit_team_index:
@@ -759,7 +761,7 @@ class OptimizeResultDialog(QDialog):
                 self._build_runes_tab(result)
             )
 
-    # ── Stats tab ──────────────────────────────────────────
+    # -- Stats tab ------------------------------------------
 
     def _build_stats_tab(self, unit_id: int, result: GreedyUnitResult,
                          base_stats: Dict[str, int],
@@ -838,7 +840,7 @@ class OptimizeResultDialog(QDialog):
         v.addStretch()
         return w
 
-    # ── Runes tab ──────────────────────────────────────────
+    # -- Runes tab ------------------------------------------
 
     def _build_runes_tab(self, result: GreedyUnitResult) -> QWidget:
         w = QWidget()
@@ -920,7 +922,7 @@ class OptimizeResultDialog(QDialog):
 
         return frame
 
-    # ── helpers ────────────────────────────────────────────
+    # -- helpers --------------------------------------------
 
     def _stat_label(self, stat: Tuple[int, int]) -> str:
         eff_id, value = stat
@@ -1574,7 +1576,7 @@ class MainWindow(QMainWindow):
     def _init_wgb_builder_ui(self):
         v = QVBoxLayout(self.tab_wgb_builder)
 
-        # ── team selection grid (5 defs x 3 monsters) ────────
+        # -- team selection grid (5 defs x 3 monsters) --------
         box = QGroupBox("WGB-Teams auswählen (5 Verteidigungen × 3 Monster)")
         v.addWidget(box)
         grid = QGridLayout(box)
@@ -1591,7 +1593,7 @@ class MainWindow(QMainWindow):
                 row.append(cmb)
             self.wgb_team_combos.append(row)
 
-        # ── buttons ──────────────────────────────────────────
+        # -- buttons ------------------------------------------
         btn_row = QHBoxLayout()
         v.addLayout(btn_row)
 
@@ -1619,7 +1621,7 @@ class MainWindow(QMainWindow):
         self.lbl_wgb_validate = QLabel("—")
         v.addWidget(self.lbl_wgb_validate)
 
-        # ── preview cards ────────────────────────────────────
+        # -- preview cards ------------------------------------
         self.wgb_preview_cards = SiegeDefCardsWidget()
         v.addWidget(self.wgb_preview_cards, 1)
 
@@ -2644,6 +2646,29 @@ def _apply_dark_palette(app: QApplication) -> None:
     app.setStyleSheet("QToolTip { color: #e6edf3; background: #1f242a; border: 1px solid #3a3f46; }")
 
 
+def _show_update_dialog(window: QMainWindow) -> None:
+    result = check_latest_release()
+    if not result.checked or not result.update_available or not result.release:
+        return
+
+    rel = result.release
+    message = QMessageBox(window)
+    message.setIcon(QMessageBox.Information)
+    message.setWindowTitle("Update verfuegbar")
+    message.setText(
+        f"Neue Version verfuegbar: {result.latest_version}\n"
+        f"Installiert: {result.current_version}"
+    )
+    message.setInformativeText("GitHub-Release jetzt oeffnen?")
+
+    btn_open_release = message.addButton("Release-Seite", QMessageBox.AcceptRole)
+    message.addButton("Spaeter", QMessageBox.RejectRole)
+    message.exec()
+
+    if message.clickedButton() == btn_open_release:
+        webbrowser.open("https://github.com/San0s-o/Summoners-War-Team-Optimizer/releases")
+
+
 def run_app():
     app = QApplication(sys.argv)
     _apply_dark_palette(app)
@@ -2653,6 +2678,7 @@ def run_app():
     w = MainWindow()
     _apply_license_title(w, license_info)
     w.show()
+    QTimer.singleShot(1200, lambda: _show_update_dialog(w))
     sys.exit(app.exec())
 
 
@@ -2731,3 +2757,13 @@ def _ensure_license_accepted() -> LicenseValidation | None:
     if dlg.exec() == QDialog.Accepted:
         return dlg.validation_result
     return None
+
+
+
+
+
+
+
+
+
+
