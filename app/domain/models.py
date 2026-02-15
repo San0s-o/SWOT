@@ -40,8 +40,9 @@ class Artifact:
     slot: int                 # 1 = left, 2 = right
     type_: int                # 1/2 (bei rid-Objekten heißt es "type"; bei summary "artifact_type")
     attribute: int            # 0..5, bei summary ggf. nicht vorhanden -> 0
-    rank: int                 # bei summary ggf. 0
+    rank: int                 # aktuelle Qualität (kann durch Upgrades steigen)
     level: int                # bei summary ggf. 0
+    original_rank: int = 0    # Ausgangsqualität (natural_rank aus Export)
     pri_effect: Tuple[int, ...] = ()          # [effect_id, value, ...]
     sec_effects: List[List] = field(default_factory=list)  # [[eff_id, value, upgrades, ...], ...]
 

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QGridLayout, QPushButton,
 )
 
-from app.domain.models import AccountData, Unit, Rune, compute_unit_stats
+from app.domain.models import AccountData, Unit, Rune, Artifact, compute_unit_stats
 from app.domain.monster_db import MonsterDB
 from app.ui.siege_cards_widget import MonsterCard, _icon_for
 
@@ -150,8 +150,8 @@ class RtaOverviewWidget(QWidget):
 
         active_uids = self._account.rta_active_unit_ids()
 
-        # Build (unit, name, element, icon, runes, stats) tuples
-        entries: List[Tuple[Unit, str, str, QIcon, List[Rune], Dict[str, int]]] = []
+        # Build (unit, name, element, icon, runes, artifacts, stats) tuples
+        entries: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, int]]] = []
         for uid in active_uids:
             unit = self._account.units_by_id.get(uid)
             if not unit:
@@ -160,14 +160,45 @@ class RtaOverviewWidget(QWidget):
             element = self._monster_db.element_for(unit.unit_master_id)
             icon = _icon_for(self._monster_db, unit.unit_master_id, self._assets_dir)
             runes = self._account.equipped_runes_for(uid, mode="rta")
+            artifacts = self._equipped_artifacts_for(uid)
             stats = compute_unit_stats(unit, runes, self._current_speed_lead_pct)
-            entries.append((unit, name, element, icon, runes, stats))
+            entries.append((unit, name, element, icon, runes, artifacts, stats))
 
         # Sort by SPD descending (turn order: fastest first)
-        entries.sort(key=lambda e: e[5].get("SPD", 0), reverse=True)
+        entries.sort(key=lambda e: e[6].get("SPD", 0), reverse=True)
 
         # Place into 4-column grid
-        for idx, (unit, name, element, icon, runes, stats) in enumerate(entries):
+        for idx, (unit, name, element, icon, runes, artifacts, stats) in enumerate(entries):
             row, col = divmod(idx, COLUMNS)
-            card = MonsterCard(unit, name, element, icon, runes, stats, self._assets_dir)
+            card = MonsterCard(
+                unit,
+                name,
+                element,
+                icon,
+                runes,
+                stats,
+                self._assets_dir,
+                equipped_artifacts=artifacts,
+            )
             self._grid.addWidget(card, row, col)
+
+    def _equipped_artifacts_for(self, unit_id: int) -> List[Artifact]:
+        if not self._account:
+            return []
+        by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in (self._account.artifacts or [])}
+        result: Dict[int, Artifact] = {}
+        for aid in (self._account.rta_artifact_equip.get(int(unit_id), []) or []):
+            art = by_id.get(int(aid))
+            if not art:
+                continue
+            art_type = int(art.type_ or 0)
+            if art_type in (1, 2) and art_type not in result:
+                result[art_type] = art
+        if not result:
+            for art in (self._account.artifacts or []):
+                if int(art.occupied_id or 0) != int(unit_id):
+                    continue
+                art_type = int(art.type_ or 0)
+                if art_type in (1, 2) and art_type not in result:
+                    result[art_type] = art
+        return [result[t] for t in (1, 2) if t in result]

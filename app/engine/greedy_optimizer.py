@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple, Set, Optional, Callable
 
 from ortools.sat.python import cp_model
 
-from app.domain.models import AccountData, Rune
+from app.domain.models import AccountData, Rune, Artifact
 from app.domain.presets import (
     BuildStore,
     Build,
@@ -43,6 +43,21 @@ SET_SCORE_BONUS: Dict[int, int] = {
 # Applied on squared excess above the minimum legal gap (1 SPD).
 TURN_ORDER_GAP_PENALTY_WEIGHT = 35
 INTANGIBLE_SET_ID = 25
+ARTIFACT_BONUS_FOR_SAME_UNIT = 25
+
+# Artifact main focus mapping (HP/ATK/DEF).
+# Supports both rune-like stat IDs and commonly seen artifact main IDs.
+_ARTIFACT_FOCUS_BY_EFFECT_ID: Dict[int, str] = {
+    1: "HP",
+    2: "HP",
+    3: "ATK",
+    4: "ATK",
+    5: "DEF",
+    6: "DEF",
+    100: "HP",
+    101: "ATK",
+    102: "DEF",
+}
 
 
 def _score_stat(eff_id: int, value: int) -> int:
@@ -92,6 +107,59 @@ def _rune_quality_score(r: Rune, uid: int,
     return score
 
 
+def _artifact_focus_key(art: Artifact) -> str:
+    if not art.pri_effect:
+        return ""
+    try:
+        eff_id = int(art.pri_effect[0] or 0)
+    except Exception:
+        return ""
+    return str(_ARTIFACT_FOCUS_BY_EFFECT_ID.get(eff_id, ""))
+
+
+def _artifact_substat_ids(art: Artifact) -> Set[int]:
+    out: Set[int] = set()
+    for sec in (art.sec_effects or []):
+        if not sec:
+            continue
+        try:
+            out.add(int(sec[0] or 0))
+        except Exception:
+            continue
+    out.discard(0)
+    return out
+
+
+def _artifact_quality_score(
+    art: Artifact,
+    uid: int,
+    rta_artifact_ids_for_unit: Optional[Set[int]] = None,
+) -> int:
+    score = 0
+    score += int(art.level or 0) * 8
+    base_rank = int(getattr(art, "original_rank", 0) or 0)
+    if base_rank <= 0:
+        base_rank = int(art.rank or 0)
+    score += base_rank * 6
+
+    for sec in (art.sec_effects or []):
+        if not sec or len(sec) < 2:
+            continue
+        try:
+            val = float(sec[1] or 0)
+        except Exception:
+            continue
+        score += int(round(val * 4))
+
+    if rta_artifact_ids_for_unit is not None:
+        if int(art.artifact_id or 0) in rta_artifact_ids_for_unit:
+            score += ARTIFACT_BONUS_FOR_SAME_UNIT
+    elif int(art.occupied_id or 0) == int(uid):
+        score += ARTIFACT_BONUS_FOR_SAME_UNIT
+
+    return int(score)
+
+
 @dataclass
 class GreedyRequest:
     mode: str
@@ -114,6 +182,7 @@ class GreedyUnitResult:
     chosen_build_id: str = ""
     chosen_build_name: str = ""
     runes_by_slot: Dict[int, int] = None  # slot -> rune_id
+    artifacts_by_type: Dict[int, int] = None  # artifact_type (1/2) -> artifact_id
     final_speed: int = 0
 
 
@@ -135,6 +204,11 @@ class _PassOutcome:
 def _allowed_runes_for_mode(account: AccountData, selected_unit_ids: List[int]) -> List[Rune]:
     # User requested full account pool: use every rune from the JSON snapshot/import.
     return list(account.runes)
+
+
+def _allowed_artifacts_for_mode(account: AccountData, selected_unit_ids: List[int]) -> List[Artifact]:
+    # User requested full account pool: use every artifact from the JSON snapshot/import.
+    return [a for a in account.artifacts if int(a.type_ or 0) in (1, 2)]
 
 
 def _count_required_set_pieces(set_names: List[str]) -> Dict[int, int]:
@@ -199,7 +273,11 @@ def _rune_stat_total(r: Rune, eff_id_target: int) -> int:
     return total
 
 
-def _diagnose_single_unit_infeasible(pool: List[Rune], builds: List[Build]) -> str:
+def _diagnose_single_unit_infeasible(
+    pool: List[Rune],
+    artifact_pool: List[Artifact],
+    builds: List[Build],
+) -> str:
     runes_by_slot: Dict[int, List[Rune]] = {s: [] for s in range(1, 7)}
     for r in pool:
         if 1 <= r.slot_no <= 6:
@@ -208,6 +286,17 @@ def _diagnose_single_unit_infeasible(pool: List[Rune], builds: List[Build]) -> s
     for s in range(1, 7):
         if not runes_by_slot[s]:
             return f"Slot {s}: keine Runen im Pool."
+
+    art_by_type: Dict[int, List[Artifact]] = {1: [], 2: []}
+    for art in artifact_pool:
+        t = int(art.type_ or 0)
+        if t in (1, 2):
+            art_by_type[t].append(art)
+
+    if not art_by_type[1]:
+        return "Kein Attribut-Artefakt (Typ 1) im Pool."
+    if not art_by_type[2]:
+        return "Kein Typ-Artefakt (Typ 2) im Pool."
 
     if not builds:
         return "Keine Builds vorhanden."
@@ -233,9 +322,42 @@ def _diagnose_single_unit_infeasible(pool: List[Rune], builds: List[Build]) -> s
         if not ok_main:
             continue
 
+        # Artifact feasibility (focus/substats)
+        artifact_ok = True
+        focus_cfg = dict(getattr(b, "artifact_focus", {}) or {})
+        subs_cfg = dict(getattr(b, "artifact_substats", {}) or {})
+        for type_id, key in ((1, "attribute"), (2, "type")):
+            candidates = list(art_by_type.get(type_id, []))
+            allowed_focus = [str(x).upper() for x in (focus_cfg.get(key) or []) if str(x)]
+            needed_subs = [int(x) for x in (subs_cfg.get(key) or []) if int(x) > 0][:2]
+            if not allowed_focus and not needed_subs:
+                continue
+
+            feasible = 0
+            for art in candidates:
+                fkey = _artifact_focus_key(art)
+                if allowed_focus and fkey not in allowed_focus:
+                    continue
+                sec_ids = _artifact_substat_ids(art)
+                if needed_subs and any(req_id not in sec_ids for req_id in needed_subs):
+                    continue
+                feasible += 1
+
+            if feasible == 0:
+                artifact_ok = False
+                reasons.append(
+                    f"Build '{b.name}': kein passendes Artefakt für "
+                    f"{'Attribut' if type_id == 1 else 'Typ'} "
+                    f"(Focus={allowed_focus or 'Any'}, Subs={needed_subs or 'Any'})."
+                )
+                break
+
+        if not artifact_ok:
+            continue
+
         # Set feasibility
         if not b.set_options:
-            return "Build ist bzgl. Set/Mainstats grundsätzlich machbar."
+            return "Build ist bzgl. Runen/Artefakten grundsätzlich machbar."
 
         feasible_any_option = False
         for opt in b.set_options:
@@ -282,7 +404,7 @@ def _diagnose_single_unit_infeasible(pool: List[Rune], builds: List[Build]) -> s
                 break
 
         if feasible_any_option:
-            return "Build ist bzgl. Set/Mainstats grundsätzlich machbar."
+            return "Build ist bzgl. Runen/Artefakten grundsätzlich machbar."
 
     if reasons:
         return " | ".join(reasons[:3])
@@ -292,6 +414,7 @@ def _diagnose_single_unit_infeasible(pool: List[Rune], builds: List[Build]) -> s
 def _solve_single_unit_best(
     uid: int,
     pool: List[Rune],
+    artifact_pool: List[Artifact],
     builds: List[Build],
     time_limit_s: float,
     workers: int,
@@ -302,12 +425,14 @@ def _solve_single_unit_best(
     base_acc: int,
     max_final_speed: Optional[int],
     rta_rune_ids_for_unit: Optional[Set[int]] = None,
+    rta_artifact_ids_for_unit: Optional[Set[int]] = None,
 ) -> GreedyUnitResult:
     """
     Solve for ONE unit:
     - pick exactly 1 rune per slot (1..6)
+    - pick exactly 1 attribute artifact (type 1) and 1 type artifact (type 2)
     - pick exactly 1 build
-    - enforce build mainstats (2/4/6) + build set_option
+    - enforce build mainstats (2/4/6) + build set_option + artifact constraints
     - objective: maximize rune weight - priority penalty
     """
     # candidates by slot
@@ -320,6 +445,17 @@ def _solve_single_unit_best(
     for s in range(1, 7):
         if not runes_by_slot[s]:
             return GreedyUnitResult(uid, False, f"Slot {s}: keine Runen im Pool.", runes_by_slot={})
+
+    artifacts_by_type: Dict[int, List[Artifact]] = {1: [], 2: []}
+    for art in artifact_pool:
+        t = int(art.type_ or 0)
+        if t in (1, 2):
+            artifacts_by_type[t].append(art)
+
+    if not artifacts_by_type[1]:
+        return GreedyUnitResult(uid, False, "Kein Attribut-Artefakt (Typ 1) im Pool.", runes_by_slot={})
+    if not artifacts_by_type[2]:
+        return GreedyUnitResult(uid, False, "Kein Typ-Artefakt (Typ 2) im Pool.", runes_by_slot={})
 
     model = cp_model.CpModel()
 
@@ -343,6 +479,16 @@ def _solve_single_unit_best(
                 uses.append(x[key])
         if uses:
             model.Add(sum(uses) <= 1)
+
+    # artifact selection: exactly one per artifact type (1=attribute, 2=type)
+    xa: Dict[Tuple[int, int], cp_model.IntVar] = {}
+    for art_type in (1, 2):
+        vars_for_type: List[cp_model.IntVar] = []
+        for art in artifacts_by_type[art_type]:
+            v = model.NewBoolVar(f"xa_u{uid}_t{art_type}_a{int(art.artifact_id)}")
+            xa[(art_type, int(art.artifact_id))] = v
+            vars_for_type.append(v)
+        model.Add(sum(vars_for_type) == 1)
 
     # build selection
     if not builds:
@@ -375,6 +521,25 @@ def _solve_single_unit_best(
                 key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(r.pri_eff[0] or 0), "")
                 if key and (key not in allowed):
                     model.Add(x[(slot, r.rune_id)] == 0).OnlyEnforceIf(vb)
+
+        # artifact constraints (separate for attribute/type artifact)
+        artifact_focus_cfg = dict(getattr(b, "artifact_focus", {}) or {})
+        artifact_sub_cfg = dict(getattr(b, "artifact_substats", {}) or {})
+        for art_type, cfg_key in ((1, "attribute"), (2, "type")):
+            allowed_focus = [str(x).upper() for x in (artifact_focus_cfg.get(cfg_key) or []) if str(x)]
+            required_subs = [int(x) for x in (artifact_sub_cfg.get(cfg_key) or []) if int(x) > 0][:2]
+            if not allowed_focus and not required_subs:
+                continue
+            for art in artifacts_by_type[art_type]:
+                av = xa[(art_type, int(art.artifact_id))]
+                if allowed_focus:
+                    if _artifact_focus_key(art) not in allowed_focus:
+                        model.Add(av == 0).OnlyEnforceIf(vb)
+                        continue
+                if required_subs:
+                    sec_ids = _artifact_substat_ids(art)
+                    if any(req_id not in sec_ids for req_id in required_subs):
+                        model.Add(av == 0).OnlyEnforceIf(vb)
 
         # sets
         if b.set_options:
@@ -485,6 +650,11 @@ def _solve_single_unit_best(
             v = x[(slot, r.rune_id)]
             w = _rune_quality_score(r, uid, rta_rune_ids_for_unit)
             quality_terms.append(w * v)
+    for art_type in (1, 2):
+        for art in artifacts_by_type[art_type]:
+            av = xa[(art_type, int(art.artifact_id))]
+            aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
+            quality_terms.append(aw * av)
 
     BUILD_PRIORITY_PENALTY = 200
     for b_idx, b in enumerate(builds):
@@ -503,7 +673,7 @@ def _solve_single_unit_best(
         status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        detail = _diagnose_single_unit_infeasible(pool, builds)
+        detail = _diagnose_single_unit_infeasible(pool, artifact_pool, builds)
         return GreedyUnitResult(uid, False, f"infeasible ({detail})", runes_by_slot={})
 
     # extract build
@@ -524,6 +694,17 @@ def _solve_single_unit_best(
             return GreedyUnitResult(uid, False, f"interner Fehler: Slot {slot} keine Rune.", runes_by_slot={})
         chosen[slot] = rid
 
+    chosen_artifacts: Dict[int, int] = {}
+    for art_type in (1, 2):
+        aid = None
+        for art in artifacts_by_type[art_type]:
+            if solver.Value(xa[(art_type, int(art.artifact_id))]) == 1:
+                aid = int(art.artifact_id)
+                break
+        if aid is None:
+            return GreedyUnitResult(uid, False, f"interner Fehler: Artefakt Typ {art_type} fehlt.", runes_by_slot={})
+        chosen_artifacts[art_type] = aid
+
     return GreedyUnitResult(
         unit_id=uid,
         ok=True,
@@ -531,6 +712,7 @@ def _solve_single_unit_best(
         chosen_build_id=chosen_build.id,
         chosen_build_name=chosen_build.name,
         runes_by_slot=chosen,
+        artifacts_by_type=chosen_artifacts,
         final_speed=int(solver.Value(final_speed_expr)),
     )
 
@@ -603,7 +785,9 @@ def _evaluate_pass_score(
     results: List[GreedyUnitResult],
 ) -> Tuple[int, int, int, int, int, int, int]:
     runes_by_id = account.runes_by_id()
+    artifacts_by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in account.artifacts}
     rta_equip = account.rta_rune_equip if req.mode == "rta" else {}
+    rta_art_equip = account.rta_artifact_equip if req.mode == "rta" else {}
 
     ok_count = 0
     unit_scores: List[int] = []
@@ -616,12 +800,20 @@ def _evaluate_pass_score(
         rta_rids: Optional[Set[int]] = None
         if rta_equip:
             rta_rids = set(int(rid) for rid in rta_equip.get(uid, []))
+        rta_aids: Optional[Set[int]] = None
+        if rta_art_equip:
+            rta_aids = set(int(aid) for aid in rta_art_equip.get(uid, []))
         unit_quality = 0
         for rid in res.runes_by_slot.values():
             rune = runes_by_id.get(int(rid))
             if rune is None:
                 continue
             unit_quality += _rune_quality_score(rune, uid, rta_rids)
+        for aid in (res.artifacts_by_type or {}).values():
+            art = artifacts_by_id.get(int(aid))
+            if art is None:
+                continue
+            unit_quality += _artifact_quality_score(art, uid, rta_aids)
         ok_count += 1
         unit_scores.append(int(unit_quality))
         speed_sum += int(res.final_speed or 0)
@@ -680,14 +872,18 @@ def _run_greedy_pass(
     # initial pool
     pool = _allowed_runes_for_mode(account, unit_ids)
     blocked: Set[int] = set()  # rune_id
+    artifact_pool = _allowed_artifacts_for_mode(account, unit_ids)
+    blocked_artifacts: Set[int] = set()  # artifact_id
 
     # For RTA mode, build lookup of RTA-equipped rune IDs per unit
     rta_equip = account.rta_rune_equip if req.mode == "rta" else {}
+    rta_art_equip = account.rta_artifact_equip if req.mode == "rta" else {}
 
     results: List[GreedyUnitResult] = []
 
     for uid in unit_ids:
         cur_pool = [r for r in pool if r.rune_id not in blocked]
+        cur_art_pool = [a for a in artifact_pool if int(a.artifact_id or 0) not in blocked_artifacts]
         unit = account.units_by_id.get(uid)
         base_spd = int(unit.base_spd or 0) if unit else 0
         base_cr = int(unit.crit_rate or 15) if unit else 15
@@ -718,6 +914,9 @@ def _run_greedy_pass(
         rta_rids: Optional[Set[int]] = None
         if rta_equip:
             rta_rids = set(int(rid) for rid in rta_equip.get(uid, []))
+        rta_aids: Optional[Set[int]] = None
+        if rta_art_equip:
+            rta_aids = set(int(aid) for aid in rta_art_equip.get(uid, []))
 
         builds = presets.get_unit_builds(req.mode, uid)
         # IMPORTANT: greedy feels more SWOP-like if we sort builds by priority ascending
@@ -726,6 +925,7 @@ def _run_greedy_pass(
         r = _solve_single_unit_best(
             uid=uid,
             pool=cur_pool,
+            artifact_pool=cur_art_pool,
             builds=builds,
             time_limit_s=float(time_limit_per_unit_s),
             workers=req.workers,
@@ -736,12 +936,15 @@ def _run_greedy_pass(
             base_acc=base_acc,
             max_final_speed=max_speed_cap,
             rta_rune_ids_for_unit=rta_rids,
+            rta_artifact_ids_for_unit=rta_aids,
         )
         results.append(r)
 
         if r.ok and r.runes_by_slot:
             for rid in r.runes_by_slot.values():
                 blocked.add(int(rid))
+            for aid in (r.artifacts_by_type or {}).values():
+                blocked_artifacts.add(int(aid))
         else:
             # SWOP-like: keep going, but mark as failed
             # (alternativ: break; wenn du "alles muss klappen" willst)
@@ -749,18 +952,25 @@ def _run_greedy_pass(
     return results
 
 
-def _results_signature(results: List[GreedyUnitResult]) -> Tuple[Tuple[int, bool, Tuple[Tuple[int, int], ...], int, str], ...]:
-    sig: List[Tuple[int, bool, Tuple[Tuple[int, int], ...], int, str]] = []
+def _results_signature(
+    results: List[GreedyUnitResult],
+) -> Tuple[Tuple[int, bool, Tuple[Tuple[int, int], ...], Tuple[Tuple[int, int], ...], int, str], ...]:
+    sig: List[Tuple[int, bool, Tuple[Tuple[int, int], ...], Tuple[Tuple[int, int], ...], int, str]] = []
     for r in results:
         runes = tuple(
             (int(slot), int(rid))
             for slot, rid in sorted((r.runes_by_slot or {}).items(), key=lambda x: int(x[0]))
+        )
+        arts = tuple(
+            (int(kind), int(aid))
+            for kind, aid in sorted((r.artifacts_by_type or {}).items(), key=lambda x: int(x[0]))
         )
         sig.append(
             (
                 int(r.unit_id),
                 bool(r.ok),
                 runes,
+                arts,
                 int(r.final_speed or 0),
                 str(r.chosen_build_id or ""),
             )
@@ -784,7 +994,9 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
         pass_orders = _build_pass_orders(base_unit_ids, int(req.multi_pass_count or 1))
 
     outcomes: List[_PassOutcome] = []
-    seen_signatures: Set[Tuple[Tuple[int, bool, Tuple[Tuple[int, int], ...], int, str], ...]] = set()
+    seen_signatures: Set[
+        Tuple[Tuple[int, bool, Tuple[Tuple[int, int], ...], Tuple[Tuple[int, int], ...], int, str], ...]
+    ] = set()
     best_score: Optional[Tuple[int, int, int, int, int, int, int]] = None
     no_improve_streak = 0
     early_stop_reason = ""

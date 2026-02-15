@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 class SavedUnitResult:
     unit_id: int
     runes_by_slot: Dict[int, int]   # slot (1-6) -> rune_id
+    artifacts_by_type: Dict[int, int] = field(default_factory=dict)  # artifact type (1/2) -> artifact_id
     final_speed: int = 0
 
 
@@ -45,9 +46,11 @@ class OptimizationStore:
             results: List[SavedUnitResult] = []
             for r in (data.get("results") or []):
                 rbs = {int(k): int(v) for k, v in (r.get("runes_by_slot") or {}).items()}
+                abs_ = {int(k): int(v) for k, v in (r.get("artifacts_by_type") or {}).items()}
                 results.append(SavedUnitResult(
                     unit_id=int(r.get("unit_id") or 0),
                     runes_by_slot=rbs,
+                    artifacts_by_type=abs_,
                     final_speed=int(r.get("final_speed") or 0),
                 ))
             teams_raw = data.get("teams") or []
@@ -76,6 +79,7 @@ class OptimizationStore:
                     {
                         "unit_id": r.unit_id,
                         "runes_by_slot": {str(k): v for k, v in r.runes_by_slot.items()},
+                        "artifacts_by_type": {str(k): v for k, v in (r.artifacts_by_type or {}).items()},
                         "final_speed": r.final_speed,
                     }
                     for r in opt.results

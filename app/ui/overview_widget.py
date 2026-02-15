@@ -17,6 +17,7 @@ from PySide6.QtCharts import (
 
 from app.domain.models import AccountData, Rune, Artifact
 from app.domain.presets import SET_NAMES, EFFECT_ID_TO_MAINSTAT_KEY
+from app.domain.artifact_effects import artifact_rank_label
 from app.engine.efficiency import (
     rune_efficiencies,
     rune_efficiency,
@@ -193,10 +194,14 @@ def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
 
 def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
     slot_name = "Links" if int(art.slot or 0) == 1 else "Rechts" if int(art.slot or 0) == 2 else f"Slot {int(art.slot or 0)}"
+    base_rank = int(getattr(art, "original_rank", 0) or 0)
+    if base_rank <= 0:
+        base_rank = int(art.rank or 0)
+    quality = artifact_rank_label(base_rank, fallback_prefix="Rank")
     lines = [
         f"Rank #{idx + 1} | Effizienz {eff:.2f}%",
         f"Artefakt ID: {int(art.artifact_id or 0)}",
-        f"{slot_name} | Typ {int(art.type_ or 0)} | Rank {int(art.rank or 0)} | +{int(art.level or 0)}",
+        f"{slot_name} | Typ {int(art.type_ or 0)} | Qualität {quality} | +{int(art.level or 0)}",
     ]
     if art.pri_effect and len(art.pri_effect) >= 2:
         lines.append(f"Hauptstat: {_stat_label(int(art.pri_effect[0] or 0), art.pri_effect[1])}")

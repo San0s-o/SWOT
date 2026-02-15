@@ -11,10 +11,15 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from app.domain.models import AccountData, Rune, Unit, compute_unit_stats
+from app.domain.models import AccountData, Rune, Unit, Artifact, compute_unit_stats
 from app.domain.monster_db import MonsterDB
 from app.domain.optimization_store import SavedOptimization
 from app.domain.presets import EFFECT_ID_TO_MAINSTAT_KEY, SET_NAMES
+from app.domain.artifact_effects import (
+    ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID,
+    artifact_effect_text,
+    artifact_rank_label,
+)
 from app.engine.efficiency import rune_efficiency
 
 
@@ -84,6 +89,50 @@ def _rune_rich_tooltip(rune: Rune) -> str:
             if gem_flag:
                 txt = f"<span style='color:#1abc9c'>{txt} [Gem]</span>"
             lines.append(txt)
+    return "<br>".join(lines)
+
+
+_ARTIFACT_KIND_LABEL = {
+    1: "Attribut",
+    2: "Typ",
+}
+
+def _artifact_focus(art: Artifact) -> str:
+    if not art.pri_effect:
+        return ""
+    try:
+        return str(ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID.get(int(art.pri_effect[0] or 0), ""))
+    except Exception:
+        return ""
+
+
+def _artifact_effect_text(effect_id: int, value: int | float | str) -> str:
+    return artifact_effect_text(effect_id, value, fallback_prefix="Eff")
+
+
+def _artifact_rich_tooltip(art: Artifact) -> str:
+    kind = _ARTIFACT_KIND_LABEL.get(int(art.type_ or 0), f"Typ {int(art.type_ or 0)}")
+    focus = _artifact_focus(art) or "—"
+    base_rank = int(getattr(art, "original_rank", 0) or 0)
+    if base_rank <= 0:
+        base_rank = int(art.rank or 0)
+    quality = artifact_rank_label(base_rank, fallback_prefix="Rank")
+    lines = [
+        f"<b>{kind}-Artefakt</b> &nbsp; ID {int(art.artifact_id or 0)}",
+        f"Fokus: <b>{focus}</b> &nbsp; Qualität {quality} &nbsp; +{int(art.level or 0)}",
+    ]
+    if art.sec_effects:
+        lines.append("<b>Subs:</b>")
+        for sec in art.sec_effects:
+            if not sec:
+                continue
+            try:
+                eff_id = int(sec[0] or 0)
+            except Exception:
+                continue
+            val = sec[1] if len(sec) > 1 else 0
+            rolls = int(sec[2] or 0) if len(sec) > 2 else 0
+            lines.append(f"&nbsp;&nbsp;{_artifact_effect_text(eff_id, val)} [Rolls {rolls}]")
     return "<br>".join(lines)
 
 
@@ -163,10 +212,12 @@ class MonsterCard(QFrame):
         equipped_runes: List[Rune],
         computed_stats: Dict[str, int],
         assets_dir: Path,
+        equipped_artifacts: Optional[List[Artifact]] = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self._runes = equipped_runes
+        self._artifacts = list(equipped_artifacts or [])
         self._assets_dir = assets_dir
         self._computed_stats = computed_stats
 
@@ -323,6 +374,28 @@ class MonsterCard(QFrame):
         rune_bar.addStretch()
         layout.addLayout(rune_bar)
 
+        # artifacts (type 1 = attribute, type 2 = type)
+        art_bar = QHBoxLayout()
+        art_bar.setSpacing(4)
+        art_by_type: Dict[int, Artifact] = {int(a.type_ or 0): a for a in self._artifacts}
+        for art_type in (1, 2):
+            art = art_by_type.get(art_type)
+            btn = QPushButton(_ARTIFACT_KIND_LABEL.get(art_type, str(art_type)))
+            btn.setFixedHeight(28)
+            if art:
+                focus = _artifact_focus(art)
+                txt = _ARTIFACT_KIND_LABEL.get(art_type, str(art_type))
+                if focus:
+                    txt = f"{txt} {focus}"
+                btn.setText(txt)
+                btn.setToolTip(_artifact_rich_tooltip(art))
+            else:
+                btn.setEnabled(False)
+                btn.setToolTip("Kein Artefakt")
+            art_bar.addWidget(btn)
+        art_bar.addStretch()
+        layout.addLayout(art_bar)
+
     # ── helpers ──────────────────────────────────────────────
     def _rune_set_icon(self, set_id: int) -> QIcon:
         name = SET_NAMES.get(set_id, "")
@@ -339,7 +412,7 @@ class TeamCard(QGroupBox):
     def __init__(
         self,
         team_index: int,
-        units: List[Tuple[Unit, str, str, QIcon, List[Rune], Dict[str, int]]],
+        units: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, int]]],
         assets_dir: Path,
         parent: QWidget | None = None,
         title: str | None = None,
@@ -365,8 +438,17 @@ class TeamCard(QGroupBox):
         row = QHBoxLayout(self)
         row.setSpacing(8)
         row.setContentsMargins(8, 8, 8, 8)
-        for unit, name, element, icon, runes, stats in units:
-            card = MonsterCard(unit, name, element, icon, runes, stats, assets_dir)
+        for unit, name, element, icon, runes, artifacts, stats in units:
+            card = MonsterCard(
+                unit,
+                name,
+                element,
+                icon,
+                runes,
+                stats,
+                assets_dir,
+                equipped_artifacts=artifacts,
+            )
             row.addWidget(card)
 
 
@@ -410,6 +492,7 @@ class SiegeDefCardsWidget(QWidget):
                                account: AccountData, monster_db: MonsterDB,
                                assets_dir: Path, rune_mode: str = "siege",
                                rune_overrides: Optional[Dict[int, List[Rune]]] = None,
+                               artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
                                team_label_prefix: str = "Verteidigung"):
         """Render manually selected teams (e.g. WGB builder).
 
@@ -419,7 +502,7 @@ class SiegeDefCardsWidget(QWidget):
         if not account or not teams:
             return
         self._render_teams(teams, account, monster_db, assets_dir, rune_mode,
-                           rune_overrides, team_label_prefix)
+                           rune_overrides, artifact_overrides, team_label_prefix)
 
     def render_saved_optimization(self, opt: SavedOptimization,
                                   account: AccountData, monster_db: MonsterDB,
@@ -427,7 +510,9 @@ class SiegeDefCardsWidget(QWidget):
         """Render a saved optimization using its stored rune assignments."""
         self._clear()
         runes_by_id = account.runes_by_id()
+        artifacts_by_id = {int(a.artifact_id): a for a in account.artifacts}
         rune_overrides: Dict[int, List[Rune]] = {}
+        artifact_overrides: Dict[int, List[Artifact]] = {}
         for res in opt.results:
             runes = []
             for slot in sorted(res.runes_by_slot.keys()):
@@ -436,11 +521,28 @@ class SiegeDefCardsWidget(QWidget):
                 if rune:
                     runes.append(rune)
             rune_overrides[res.unit_id] = runes
-        self._render_teams(opt.teams, account, monster_db, assets_dir, rune_mode, rune_overrides)
+            arts: List[Artifact] = []
+            for art_type in (1, 2):
+                aid = int((res.artifacts_by_type or {}).get(art_type, 0) or 0)
+                art = artifacts_by_id.get(aid)
+                if art:
+                    arts.append(art)
+            if arts:
+                artifact_overrides[res.unit_id] = arts
+        self._render_teams(
+            opt.teams,
+            account,
+            monster_db,
+            assets_dir,
+            rune_mode,
+            rune_overrides,
+            artifact_overrides,
+        )
 
     def _render_teams(self, teams: List[List[int]], account: AccountData,
                       monster_db: MonsterDB, assets_dir: Path, rune_mode: str,
                       rune_overrides: Optional[Dict[int, List[Rune]]] = None,
+                      artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
                       team_label_prefix: str = "Verteidigung"):
         for ti, team in enumerate(teams, start=1):
             speed_lead_pct = 0
@@ -451,7 +553,7 @@ class SiegeDefCardsWidget(QWidget):
                     if lead > speed_lead_pct:
                         speed_lead_pct = lead
 
-            unit_data: List[Tuple[Unit, str, str, QIcon, List[Rune], Dict[str, int]]] = []
+            unit_data: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, int]]] = []
             for uid in team:
                 u = account.units_by_id.get(uid)
                 if not u:
@@ -463,12 +565,36 @@ class SiegeDefCardsWidget(QWidget):
                     equipped = rune_overrides[uid]
                 else:
                     equipped = account.equipped_runes_for(uid, rune_mode)
+                if artifact_overrides and uid in artifact_overrides:
+                    equipped_artifacts = artifact_overrides[uid]
+                else:
+                    equipped_artifacts = self._equipped_artifacts_for(account, uid, rune_mode)
                 stats = compute_unit_stats(u, equipped, speed_lead_pct)
-                unit_data.append((u, name, element, icon, equipped, stats))
+                unit_data.append((u, name, element, icon, equipped, equipped_artifacts, stats))
             if unit_data:
                 title = f"{team_label_prefix} {ti}"
                 card = TeamCard(ti, unit_data, assets_dir, title=title)
                 self._layout.addWidget(card)
+
+    def _equipped_artifacts_for(self, account: AccountData, unit_id: int, rune_mode: str) -> List[Artifact]:
+        by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in (account.artifacts or [])}
+        result: Dict[int, Artifact] = {}
+        if rune_mode == "rta":
+            for aid in (account.rta_artifact_equip.get(int(unit_id), []) or []):
+                art = by_id.get(int(aid))
+                if not art:
+                    continue
+                art_type = int(art.type_ or 0)
+                if art_type in (1, 2) and art_type not in result:
+                    result[art_type] = art
+        if not result:
+            for art in (account.artifacts or []):
+                if int(art.occupied_id or 0) != int(unit_id):
+                    continue
+                art_type = int(art.type_ or 0)
+                if art_type in (1, 2) and art_type not in result:
+                    result[art_type] = art
+        return [result[t] for t in (1, 2) if t in result]
 
 
 # ── module-level helper ──────────────────────────────────────

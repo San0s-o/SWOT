@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.importer.sw_json_importer import load_account_from_data
-from app.domain.models import AccountData, Rune
+from app.domain.models import AccountData, Rune, Artifact
 from app.domain.monster_db import MonsterDB, LeaderSkill
 from app.domain.presets import (
     BuildStore,
@@ -32,6 +32,7 @@ from app.domain.presets import (
     SLOT4_DEFAULT,
     SLOT6_DEFAULT,
     MAINSTAT_KEYS,
+    ARTIFACT_MAIN_KEYS,
     EFFECT_ID_TO_MAINSTAT_KEY,
 )
 from app.engine.greedy_optimizer import optimize_greedy, GreedyRequest, GreedyUnitResult
@@ -46,6 +47,13 @@ from app.services.license_service import (
 from app.services.update_service import check_latest_release
 from app.domain.team_store import TeamStore, Team
 from app.domain.optimization_store import OptimizationStore, SavedUnitResult
+from app.domain.artifact_effects import (
+    ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID,
+    ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE,
+    artifact_effect_label,
+    artifact_effect_text,
+    artifact_effect_is_legacy,
+)
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.overview_widget import OverviewWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
@@ -67,6 +75,22 @@ STAT_LABELS_DE: Dict[str, str] = {
     "RES": "Widerstand",
     "ACC": "Präzision",
 }
+
+
+ARTIFACT_KIND_LABEL_BY_TYPE: Dict[int, str] = {1: "Attribut", 2: "Typ"}
+ARTIFACT_FOCUS_BY_EFFECT_ID: Dict[int, str] = dict(ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID)
+
+
+def _artifact_focus_key_from_effect_id(effect_id: int) -> str:
+    return str(ARTIFACT_FOCUS_BY_EFFECT_ID.get(int(effect_id or 0), ""))
+
+
+def _artifact_effect_label(effect_id: int) -> str:
+    return artifact_effect_label(effect_id, fallback_prefix="Effekt")
+
+
+def _artifact_effect_text(effect_id: int, value: int | float | str) -> str:
+    return artifact_effect_text(effect_id, value, fallback_prefix="Effekt")
 
 
 class _NoScrollComboBox(QComboBox):
@@ -408,20 +432,32 @@ class BuildDialog(QDialog):
         unit_rows: List[Tuple[int, str]],
         preset_store: BuildStore,
         mode: str,
+        account: AccountData | None,
         unit_icon_fn: Callable[[int], QIcon],
         team_size: int = 3,
         show_order_sections: bool = True,
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(1280, 760)
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            w = min(max(1680, int(avail.width() * 0.92)), int(avail.width()))
+            h = min(max(860, int(avail.height() * 0.90)), int(avail.height()))
+            self.resize(w, h)
+            self.setMinimumSize(min(1400, w), min(760, h))
+        else:
+            self.resize(1840, 900)
+            self.setMinimumSize(1400, 760)
 
         self.preset_store = preset_store
         self.mode = mode
+        self._account = account
         self.team_size = max(1, int(team_size))
         self._unit_icon_fn = unit_icon_fn
         self._unit_rows = list(unit_rows)
         self._unit_rows_by_uid: Dict[int, Tuple[int, str]] = {int(uid): (int(uid), str(lbl)) for uid, lbl in self._unit_rows}
+        self._artifact_substat_options_by_type = self._collect_artifact_substat_options_by_type(self._account)
 
         layout = QVBoxLayout(self)
 
@@ -493,19 +529,21 @@ class BuildDialog(QDialog):
             layout.addWidget(order_box)
 
         # Build details table (without unit_id column)
-        self.table = QTableWidget(0, 12)
+        self.table = QTableWidget(0, 18)
         self.table.setHorizontalHeaderLabels([
             "Monster", "Set 1", "Set 2", "Set 3",
             "Slot 2 Main", "Slot 4 Main", "Slot 6 Main",
+            "Attr Main", "Attr Sub 1", "Attr Sub 2",
+            "Typ Main", "Typ Sub 1", "Typ Sub 2",
             "Min SPD", "Min CR", "Min CD", "Min RES", "Min ACC"
         ])
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
-        # Combo columns (Monster, Set 1-3, Slot 2/4/6 Main) stretch to fill space
-        for col in range(7):
+        # Wide selection columns
+        for col in (0, 1, 2, 3, 4, 5, 6, 7, 10):
             header.setSectionResizeMode(col, QHeaderView.Stretch)
-        # Stat columns (Min SPD, CR, CD, RES, ACC) stay compact
-        for col in range(7, 12):
+        # Compact columns (artifact substats + stat thresholds)
+        for col in (8, 9, 11, 12, 13, 14, 15, 16, 17):
             header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -524,6 +562,12 @@ class BuildDialog(QDialog):
         self._ms2_combo: Dict[int, _MainstatMultiCombo] = {}
         self._ms4_combo: Dict[int, _MainstatMultiCombo] = {}
         self._ms6_combo: Dict[int, _MainstatMultiCombo] = {}
+        self._art_attr_focus_combo: Dict[int, _MainstatMultiCombo] = {}
+        self._art_type_focus_combo: Dict[int, _MainstatMultiCombo] = {}
+        self._art_attr_sub1_combo: Dict[int, QComboBox] = {}
+        self._art_attr_sub2_combo: Dict[int, QComboBox] = {}
+        self._art_type_sub1_combo: Dict[int, QComboBox] = {}
+        self._art_type_sub2_combo: Dict[int, QComboBox] = {}
         self._min_spd_spin: Dict[int, QSpinBox] = {}
         self._min_cr_spin: Dict[int, QSpinBox] = {}
         self._min_cd_spin: Dict[int, QSpinBox] = {}
@@ -582,6 +626,40 @@ class BuildDialog(QDialog):
             cmb2 = _mk_ms_combo(SLOT2_DEFAULT)
             cmb4 = _mk_ms_combo(SLOT4_DEFAULT)
             cmb6 = _mk_ms_combo(SLOT6_DEFAULT)
+            art_attr_focus = _MainstatMultiCombo(ARTIFACT_MAIN_KEYS)
+            art_type_focus = _MainstatMultiCombo(ARTIFACT_MAIN_KEYS)
+            art_attr_focus.setToolTip("Attribut-Artefakt: HP/ATK/DEF (Mehrfachauswahl, leer = Any).")
+            art_type_focus.setToolTip("Typ-Artefakt: HP/ATK/DEF (Mehrfachauswahl, leer = Any).")
+
+            def _mk_art_sub_combo(artifact_type: int) -> QComboBox:
+                cmb = _NoScrollComboBox()
+                cmb.addItem("Any", 0)
+                eids = list(self._artifact_substat_options_by_type.get(int(artifact_type), []))
+                eids.sort(key=lambda x: (artifact_effect_is_legacy(int(x)), int(x)))
+                for eid in eids:
+                    cmb.addItem(_artifact_effect_label(int(eid)), int(eid))
+                cmb.setToolTip(
+                    f"{ARTIFACT_KIND_LABEL_BY_TYPE.get(int(artifact_type), 'Artefakt')}-Artefakt: "
+                    "Substat auswählen (leer = Any)."
+                )
+                return cmb
+
+            art_attr_sub1 = _mk_art_sub_combo(1)
+            art_attr_sub2 = _mk_art_sub_combo(1)
+            art_type_sub1 = _mk_art_sub_combo(2)
+            art_type_sub2 = _mk_art_sub_combo(2)
+
+            def _set_art_sub_combo_value(cmb: QComboBox, eid: int) -> None:
+                effect_id = int(eid or 0)
+                if effect_id <= 0:
+                    return
+                idx_local = cmb.findData(effect_id)
+                if idx_local < 0:
+                    cmb.addItem(_artifact_effect_label(effect_id), effect_id)
+                    idx_local = cmb.findData(effect_id)
+                if idx_local >= 0:
+                    cmb.setCurrentIndex(idx_local)
+
             min_spd = QSpinBox()
             min_cr = QSpinBox()
             min_cd = QSpinBox()
@@ -607,17 +685,43 @@ class BuildDialog(QDialog):
                 if 6 in b0.mainstats and b0.mainstats[6]:
                     cmb6.set_checked_values([str(x) for x in (b0.mainstats[6] or [])])
 
+            artifact_focus = dict(getattr(b0, "artifact_focus", {}) or {})
+            attr_focus_values = [str(x).upper() for x in (artifact_focus.get("attribute") or []) if str(x)]
+            type_focus_values = [str(x).upper() for x in (artifact_focus.get("type") or []) if str(x)]
+            if attr_focus_values:
+                art_attr_focus.set_checked_values(attr_focus_values)
+            if type_focus_values:
+                art_type_focus.set_checked_values(type_focus_values)
+
+            artifact_substats = dict(getattr(b0, "artifact_substats", {}) or {})
+            attr_subs = [int(x) for x in (artifact_substats.get("attribute") or []) if int(x) > 0][:2]
+            type_subs = [int(x) for x in (artifact_substats.get("type") or []) if int(x) > 0][:2]
+            if attr_subs:
+                _set_art_sub_combo_value(art_attr_sub1, attr_subs[0])
+            if len(attr_subs) > 1:
+                _set_art_sub_combo_value(art_attr_sub2, attr_subs[1])
+            if type_subs:
+                _set_art_sub_combo_value(art_type_sub1, type_subs[0])
+            if len(type_subs) > 1:
+                _set_art_sub_combo_value(art_type_sub2, type_subs[1])
+
             self.table.setCellWidget(r, 1, cmb_set1)
             self.table.setCellWidget(r, 2, cmb_set2)
             self.table.setCellWidget(r, 3, cmb_set3)
             self.table.setCellWidget(r, 4, cmb2)
             self.table.setCellWidget(r, 5, cmb4)
             self.table.setCellWidget(r, 6, cmb6)
-            self.table.setCellWidget(r, 7, min_spd)
-            self.table.setCellWidget(r, 8, min_cr)
-            self.table.setCellWidget(r, 9, min_cd)
-            self.table.setCellWidget(r, 10, min_res)
-            self.table.setCellWidget(r, 11, min_acc)
+            self.table.setCellWidget(r, 7, art_attr_focus)
+            self.table.setCellWidget(r, 8, art_attr_sub1)
+            self.table.setCellWidget(r, 9, art_attr_sub2)
+            self.table.setCellWidget(r, 10, art_type_focus)
+            self.table.setCellWidget(r, 11, art_type_sub1)
+            self.table.setCellWidget(r, 12, art_type_sub2)
+            self.table.setCellWidget(r, 13, min_spd)
+            self.table.setCellWidget(r, 14, min_cr)
+            self.table.setCellWidget(r, 15, min_cd)
+            self.table.setCellWidget(r, 16, min_res)
+            self.table.setCellWidget(r, 17, min_acc)
 
             self._set1_combo[unit_id] = cmb_set1
             self._set2_combo[unit_id] = cmb_set2
@@ -626,6 +730,12 @@ class BuildDialog(QDialog):
             self._ms2_combo[unit_id] = cmb2
             self._ms4_combo[unit_id] = cmb4
             self._ms6_combo[unit_id] = cmb6
+            self._art_attr_focus_combo[unit_id] = art_attr_focus
+            self._art_type_focus_combo[unit_id] = art_type_focus
+            self._art_attr_sub1_combo[unit_id] = art_attr_sub1
+            self._art_attr_sub2_combo[unit_id] = art_attr_sub2
+            self._art_type_sub1_combo[unit_id] = art_type_sub1
+            self._art_type_sub2_combo[unit_id] = art_type_sub2
             self._min_spd_spin[unit_id] = min_spd
             self._min_cr_spin[unit_id] = min_cr
             self._min_cd_spin[unit_id] = min_cd
@@ -731,6 +841,56 @@ class BuildDialog(QDialog):
                     out[uid] = idx + 1
         return out
 
+    def _collect_artifact_substat_options_by_type(self, account: AccountData | None) -> Dict[int, List[int]]:
+        out: Dict[int, Set[int]] = {
+            1: set(ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(1, [])),
+            2: set(ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(2, [])),
+        }
+        if not account:
+            return {
+                1: sorted(out[1]),
+                2: sorted(out[2]),
+            }
+        for art in (account.artifacts or []):
+            art_type = int(getattr(art, "type_", 0) or 0)
+            if art_type not in (1, 2):
+                continue
+            for sec in (getattr(art, "sec_effects", []) or []):
+                if not sec:
+                    continue
+                try:
+                    eid = int(sec[0] or 0)
+                except Exception:
+                    continue
+                if eid > 0:
+                    # Keep observed in-game association for this artifact type.
+                    out[art_type].add(eid)
+        return {
+            1: sorted(out[1]),
+            2: sorted(out[2]),
+        }
+
+    def _artifact_substat_ids_for_unit(self, unit_id: int, kind: str) -> List[int]:
+        if str(kind) == "attribute":
+            c1 = self._art_attr_sub1_combo.get(int(unit_id))
+            c2 = self._art_attr_sub2_combo.get(int(unit_id))
+        else:
+            c1 = self._art_type_sub1_combo.get(int(unit_id))
+            c2 = self._art_type_sub2_combo.get(int(unit_id))
+        vals: List[int] = []
+        seen: Set[int] = set()
+        for cmb in (c1, c2):
+            if cmb is None:
+                continue
+            eid = int(cmb.currentData() or 0)
+            if eid <= 0 or eid in seen:
+                continue
+            seen.add(eid)
+            vals.append(eid)
+            if len(vals) >= 2:
+                break
+        return vals
+
     def apply_to_store(self) -> None:
         optimize_order_by_uid = self._optimize_order_by_unit()
         team_turn_order_by_uid = self._team_turn_order_by_unit()
@@ -787,6 +947,10 @@ class BuildDialog(QDialog):
             ms2_values = [str(x) for x in self._ms2_combo[unit_id].checked_values()]
             ms4_values = [str(x) for x in self._ms4_combo[unit_id].checked_values()]
             ms6_values = [str(x) for x in self._ms6_combo[unit_id].checked_values()]
+            art_attr_focus_values = [str(x).upper() for x in self._art_attr_focus_combo[unit_id].checked_values()]
+            art_type_focus_values = [str(x).upper() for x in self._art_type_focus_combo[unit_id].checked_values()]
+            art_attr_substats = self._artifact_substat_ids_for_unit(unit_id, "attribute")
+            art_type_substats = self._artifact_substat_ids_for_unit(unit_id, "type")
             optimize_order = int(optimize_order_by_uid.get(unit_id, 0) or 0)
             turn_order = int(team_turn_order_by_uid.get(unit_id, 0) or 0)
             min_stats: Dict[str, int] = {}
@@ -815,6 +979,18 @@ class BuildDialog(QDialog):
             if ms6_values:
                 mainstats[6] = ms6_values
 
+            artifact_focus: Dict[str, List[str]] = {}
+            if art_attr_focus_values:
+                artifact_focus["attribute"] = [v for v in art_attr_focus_values if v in ("HP", "ATK", "DEF")]
+            if art_type_focus_values:
+                artifact_focus["type"] = [v for v in art_type_focus_values if v in ("HP", "ATK", "DEF")]
+
+            artifact_substats: Dict[str, List[int]] = {}
+            if art_attr_substats:
+                artifact_substats["attribute"] = [int(x) for x in art_attr_substats[:2]]
+            if art_type_substats:
+                artifact_substats["type"] = [int(x) for x in art_type_substats[:2]]
+
             b = Build(
                 id="default",
                 name="Default",
@@ -825,6 +1001,8 @@ class BuildDialog(QDialog):
                 set_options=set_options,
                 mainstats=mainstats,
                 min_stats=min_stats,
+                artifact_focus=artifact_focus,
+                artifact_substats=artifact_substats,
             )
             self.preset_store.set_unit_builds(self.mode, unit_id, [b])
 
@@ -946,6 +1124,7 @@ class OptimizeResultDialog(QDialog):
         summary: str,
         results: List[GreedyUnitResult],
         rune_lookup: Dict[int, Rune],
+        artifact_lookup: Dict[int, Artifact],
         unit_label_fn: Callable[[int], str],
         unit_icon_fn: Callable[[int], QIcon],
         unit_spd_fn: Callable[[int, List[int], Dict[int, Dict[int, int]]], int],
@@ -973,6 +1152,7 @@ class OptimizeResultDialog(QDialog):
         self._unit_team_index = unit_team_index or {}
         self._unit_display_order = unit_display_order or {}
         self._rune_lookup = rune_lookup
+        self._artifact_lookup = artifact_lookup
         self._mode_rune_owner = mode_rune_owner or {}
         self.saved = False
         self._stats_detailed = True
@@ -1180,6 +1360,10 @@ class OptimizeResultDialog(QDialog):
             self.detail_layout.addWidget(
                 self._build_runes_tab(result)
             )
+        if result.ok and result.artifacts_by_type:
+            self.detail_layout.addWidget(
+                self._build_artifacts_tab(result)
+            )
 
     # -- Stats tab ------------------------------------------
 
@@ -1288,6 +1472,67 @@ class OptimizeResultDialog(QDialog):
             row, col = divmod(idx, 2)
             grid.addWidget(self._build_rune_frame(rune, slot), row, col)
         v.addLayout(grid)
+        v.addStretch()
+        return w
+
+    def _build_artifacts_tab(self, result: GreedyUnitResult) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 8, 8, 8)
+        v.setSpacing(6)
+        v.addWidget(QLabel("<b>Artefakte</b>"))
+
+        for art_type in (1, 2):
+            aid = int((result.artifacts_by_type or {}).get(art_type, 0) or 0)
+            if aid <= 0:
+                continue
+            art = self._artifact_lookup.get(aid)
+            if art is None:
+                v.addWidget(QLabel(f"{ARTIFACT_KIND_LABEL_BY_TYPE.get(art_type, f'Typ {art_type}')}: {aid}"))
+                continue
+
+            frame = QFrame()
+            frame.setFrameShape(QFrame.StyledPanel)
+            frame.setStyleSheet("QFrame { border: 1px solid #444; border-radius: 3px; padding: 4px; }")
+            fv = QVBoxLayout(frame)
+            fv.setContentsMargins(6, 4, 6, 4)
+            fv.setSpacing(2)
+
+            kind = ARTIFACT_KIND_LABEL_BY_TYPE.get(art_type, f"Typ {art_type}")
+            focus = ""
+            if art.pri_effect and len(art.pri_effect) >= 2:
+                try:
+                    focus = _artifact_focus_key_from_effect_id(int(art.pri_effect[0] or 0))
+                except Exception:
+                    focus = ""
+            focus_text = focus if focus else "—"
+            fv.addWidget(QLabel(f"<b>{kind}</b> | ID {int(art.artifact_id)} | Fokus {focus_text} | +{int(art.level or 0)}"))
+
+            owner_uid = int(art.occupied_id or 0)
+            if owner_uid > 0:
+                owner = self._unit_label_fn(owner_uid)
+                owner_lbl = QLabel(f"aktuell auf: {owner}")
+                owner_lbl.setStyleSheet("color: #888; font-size: 7pt;")
+                fv.addWidget(owner_lbl)
+
+            sec_lines: List[str] = []
+            for sec in (art.sec_effects or []):
+                if not sec:
+                    continue
+                try:
+                    eid = int(sec[0] or 0)
+                    val = sec[1] if len(sec) > 1 else 0
+                except Exception:
+                    continue
+                sec_lines.append(f"• {_artifact_effect_text(eid, val)}")
+            if sec_lines:
+                for line in sec_lines:
+                    lbl = QLabel(line)
+                    lbl.setStyleSheet("font-size: 8pt;")
+                    fv.addWidget(lbl)
+
+            v.addWidget(frame)
+
         v.addStretch()
         return w
 
@@ -2371,6 +2616,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Optimierung", "Bitte zuerst einen Import laden.")
             return
         rune_lookup: Dict[int, Rune] = {r.rune_id: r for r in self.account.runes}
+        artifact_lookup: Dict[int, Artifact] = {int(a.artifact_id): a for a in self.account.artifacts}
         # Build mode-specific rune owner lookup (rune_id -> unit_id)
         mode_rune_owner: Dict[int, int] = {}
         if mode in ("siege", "guild", "wgb"):
@@ -2387,6 +2633,7 @@ class MainWindow(QMainWindow):
             summary,
             results,
             rune_lookup,
+            artifact_lookup,
             self._unit_text,
             self._unit_icon_for_unit_id,
             self._unit_final_spd_value,
@@ -2410,6 +2657,7 @@ class MainWindow(QMainWindow):
                     saved_results.append(SavedUnitResult(
                         unit_id=r.unit_id,
                         runes_by_slot=dict(r.runes_by_slot),
+                        artifacts_by_type=dict(r.artifacts_by_type or {}),
                         final_speed=r.final_speed,
                     ))
             self.opt_store.upsert(mode, name, teams, saved_results)
@@ -2773,7 +3021,16 @@ class MainWindow(QMainWindow):
 
         unit_rows: List[Tuple[int, str]] = [(uid, self._unit_text(uid)) for uid in all_units]
 
-        dlg = BuildDialog(self, "Siege Builds", unit_rows, self.presets, "siege", self._unit_icon_for_unit_id, team_size=3)
+        dlg = BuildDialog(
+            self,
+            "Siege Builds",
+            unit_rows,
+            self.presets,
+            "siege",
+            self.account,
+            self._unit_icon_for_unit_id,
+            team_size=3,
+        )
         if dlg.exec() == QDialog.Accepted:
             try:
                 dlg.apply_to_store()
@@ -2924,7 +3181,16 @@ class MainWindow(QMainWindow):
             return
 
         unit_rows: List[Tuple[int, str]] = [(uid, self._unit_text(uid)) for uid in all_units]
-        dlg = BuildDialog(self, "WGB Builds", unit_rows, self.presets, "wgb", self._unit_icon_for_unit_id, team_size=3)
+        dlg = BuildDialog(
+            self,
+            "WGB Builds",
+            unit_rows,
+            self.presets,
+            "wgb",
+            self.account,
+            self._unit_icon_for_unit_id,
+            team_size=3,
+        )
         if dlg.exec() == QDialog.Accepted:
             try:
                 dlg.apply_to_store()
@@ -3083,7 +3349,7 @@ class MainWindow(QMainWindow):
 
         unit_rows: List[Tuple[int, str]] = [(uid, self._unit_text(uid)) for uid in ids]
         dlg = BuildDialog(
-            self, "RTA Builds", unit_rows, self.presets, "rta",
+            self, "RTA Builds", unit_rows, self.presets, "rta", self.account,
             self._unit_icon_for_unit_id, team_size=len(ids),
             show_order_sections=False,
         )

@@ -32,6 +32,12 @@ def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) 
     occ = occupied_id_override if occupied_id_override is not None else _safe_int(a.get("occupied_id", 0))
     raw_pri = a.get("pri_effect") or []
     raw_sec = a.get("sec_effects") or []
+    original_rank = _safe_int(
+        a.get("natural_rank")
+        or a.get("original_rank")
+        or a.get("orig_rank")
+        or 0
+    )
     return Artifact(
         artifact_id=art_id,
         occupied_id=occ,
@@ -40,6 +46,7 @@ def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) 
         attribute=_safe_int(a.get("attribute")),
         rank=_safe_int(a.get("rank")),
         level=_safe_int(a.get("level")),
+        original_rank=original_rank,
         pri_effect=tuple(raw_pri) if raw_pri else (),
         sec_effects=[list(s) for s in raw_sec],
     )
@@ -155,7 +162,10 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                 runes_by_id[ru.rune_id] = ru
     acc.runes = list(runes_by_id.values())
 
-    full_arts_by_id: Dict[int, Artifact] = {}
+    # Start with fully populated artifacts parsed from unit_list[*].artifacts.
+    # Some exports do not provide a top-level "artifacts" list, so we must
+    # preserve unit-level data and only enrich/override occupied mapping later.
+    full_arts_by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in acc.artifacts}
     for a in (data.get("artifacts") or []):
         try:
             art = _parse_artifact(a)
@@ -189,6 +199,7 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                         attribute=prev.attribute,
                         rank=prev.rank,
                         level=prev.level,
+                        original_rank=prev.original_rank,
                         pri_effect=prev.pri_effect,
                         sec_effects=prev.sec_effects,
                     )
@@ -201,6 +212,7 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                         attribute=0,
                         rank=0,
                         level=0,
+                        original_rank=0,
                     )
             except Exception:
                 continue

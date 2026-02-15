@@ -94,6 +94,7 @@ EFFECT_ID_TO_MAINSTAT_KEY: dict[int, str] = {
 }
 
 MAINSTAT_KEYS: list[str] = ["HP", "ATK", "DEF", "SPD", "CR", "CD", "RES", "ACC", "HP%", "ATK%", "DEF%"]
+ARTIFACT_MAIN_KEYS: list[str] = ["HP", "ATK", "DEF"]
 
 # Übliche Slot-Whitelist (UI-Defaults)
 SLOT2_DEFAULT = ["SPD", "HP%", "ATK%", "DEF%"]
@@ -123,6 +124,10 @@ class Build:
     set_options: List[List[str]] = field(default_factory=list)
     mainstats: Dict[int, List[str]] = field(default_factory=dict)
     min_stats: Dict[str, int] = field(default_factory=dict)
+    # Artifact constraints:
+    # keys: "attribute" (type_=1), "type" (type_=2)
+    artifact_focus: Dict[str, List[str]] = field(default_factory=dict)      # HP/ATK/DEF (multi-select)
+    artifact_substats: Dict[str, List[int]] = field(default_factory=dict)   # up to 2 effect IDs per artifact kind
 
     @staticmethod
     def default_any() -> "Build":
@@ -267,6 +272,16 @@ def _build_to_json(b: Build) -> Dict[str, Any]:
         "set_options": b.set_options or [],
         "mainstats": {str(k): (v or []) for k, v in (b.mainstats or {}).items()},
         "min_stats": {str(k): int(v) for k, v in (b.min_stats or {}).items()},
+        "artifact_focus": {
+            str(k): [str(x).upper() for x in (v or []) if str(x)]
+            for k, v in (b.artifact_focus or {}).items()
+            if str(k) in ("attribute", "type")
+        },
+        "artifact_substats": {
+            str(k): [int(x) for x in (v or []) if int(x) > 0][:2]
+            for k, v in (b.artifact_substats or {}).items()
+            if str(k) in ("attribute", "type")
+        },
     }
 
 
@@ -327,6 +342,49 @@ def _parse_build(raw: Any) -> Optional[Build]:
             if val > 0:
                 min_stats[key] = val
 
+    artifact_focus_raw = raw.get("artifact_focus") or {}
+    artifact_focus: Dict[str, List[str]] = {}
+    if isinstance(artifact_focus_raw, dict):
+        for k, v in artifact_focus_raw.items():
+            key = str(k).strip().lower()
+            if key not in ("attribute", "type"):
+                continue
+            vals: List[str] = []
+            seen: set[str] = set()
+            if isinstance(v, list):
+                for x in v:
+                    sval = str(x).strip().upper()
+                    if sval not in ("HP", "ATK", "DEF") or sval in seen:
+                        continue
+                    seen.add(sval)
+                    vals.append(sval)
+            if vals:
+                artifact_focus[key] = vals
+
+    artifact_substats_raw = raw.get("artifact_substats") or {}
+    artifact_substats: Dict[str, List[int]] = {}
+    if isinstance(artifact_substats_raw, dict):
+        for k, v in artifact_substats_raw.items():
+            key = str(k).strip().lower()
+            if key not in ("attribute", "type"):
+                continue
+            vals: List[int] = []
+            seen: set[int] = set()
+            if isinstance(v, list):
+                for x in v:
+                    try:
+                        eid = int(x)
+                    except Exception:
+                        continue
+                    if eid <= 0 or eid in seen:
+                        continue
+                    seen.add(eid)
+                    vals.append(eid)
+                    if len(vals) >= 2:
+                        break
+            if vals:
+                artifact_substats[key] = vals
+
     return Build(
         id=bid,
         name=name,
@@ -337,6 +395,8 @@ def _parse_build(raw: Any) -> Optional[Build]:
         set_options=set_options,
         mainstats=mainstats,
         min_stats=min_stats,
+        artifact_focus=artifact_focus,
+        artifact_substats=artifact_substats,
     )
 
 
