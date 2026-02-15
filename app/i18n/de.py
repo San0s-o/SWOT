@@ -59,6 +59,7 @@ STRINGS: dict[str, str] = {
     "label.no_team_selected": "Kein Team ausgewählt.",
     "label.no_units": "Keine Units.",
     "label.error": "Fehler",
+    "label.spd_tick_short": "Tick",
 
     # ── Tooltips ────────────────────────────────────────────────
     "tooltip.set_multi": "Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).",
@@ -68,6 +69,7 @@ STRINGS: dict[str, str] = {
     "tooltip.art_type_focus": "Typ-Artefakt: HP/ATK/DEF (Mehrfachauswahl, leer = Any).",
     "tooltip.art_sub": "{kind}-Artefakt: Substat auswählen (leer = Any).",
     "tooltip.passes": "Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).",
+    "tooltip.spd_tick": "Optionaler SPD-Tick pro Monster. Erzwingt den passenden SPD-Breakpoint.",
 
     # ── Group Boxes ─────────────────────────────────────────────
     "group.opt_order": "Optimierungsreihenfolge (Drag & Drop)",
@@ -98,6 +100,7 @@ STRINGS: dict[str, str] = {
     "header.stat": "Stat",
     "header.base": "Basis",
     "header.runes": "Runen",
+    "header.totem": "Totem",
     "header.leader": "Leader",
     "header.total": "Gesamt",
     "header.value": "Wert",

@@ -564,7 +564,12 @@ class SiegeDefCardsWidget(QWidget):
                     equipped_artifacts = artifact_overrides[uid]
                 else:
                     equipped_artifacts = self._equipped_artifacts_for(account, uid, rune_mode)
-                stats = compute_unit_stats(u, equipped, speed_lead_pct)
+                stats = compute_unit_stats(
+                    u,
+                    equipped,
+                    speed_lead_pct,
+                    int(account.sky_tribe_totem_spd_pct or 0),
+                )
                 unit_data.append((u, name, element, icon, equipped, equipped_artifacts, stats))
             if unit_data:
                 prefix = team_label_prefix or tr("card.defense", n="").strip()

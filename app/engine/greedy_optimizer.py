@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple, Set, Optional, Callable
 from ortools.sat.python import cp_model
 
 from app.domain.models import AccountData, Rune, Artifact
+from app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
 from app.domain.presets import (
     BuildStore,
     Build,
@@ -194,6 +195,7 @@ class GreedyRequest:
     enforce_turn_order: bool = True
     unit_team_index: Dict[int, int] | None = None
     unit_team_turn_order: Dict[int, int] | None = None
+    unit_spd_leader_bonus_flat: Dict[int, int] | None = None
 
 @dataclass
 class GreedyUnitResult:
@@ -440,6 +442,7 @@ def _solve_single_unit_best(
     time_limit_s: float,
     workers: int,
     base_spd: int,
+    base_spd_bonus_flat: int,
     base_cr: int,
     base_cd: int,
     base_res: int,
@@ -654,15 +657,27 @@ def _solve_single_unit_best(
     else:
         model.Add(swift_set_active == 0)
 
-    final_speed_expr = int(base_spd or 0) + sum(speed_terms) + (swift_bonus_value * swift_set_active)
+    final_speed_expr = (
+        int(base_spd or 0)
+        + int(base_spd_bonus_flat or 0)
+        + sum(speed_terms)
+        + (swift_bonus_value * swift_set_active)
+    )
     if max_final_speed is not None and max_final_speed > 0:
         model.Add(final_speed_expr <= int(max_final_speed))
 
     for b_idx, b in enumerate(builds):
         vb = use_build[b_idx]
-        min_spd = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
-        if min_spd > 0:
-            model.Add(final_speed_expr >= min_spd).OnlyEnforceIf(vb)
+        spd_tick = int(getattr(b, "spd_tick", 0) or 0)
+        min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
+        min_spd_tick = int(min_spd_for_tick(spd_tick) or 0)
+        min_spd_required = max(min_spd_cfg, min_spd_tick)
+        if min_spd_required > 0:
+            model.Add(final_speed_expr >= min_spd_required).OnlyEnforceIf(vb)
+        if spd_tick > 0:
+            max_spd_tick = int(max_spd_for_tick(spd_tick) or 0)
+            if max_spd_tick > 0:
+                model.Add(final_speed_expr <= max_spd_tick).OnlyEnforceIf(vb)
 
     # quality objective (2nd phase after speed is pinned)
     quality_terms = []
@@ -941,6 +956,9 @@ def _run_greedy_pass(
         cur_art_pool = [a for a in artifact_pool if int(a.artifact_id or 0) not in blocked_artifacts]
         unit = account.units_by_id.get(uid)
         base_spd = int(unit.base_spd or 0) if unit else 0
+        totem_spd_bonus_flat = int(base_spd * int(account.sky_tribe_totem_spd_pct or 0) / 100)
+        leader_spd_bonus_flat = int((req.unit_spd_leader_bonus_flat or {}).get(int(uid), 0) or 0)
+        base_spd_bonus_flat = int(totem_spd_bonus_flat + leader_spd_bonus_flat)
         base_cr = int(unit.crit_rate or 15) if unit else 15
         base_cd = int(unit.crit_dmg or 50) if unit else 50
         base_res = int(unit.base_res or 15) if unit else 15
@@ -985,6 +1003,7 @@ def _run_greedy_pass(
             time_limit_s=float(time_limit_per_unit_s),
             workers=req.workers,
             base_spd=base_spd,
+            base_spd_bonus_flat=base_spd_bonus_flat,
             base_cr=base_cr,
             base_cd=base_cd,
             base_res=base_res,

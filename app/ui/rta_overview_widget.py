@@ -166,7 +166,12 @@ class RtaOverviewWidget(QWidget):
             icon = _icon_for(self._monster_db, unit.unit_master_id, self._assets_dir)
             runes = self._account.equipped_runes_for(uid, mode="rta")
             artifacts = self._equipped_artifacts_for(uid)
-            stats = compute_unit_stats(unit, runes, self._current_speed_lead_pct)
+            stats = compute_unit_stats(
+                unit,
+                runes,
+                self._current_speed_lead_pct,
+                int(self._account.sky_tribe_totem_spd_pct or 0),
+            )
             entries.append((unit, name, element, icon, runes, artifacts, stats))
 
         # Sort by SPD descending (turn order: fastest first)

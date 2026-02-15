@@ -15,6 +15,9 @@ def _safe_int(x: Any, default: int = 0) -> int:
 
 
 _RUNE_CLASS_IDS = {1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16}
+_SKY_TRIBE_TOTEM_DECO_MASTER_ID = 6
+_SKY_TRIBE_TOTEM_MAX_LEVEL = 20
+_SKY_TRIBE_TOTEM_MAX_SPD_PCT = 15
 
 
 def _parse_rune_origin_class(r: Dict[str, Any]) -> int:
@@ -23,6 +26,21 @@ def _parse_rune_origin_class(r: Dict[str, Any]) -> int:
         return extra
     cls = _safe_int(r.get("class"), 0)
     return cls if cls in _RUNE_CLASS_IDS else 0
+
+
+def _sky_tribe_totem_spd_pct_from_level(level: int) -> int:
+    lvl = max(0, min(int(level or 0), _SKY_TRIBE_TOTEM_MAX_LEVEL))
+    return int(lvl * _SKY_TRIBE_TOTEM_MAX_SPD_PCT / _SKY_TRIBE_TOTEM_MAX_LEVEL)
+
+
+def _extract_sky_tribe_totem_level(data: Dict[str, Any]) -> int:
+    for deco in (data.get("deco_list") or []):
+        if not isinstance(deco, dict):
+            continue
+        if _safe_int(deco.get("master_id")) != _SKY_TRIBE_TOTEM_DECO_MASTER_ID:
+            continue
+        return max(0, _safe_int(deco.get("level"), 0))
+    return 0
 
 
 def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) -> Artifact | None:
@@ -71,6 +89,8 @@ def load_account_from_data(raw_data: Dict[str, Any]) -> AccountData:
 
 def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
     acc = AccountData()
+    acc.sky_tribe_totem_level = _extract_sky_tribe_totem_level(data)
+    acc.sky_tribe_totem_spd_pct = _sky_tribe_totem_spd_pct_from_level(acc.sky_tribe_totem_level)
 
     unit_list = data.get("unit_list", []) or []
     for u in unit_list:

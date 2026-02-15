@@ -121,6 +121,7 @@ class Build:
     priority: int = 1
     optimize_order: int = 0
     turn_order: int = 0
+    spd_tick: int = 0
     set_options: List[List[str]] = field(default_factory=list)
     mainstats: Dict[int, List[str]] = field(default_factory=dict)
     min_stats: Dict[str, int] = field(default_factory=dict)
@@ -269,6 +270,7 @@ def _build_to_json(b: Build) -> Dict[str, Any]:
         "priority": int(b.priority),
         "optimize_order": int(b.optimize_order),
         "turn_order": int(b.turn_order),
+        "spd_tick": int(b.spd_tick),
         "set_options": b.set_options or [],
         "mainstats": {str(k): (v or []) for k, v in (b.mainstats or {}).items()},
         "min_stats": {str(k): int(v) for k, v in (b.min_stats or {}).items()},
@@ -303,6 +305,12 @@ def _parse_build(raw: Any) -> Optional[Build]:
         turn_order = int(raw.get("turn_order") or 0)
     except Exception:
         turn_order = 0
+    try:
+        spd_tick = int(raw.get("spd_tick") or 0)
+    except Exception:
+        spd_tick = 0
+    if spd_tick not in (0, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+        spd_tick = 0
 
     set_options_raw = raw.get("set_options") or []
     set_options: List[List[str]] = []
@@ -392,6 +400,7 @@ def _parse_build(raw: Any) -> Optional[Build]:
         priority=priority,
         optimize_order=optimize_order,
         turn_order=turn_order,
+        spd_tick=spd_tick,
         set_options=set_options,
         mainstats=mainstats,
         min_stats=min_stats,

@@ -55,6 +55,9 @@ class AccountData:
 
     # Raw defense lists
     guildsiege_defense_unit_list: List[int] = field(default_factory=list)
+    # Sky Tribe Totem (SPD building) extracted from account JSON.
+    sky_tribe_totem_level: int = 0
+    sky_tribe_totem_spd_pct: int = 0
 
     # Mode-specific rune equipment: unit_id -> [rune_id, ...]
     # These come from equip_info_list (siege/guild) and world_arena_rune_equip_list (RTA)
@@ -112,11 +115,13 @@ class AccountData:
 # Stat computation: base + rune bonuses
 # ============================================================
 def compute_unit_stats(unit: Unit, equipped_runes: List[Rune],
-                       speed_lead_pct: int = 0) -> Dict[str, int]:
+                       speed_lead_pct: int = 0,
+                       sky_tribe_totem_spd_pct: int = 0) -> Dict[str, int]:
     """Compute total stats for a unit including all rune bonuses and set bonuses.
 
     *equipped_runes* must already be filtered to the runes on this unit.
     *speed_lead_pct* is the best speed-lead percentage in the team (0 if none).
+    *sky_tribe_totem_spd_pct* is the account-wide SPD building bonus in percent.
     """
     base_hp  = int((unit.base_con or 0) * 15)
     base_atk = int(unit.base_atk or 0)
@@ -175,12 +180,13 @@ def compute_unit_stats(unit: Unit, equipped_runes: List[Rune],
     swift_sets = rune_set_ids.count(3) // 4
     spd_from_swift = int(base_spd * (25 * swift_sets) / 100)
     spd_from_lead = int(base_spd * speed_lead_pct / 100)
+    spd_from_totem = int(base_spd * int(sky_tribe_totem_spd_pct or 0) / 100)
 
     return {
         "HP":  int(base_hp  + flat_hp  + base_hp  * pct_hp  // 100),
         "ATK": int(base_atk + flat_atk + base_atk * pct_atk // 100),
         "DEF": int(base_def + flat_def + base_def * pct_def // 100),
-        "SPD": int(base_spd + add_spd  + spd_from_swift + spd_from_lead),
+        "SPD": int(base_spd + add_spd + spd_from_swift + spd_from_lead + spd_from_totem),
         "CR":  int(base_cr  + add_cr),
         "CD":  int(base_cd  + add_cd),
         "RES": int(base_res + add_res),

@@ -35,6 +35,7 @@ from app.domain.presets import (
     ARTIFACT_MAIN_KEYS,
     EFFECT_ID_TO_MAINSTAT_KEY,
 )
+from app.domain.speed_ticks import allowed_spd_ticks, min_spd_for_tick
 from app.engine.greedy_optimizer import optimize_greedy, GreedyRequest, GreedyUnitResult
 from app.engine.efficiency import rune_efficiency
 from app.services.account_persistence import AccountPersistence
@@ -462,6 +463,7 @@ class BuildDialog(QDialog):
 
         self._opt_order_list: QListWidget | None = None
         self._team_order_lists: List[QListWidget] = []
+        self._team_spd_tick_combo_by_unit: Dict[int, QComboBox] = {}
 
         if show_order_sections:
             # Global optimization order (independent from team turn order)
@@ -508,21 +510,51 @@ class BuildDialog(QDialog):
                 lw.setSelectionMode(QAbstractItemView.SingleSelection)
                 lw.setIconSize(QSize(36, 36))
                 lw.setMinimumHeight(140)
-                sortable: List[Tuple[int, int, int, str]] = []
+                sortable: List[Tuple[int, int, int, str, int]] = []
                 for pos, (uid, label) in enumerate(team_units):
                     builds = self.preset_store.get_unit_builds(self.mode, uid)
                     b0 = builds[0] if builds else Build.default_any()
                     turn = int(getattr(b0, "turn_order", 0) or 0)
                     key = turn if turn > 0 else 999
-                    sortable.append((key, pos, uid, label))
+                    spd_tick = int(getattr(b0, "spd_tick", 0) or 0)
+                    sortable.append((key, pos, uid, label, spd_tick))
                 sortable.sort(key=lambda x: (x[0], x[1]))
-                for _, _, uid, label in sortable:
-                    it = QListWidgetItem(label)
+                for _, _, uid, label, spd_tick in sortable:
+                    it = QListWidgetItem()
                     it.setData(Qt.UserRole, int(uid))
+                    lw.addItem(it)
+
+                    row_widget = QWidget()
+                    row_layout = QHBoxLayout(row_widget)
+                    row_layout.setContentsMargins(2, 2, 2, 2)
+                    row_layout.setSpacing(6)
+
+                    icon_lbl = QLabel()
                     icon = self._unit_icon_fn(uid)
                     if not icon.isNull():
-                        it.setIcon(icon)
-                    lw.addItem(it)
+                        icon_lbl.setPixmap(icon.pixmap(28, 28))
+                    row_layout.addWidget(icon_lbl)
+
+                    txt_lbl = QLabel(label)
+                    row_layout.addWidget(txt_lbl, 1)
+
+                    tick_lbl = QLabel(tr("label.spd_tick_short"))
+                    row_layout.addWidget(tick_lbl)
+
+                    tick_cmb = _NoScrollComboBox()
+                    tick_cmb.setMinimumWidth(72)
+                    tick_cmb.addItem("—", 0)
+                    for tick in allowed_spd_ticks():
+                        req_spd = int(min_spd_for_tick(tick))
+                        tick_cmb.addItem(f"{tick} (>= {req_spd})", int(tick))
+                    idx = tick_cmb.findData(int(spd_tick))
+                    tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)
+                    tick_cmb.setToolTip(tr("tooltip.spd_tick"))
+                    row_layout.addWidget(tick_cmb)
+
+                    self._team_spd_tick_combo_by_unit[int(uid)] = tick_cmb
+                    it.setSizeHint(row_widget.sizeHint())
+                    lw.setItemWidget(it, row_widget)
                 self._team_order_lists.append(lw)
                 order_grid.addWidget(lw, 1, t)
             layout.addWidget(order_box)
@@ -849,6 +881,16 @@ class BuildDialog(QDialog):
                     out[uid] = idx + 1
         return out
 
+    def _team_spd_tick_by_unit(self) -> Dict[int, int]:
+        if not self._team_spd_tick_combo_by_unit:
+            return {}
+        out: Dict[int, int] = {}
+        for uid, cmb in self._team_spd_tick_combo_by_unit.items():
+            if cmb is None:
+                continue
+            out[int(uid)] = int(cmb.currentData() or 0)
+        return out
+
     def _collect_artifact_substat_options_by_type(self, account: AccountData | None) -> Dict[int, List[int]]:
         out: Dict[int, Set[int]] = {
             1: set(ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(1, [])),
@@ -902,6 +944,7 @@ class BuildDialog(QDialog):
     def apply_to_store(self) -> None:
         optimize_order_by_uid = self._optimize_order_by_unit()
         team_turn_order_by_uid = self._team_turn_order_by_unit()
+        team_spd_tick_by_uid = self._team_spd_tick_by_unit()
 
         for unit_id in self._set1_combo.keys():
             self._sync_set_combo_constraints_for_unit(int(unit_id))
@@ -960,6 +1003,7 @@ class BuildDialog(QDialog):
             art_type_substats = self._artifact_substat_ids_for_unit(unit_id, "type")
             optimize_order = int(optimize_order_by_uid.get(unit_id, 0) or 0)
             turn_order = int(team_turn_order_by_uid.get(unit_id, 0) or 0)
+            spd_tick = int(team_spd_tick_by_uid.get(unit_id, 0) or 0)
             min_stats: Dict[str, int] = {}
             if self._min_spd_spin[unit_id].value() > 0:
                 min_stats["SPD"] = int(self._min_spd_spin[unit_id].value())
@@ -1005,6 +1049,7 @@ class BuildDialog(QDialog):
                 priority=1,
                 optimize_order=optimize_order,
                 turn_order=turn_order,
+                spd_tick=spd_tick,
                 set_options=set_options,
                 mainstats=mainstats,
                 min_stats=min_stats,
@@ -1139,6 +1184,7 @@ class OptimizeResultDialog(QDialog):
         set_icon_fn: Callable[[int], QIcon],
         unit_base_stats_fn: Callable[[int], Dict[str, int]],
         unit_leader_bonus_fn: Callable[[int, List[int]], Dict[str, int]],
+        unit_totem_bonus_fn: Callable[[int], Dict[str, int]],
         unit_team_index: Optional[Dict[int, int]] = None,
         unit_display_order: Optional[Dict[int, int]] = None,
         mode_rune_owner: Optional[Dict[int, int]] = None,
@@ -1156,6 +1202,7 @@ class OptimizeResultDialog(QDialog):
         self._set_icon_fn = set_icon_fn
         self._unit_base_stats_fn = unit_base_stats_fn
         self._unit_leader_bonus_fn = unit_leader_bonus_fn
+        self._unit_totem_bonus_fn = unit_totem_bonus_fn
         self._unit_team_index = unit_team_index or {}
         self._unit_display_order = unit_display_order or {}
         self._rune_lookup = rune_lookup
@@ -1358,9 +1405,10 @@ class OptimizeResultDialog(QDialog):
         total_stats = self._unit_stats_fn(int(unit_id), team_unit_ids, runes_by_unit)
         base_stats = self._unit_base_stats_fn(int(unit_id))
         leader_bonus = self._unit_leader_bonus_fn(int(unit_id), team_unit_ids)
+        totem_bonus = self._unit_totem_bonus_fn(int(unit_id))
 
         self.detail_layout.addWidget(
-            self._build_stats_tab(unit_id, result, base_stats, total_stats, leader_bonus)
+            self._build_stats_tab(unit_id, result, base_stats, total_stats, leader_bonus, totem_bonus)
         )
 
         if result.ok and result.runes_by_slot:
@@ -1377,7 +1425,8 @@ class OptimizeResultDialog(QDialog):
     def _build_stats_tab(self, unit_id: int, result: GreedyUnitResult,
                          base_stats: Dict[str, int],
                          total_stats: Dict[str, int],
-                         leader_bonus: Dict[str, int]) -> QWidget:
+                         leader_bonus: Dict[str, int],
+                         totem_bonus: Dict[str, int]) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(8, 8, 8, 8)
@@ -1407,6 +1456,7 @@ class OptimizeResultDialog(QDialog):
 
         stat_keys = ["HP", "ATK", "DEF", "SPD", "CR", "CD", "RES", "ACC"]
         has_leader = any(leader_bonus.get(k, 0) != 0 for k in stat_keys)
+        has_totem = any(totem_bonus.get(k, 0) != 0 for k in stat_keys)
         table = QTableWidget()
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -1414,17 +1464,26 @@ class OptimizeResultDialog(QDialog):
         table.setRowCount(len(stat_keys))
 
         if self._stats_detailed:
+            headers = [tr("header.stat"), tr("header.base"), tr("header.runes")]
+            if has_totem:
+                headers.append(tr("header.totem"))
             if has_leader:
-                table.setColumnCount(5)
-                table.setHorizontalHeaderLabels([tr("header.stat"), tr("header.base"), tr("header.runes"), tr("header.leader"), tr("header.total")])
-            else:
-                table.setColumnCount(4)
-                table.setHorizontalHeaderLabels([tr("header.stat"), tr("header.base"), tr("header.runes"), tr("header.total")])
+                headers.append(tr("header.leader"))
+            headers.append(tr("header.total"))
+            table.setColumnCount(len(headers))
+            table.setHorizontalHeaderLabels(headers)
+
+            total_col = len(headers) - 1
+            leader_col = total_col - 1 if has_leader else -1
+            totem_col = (3 if has_totem else -1)
+            runes_col = 2
+
             for i, key in enumerate(stat_keys):
                 base = base_stats.get(key, 0)
                 total = total_stats.get(key, 0)
                 lead = leader_bonus.get(key, 0)
-                rune_bonus = total - base - lead
+                totem = totem_bonus.get(key, 0)
+                rune_bonus = total - base - lead - totem
                 table.setItem(i, 0, QTableWidgetItem(_stat_label_tr(key)))
                 it_b = QTableWidgetItem(str(base))
                 it_b.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -1432,19 +1491,20 @@ class OptimizeResultDialog(QDialog):
                 rune_str = f"+{rune_bonus}" if rune_bonus >= 0 else str(rune_bonus)
                 it_r = QTableWidgetItem(rune_str)
                 it_r.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                table.setItem(i, 2, it_r)
-                if has_leader:
+                table.setItem(i, runes_col, it_r)
+                if has_totem and totem_col >= 0:
+                    totem_str = f"+{totem}" if totem > 0 else str(totem) if totem else ""
+                    it_tt = QTableWidgetItem(totem_str)
+                    it_tt.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    table.setItem(i, totem_col, it_tt)
+                if has_leader and leader_col >= 0:
                     lead_str = f"+{lead}" if lead > 0 else str(lead) if lead else ""
                     it_l = QTableWidgetItem(lead_str)
                     it_l.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    table.setItem(i, 3, it_l)
-                    it_t = QTableWidgetItem(str(total))
-                    it_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    table.setItem(i, 4, it_t)
-                else:
-                    it_t = QTableWidgetItem(str(total))
-                    it_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    table.setItem(i, 3, it_t)
+                    table.setItem(i, leader_col, it_l)
+                it_t = QTableWidgetItem(str(total))
+                it_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(i, total_col, it_t)
         else:
             table.setColumnCount(2)
             table.setHorizontalHeaderLabels([tr("header.stat"), tr("header.value")])
@@ -2547,6 +2607,7 @@ class MainWindow(QMainWindow):
         )
         ordered_unit_ids = self._units_by_turn_order("siege", team.unit_ids)
         team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in team.unit_ids}
+        leader_spd_bonus_by_uid = self._leader_spd_bonus_map([team.unit_ids])
         team_turn_by_uid: Dict[int, int] = {}
         for uid in team.unit_ids:
             builds = self.presets.get_unit_builds("siege", int(uid))
@@ -2566,6 +2627,7 @@ class MainWindow(QMainWindow):
                 enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
+                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
             ),
         )
         self.lbl_team_opt_status.setText(res.message)
@@ -2614,6 +2676,7 @@ class MainWindow(QMainWindow):
             self._rune_set_icon,
             self._unit_base_stats,
             self._unit_leader_bonus,
+            self._unit_totem_bonus,
             unit_team_index=unit_team_index,
             unit_display_order=unit_display_order,
             mode_rune_owner=mode_rune_owner,
@@ -2699,6 +2762,18 @@ class MainWindow(QMainWindow):
             out["ACC"] = a
         return out
 
+    def _unit_totem_bonus(self, unit_id: int) -> Dict[str, int]:
+        out: Dict[str, int] = {}
+        if not self.account:
+            return out
+        u = self.account.units_by_id.get(unit_id)
+        if not u:
+            return out
+        pct = int(self.account.sky_tribe_totem_spd_pct or 0)
+        if pct > 0:
+            out["SPD"] = int(int(u.base_spd or 0) * pct / 100)
+        return out
+
     def _unit_final_spd_value(
         self,
         unit_id: int,
@@ -2728,11 +2803,12 @@ class MainWindow(QMainWindow):
         swift_sets = rune_set_ids.count(3) // 4
         set_spd_pct = 25 * swift_sets
         set_spd_bonus = int(base_spd * set_spd_pct / 100)
+        totem_spd_bonus = int(base_spd * int(self.account.sky_tribe_totem_spd_pct or 0) / 100)
 
         ls = self._team_leader_skill(team_unit_ids)
         lead_spd_bonus = int(base_spd * ls.amount / 100) if ls and ls.stat == "SPD%" else 0
 
-        return int(base_spd + rune_spd_flat + set_spd_bonus + lead_spd_bonus)
+        return int(base_spd + rune_spd_flat + set_spd_bonus + totem_spd_bonus + lead_spd_bonus)
 
     def _unit_final_stats_values(
         self,
@@ -2815,6 +2891,7 @@ class MainWindow(QMainWindow):
 
         swift_sets = rune_set_ids.count(3) // 4
         spd_from_swift = int(base_spd * (25 * swift_sets) / 100)
+        spd_from_totem = int(base_spd * int(self.account.sky_tribe_totem_spd_pct or 0) / 100)
 
         # Leader skill from monster 1 (first in team)
         ls = self._team_leader_skill(team_unit_ids)
@@ -2842,7 +2919,7 @@ class MainWindow(QMainWindow):
         hp = base_hp + flat_hp + int(base_hp * pct_hp / 100) + lead_hp
         atk = base_atk + flat_atk + int(base_atk * pct_atk / 100) + lead_atk
         deff = base_def + flat_def + int(base_def * pct_def / 100) + lead_def
-        spd = base_spd + add_spd + spd_from_swift + lead_spd
+        spd = base_spd + add_spd + spd_from_swift + spd_from_totem + lead_spd
 
         return {
             "HP": int(hp),
@@ -3033,6 +3110,7 @@ class MainWindow(QMainWindow):
         for idx, sel in enumerate(selections):
             for uid in sel.unit_ids:
                 team_idx_by_uid[int(uid)] = int(idx)
+        leader_spd_bonus_by_uid = self._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
         team_turn_by_uid: Dict[int, int] = {}
         for uid in all_units:
             builds = self.presets.get_unit_builds("siege", int(uid))
@@ -3052,6 +3130,7 @@ class MainWindow(QMainWindow):
                 enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
+                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
             ),
         )
         self.lbl_siege_validate.setText(res.message)
@@ -3088,6 +3167,18 @@ class MainWindow(QMainWindow):
         for i in range(0, len(unit_ids), group_size):
             group = unit_ids[i:i + group_size]
             out.extend(self._units_by_turn_order(mode, group))
+        return out
+
+    def _leader_spd_bonus_map(self, teams: List[List[int]]) -> Dict[int, int]:
+        out: Dict[int, int] = {}
+        if not self.account:
+            return out
+        for team in teams:
+            ids = [int(uid) for uid in (team or []) if int(uid) != 0]
+            if not ids:
+                continue
+            for uid in ids:
+                out[int(uid)] = int(self._unit_leader_bonus(int(uid), ids).get("SPD", 0) or 0)
         return out
 
     # ============================================================
@@ -3197,6 +3288,7 @@ class MainWindow(QMainWindow):
         for idx, sel in enumerate(selections):
             for uid in sel.unit_ids:
                 team_idx_by_uid[int(uid)] = int(idx)
+        leader_spd_bonus_by_uid = self._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
         team_turn_by_uid: Dict[int, int] = {}
         for uid in all_units:
             builds = self.presets.get_unit_builds("wgb", int(uid))
@@ -3216,6 +3308,7 @@ class MainWindow(QMainWindow):
                 enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
+                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
             ),
         )
         self.lbl_wgb_validate.setText(res.message)
@@ -3369,6 +3462,7 @@ class MainWindow(QMainWindow):
                 enforce_turn_order=True,
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
+                unit_spd_leader_bonus_flat={},
             ),
         )
         self.lbl_rta_validate.setText(res.message)

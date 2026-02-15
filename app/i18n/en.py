@@ -59,6 +59,7 @@ STRINGS: dict[str, str] = {
     "label.no_team_selected": "No team selected.",
     "label.no_units": "No units.",
     "label.error": "Error",
+    "label.spd_tick_short": "Tick",
 
     # ── Tooltips ────────────────────────────────────────────────
     "tooltip.set_multi": "Multi-select. After first selection only same-size sets (2-piece/4-piece).",
@@ -68,6 +69,7 @@ STRINGS: dict[str, str] = {
     "tooltip.art_type_focus": "Type artifact: HP/ATK/DEF (multi-select, empty = Any).",
     "tooltip.art_sub": "{kind} artifact: Select substat (empty = Any).",
     "tooltip.passes": "Number of optimizer passes (1 = single pass only).",
+    "tooltip.spd_tick": "Optional SPD tick per monster. Enforces the corresponding SPD breakpoint.",
 
     # ── Group Boxes ─────────────────────────────────────────────
     "group.opt_order": "Optimization Order (Drag & Drop)",
@@ -98,6 +100,7 @@ STRINGS: dict[str, str] = {
     "header.stat": "Stat",
     "header.base": "Base",
     "header.runes": "Runes",
+    "header.totem": "Totem",
     "header.leader": "Leader",
     "header.total": "Total",
     "header.value": "Value",
