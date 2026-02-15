@@ -26,7 +26,7 @@ from app.engine.efficiency import (
 )
 from app.i18n import tr
 
-# â”€â”€ colours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- colours ------------------------------------------------
 _BG = "#1e1e1e"
 _CARD_BG = "#2b2b2b"
 _CARD_BORDER = "#3a3a3a"
@@ -68,9 +68,9 @@ _EFF_BUCKET_COLORS = [
 _IMPORTANT_SET_IDS = [13, 15, 3, 10, 18, 14]  # Violent, Will, Swift, Despair, Destroy, Nemesis
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------
 # Summary card
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------
 class _SummaryCard(QFrame):
     def __init__(self, title: str, value: str, accent: str = _ACCENT, parent=None):
         super().__init__(parent)
@@ -108,9 +108,9 @@ class _SummaryCard(QFrame):
         self._lbl_title.setText(title)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------
 # Chart helpers
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------
 def _make_chart(title: str) -> QChart:
     chart = QChart()
     chart.setTitle(title)
@@ -352,9 +352,9 @@ class _IndexedLineChartView(QChartView):
         event.accept()
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------
 # Overview widget
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------
 class OverviewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -431,7 +431,7 @@ class OverviewWidget(QWidget):
         controls_row.addStretch(1)
         outer.addLayout(controls_row)
 
-        # â”€â”€ scrollable chart grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # -- scrollable chart grid --------------------
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {_BG}; }}")
@@ -449,7 +449,7 @@ class OverviewWidget(QWidget):
         self._art_eff_view: QChartView | None = None
         self._set_eff_view: QChartView | None = None
 
-    # â”€â”€ public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # -- public API ------------------------------------
     def set_data(self, account: AccountData) -> None:
         self._account = account
         self._update_cards(account)
@@ -469,7 +469,7 @@ class OverviewWidget(QWidget):
         if self._account is not None:
             self._build_charts(self._account)
 
-    # â”€â”€ cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # -- cards -----------------------------------------
     def _update_cards(self, acc: AccountData) -> None:
         n_units = len(acc.units_by_id)
         filtered_runes = [r for r in acc.runes if int(r.upgrade_curr or 0) >= 12]
@@ -510,7 +510,7 @@ class OverviewWidget(QWidget):
             else:
                 card.update_value("\u2014")
 
-    # â”€â”€ charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # -- charts ----------------------------------------
     def _clear_grid(self) -> None:
         while self._rune_set_host_layout.count():
             item = self._rune_set_host_layout.takeAt(0)
@@ -790,5 +790,6 @@ class OverviewWidget(QWidget):
             s.attachAxis(ax_y)
 
         return _IndexedLineChartView(chart, entries, zoom_callback=self._change_top_n)
+
 
 

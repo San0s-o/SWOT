@@ -53,6 +53,7 @@ Klicke auf **Builds (Sets+Mainstats)** um pro Monster festzulegen:
 | **Priorität** | Niedrigere Zahl = bekommt zuerst die besten Runen |
 | **Turn-Order** | Reihenfolge pro Team (wird bei der Optimierung immer erzwungen) |
 | **Durchläufe** | Anzahl Multi-Pass-Durchläufe (1–10), mit vorzeitigem Stop bei keiner Verbesserung |
+| **Qualitätsprofil** | `Fast` (schnell), `Balanced` (ausgewogen), `Max Qualität` (globale Qualitätsoptimierung), `GPU Search` (GPU-gestuetztes Varianten-Screening + CPU-Feinpruefung) |
 
 ### 6. Validieren
 
@@ -65,11 +66,15 @@ Klicke auf **Validieren (Pools/Teams)** bevor du optimierst. Die Validierung pr�
 ### 7. Optimieren
 
 Klicke auf **Optimieren (Runen)**. Der Optimizer:
-1. Weist Runen in Prioritäts-Reihenfolge zu (wichtigste Monster zuerst)
-2. Beachtet alle Set- und Mainstat-Vorgaben
-3. Maximiert Runen-Effizienz und Stat-Gewichtung
-4. Erzwingt Turn-Order innerhalb der Teams
-5. Nutzt auf Wunsch mehrere Durchläufe und stoppt automatisch, wenn keine Verbesserung mehr gefunden wird
+1. Beachtet alle Set-, Mainstat-, Min-Stat- und Tick/Turn-Order-Vorgaben
+2. Verwendet das gewählte **Qualitätsprofil**:
+   - `Fast`: schneller Greedy-Lauf (geringerer Suchraum)
+   - `Balanced`: Greedy + Refinement ab Lauf 2 (Effizienz wichtiger, solange Constraints eingehalten sind)
+   - `Max Qualität`: globales OR-Tools-Modell über alle ausgewählten Monster gleichzeitig (effizienzfokussiert)
+   - `GPU Search`: sehr viele Varianten werden auf der GPU vorgerankt; die besten Kandidaten werden danach mit dem Solver auf CPU feinoptimiert
+3. Nutzt bei `Fast`/`Balanced` mehrere Durchläufe (1–10) und stoppt vorzeitig bei stabiler Lösung ohne Verbesserung
+4. Führt bei `Max Qualität` eine globale Optimierung statt Multi-Pass aus (Durchläufe werden dafür nicht verwendet)
+5. Zeigt während der Berechnung einen Fortschrittsdialog, damit die App sichtbar weiterarbeitet
 
 Das Ergebnis zeigt pro Monster:
 - Zugewiesene Runen (Slot 1–6) mit allen Stats
@@ -89,6 +94,61 @@ Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Ein
 - Windows 10/11
 - Summoners War JSON-Export (z.B. via SWEX)
 
+### GPU Search Voraussetzungen
+
+`GPU Search` wird nur angezeigt, wenn PyTorch mit CUDA in der aktiven Python-Umgebung verfügbar ist.
+
+Benötigt:
+- NVIDIA GPU mit aktuellem Treiber
+- PyTorch CUDA Build (nicht CPU-only), z.B.:
+
+```bash
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+Prüfen:
+
+```bash
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'n/a')"
+```
+
+Wenn `True` ausgegeben wird, ist GPU Search aktivierbar.
+
+### GPU Profile (Fast/Balanced/Max) - Laufzeit und Suchumfang
+
+Die GPU-Profile unterscheiden sich in Suchintensität und Laufzeit.
+Dabei gilt:
+- **GPU-Screening** = viele Varianten werden auf der GPU vorgerankt
+- **CPU-Evals** = Top-Kandidaten werden mit dem Solver feinoptimiert
+
+Ungefaehre Laufzeit mit UI-Default `time_limit_per_unit_s = 5.0`:
+- `Fast` (Greedy): ca. `5s * Monsteranzahl` (1 Pass, kleiner Suchraum)
+- `Balanced` (Greedy + Refine): ca. `5s * Monsteranzahl * Durchlaeufe` (mit Early-Stop)
+- `Max Qualität` (CPU global): ca. `7.5s * Monsteranzahl`
+- `GPU Fast`: ca. `10s * Monsteranzahl`
+- `GPU Balanced`: ca. `20s * Monsteranzahl`
+- `GPU Max`: ca. `30s * Monsteranzahl`
+
+CPU-Profil-Verhalten:
+
+| Profil | Suchansatz | Durchlaeufe |
+|---|---|---|
+| `Fast` | Greedy-only | effektiv 1 (auch wenn mehr gesetzt ist, stoppt sehr frueh) |
+| `Balanced` | Greedy + Refine ab Lauf 2 | 1-10, mit Early-Stop bei stabiler Loesung |
+| `Max Qualität` | globales OR-Tools Modell (alle Monster gleichzeitig) | keine Multi-Pass-Durchlaeufe |
+
+Aktuelle Profil-Parameter (bei CUDA):
+
+| Profil | GPU batch size | GPU batches/cycle | Max CPU-Evals |
+|---|---:|---:|---:|
+| `GPU Fast` | `units * 2048` (max 262144) | `min(20, units/2 + 2)` | `units * 10` (max 720) |
+| `GPU Balanced` | `units * 8192` (max 262144) | `min(20, units/2 + 8)` | `units * 20` (max 720) |
+| `GPU Max` | `units * 12288` (max 262144) | `min(20, units/2 + 12)` | `units * 26` (max 720) |
+
+Hinweis:
+- Reale Laufzeit kann kuerzer sein (Early-Stop bei keiner Verbesserung, Zeitlimit, manueller Abbruch).
+- Hohe GPU-Auslastung ist nicht dauerhaft garantiert, weil die finale Feinauswahl weiterhin CPU-Solver nutzt.
+
 ## Tests
 
 Folgende automatisierte Tests sind jetzt enthalten:
@@ -107,8 +167,9 @@ pytest -q tests/test_license_service.py tests/test_update_service.py tests/test_
 Runtime- und Qualitaetsvergleich des Greedy-Optimizers:
 
 ```bash
-python benchmark_optimizer.py --mode rta --units 15 --passes 3 --runs 5 --time-limit 1.5 --out-json benchmark/latest.json
+python benchmark_optimizer.py --mode rta --units 15 --passes 3 --runs 5 --time-limit 1.5 --quality-profile balanced --multi-pass-strategy greedy_refine --speed-slack 1 --rune-top-per-set 200 --out-json benchmark/latest.json
 ```
 
 Hinweis:
 - Ohne `--snapshot` nimmt das Script automatisch den aktiven gespeicherten Snapshot (inkl. Legacy-Fallback).
+- Relevante Flags: `--quality-profile (fast|balanced|max_quality)`, `--rune-top-per-set`, `--speed-slack`, `--multi-pass-strategy`.

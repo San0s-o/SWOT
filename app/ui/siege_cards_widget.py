@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import weakref
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import ClassVar, List, Dict, Optional, Tuple, Any
 
 from PySide6.QtCore import Qt, QSize, QRectF
 from PySide6.QtGui import QIcon, QPainter, QColor, QFont, QBrush
@@ -131,6 +132,99 @@ def _artifact_rich_tooltip(art: Artifact) -> str:
     return "<br>".join(lines)
 
 
+def _unit_base_stats(unit: Unit) -> Dict[str, int]:
+    return {
+        "HP": int((unit.base_con or 0) * 15),
+        "ATK": int(unit.base_atk or 0),
+        "DEF": int(unit.base_def or 0),
+        "SPD": int(unit.base_spd or 0),
+        "CR": int(unit.crit_rate or 15),
+        "CD": int(unit.crit_dmg or 50),
+        "RES": int(unit.base_res or 15),
+        "ACC": int(unit.base_acc or 0),
+    }
+
+
+def _leader_bonus_for_unit(unit: Unit, leader_skill: Any) -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    if leader_skill is None:
+        return out
+    stat = str(getattr(leader_skill, "stat", "") or "").upper()
+    amount = int(getattr(leader_skill, "amount", 0) or 0)
+    if amount <= 0:
+        return out
+    base = _unit_base_stats(unit)
+    if stat == "HP%":
+        out["HP"] = int(base["HP"] * amount / 100)
+    elif stat == "ATK%":
+        out["ATK"] = int(base["ATK"] * amount / 100)
+    elif stat == "DEF%":
+        out["DEF"] = int(base["DEF"] * amount / 100)
+    elif stat == "SPD%":
+        out["SPD"] = int(base["SPD"] * amount / 100)
+    elif stat == "CR%":
+        out["CR"] = int(amount)
+    elif stat == "CD%":
+        out["CD"] = int(amount)
+    elif stat == "RES%":
+        out["RES"] = int(amount)
+    elif stat == "ACC%":
+        out["ACC"] = int(amount)
+    return out
+
+
+def _artifact_stat_bonus(artifacts: List[Artifact]) -> Dict[str, int]:
+    out: Dict[str, int] = {k: 0 for k in ("HP", "ATK", "DEF", "SPD", "CR", "CD", "RES", "ACC")}
+
+    def _acc(eff_id: int, value: int) -> None:
+        # Keep only direct primary-stat effects; artifact combat effects are not base stat lines.
+        if eff_id in (1, 100):
+            out["HP"] += int(value)
+        elif eff_id in (3, 101):
+            out["ATK"] += int(value)
+        elif eff_id in (5, 102):
+            out["DEF"] += int(value)
+
+    for art in artifacts or []:
+        try:
+            if art.pri_effect and len(art.pri_effect) >= 2:
+                _acc(int(art.pri_effect[0] or 0), int(art.pri_effect[1] or 0))
+        except Exception:
+            pass
+    return out
+
+
+def _build_stat_breakdown(
+    unit: Unit,
+    artifacts: List[Artifact],
+    total_with_tower_and_leader: Dict[str, int],
+    leader_bonus: Dict[str, int],
+    sky_tribe_totem_spd_pct: int = 0,
+) -> Dict[str, Dict[str, int]]:
+    base = _unit_base_stats(unit)
+    totem_spd = int(base["SPD"] * int(sky_tribe_totem_spd_pct or 0) / 100)
+    total = {k: int(total_with_tower_and_leader.get(k, 0)) for k in base.keys()}
+    # subtract totem bonus from SPD so card shows only rune values
+    total["SPD"] -= totem_spd
+    leader = {k: int(leader_bonus.get(k, 0)) for k in base.keys()}
+    total_no_leader = {k: int(total[k] - leader[k]) for k in base.keys()}
+    art = _artifact_stat_bonus(artifacts)
+    total_no_leader = {k: int(total_no_leader[k] + art.get(k, 0)) for k in base.keys()}
+    total_with_leader = {k: int(total_no_leader[k] + leader[k]) for k in base.keys()}
+    rune_art: Dict[str, int] = {}
+    for k in base.keys():
+        rune_art[k] = int(total_no_leader[k] - base[k])
+    return {
+        k: {
+            "base": int(base[k]),
+            "rune_art": int(rune_art[k]),
+            "total": int(total_no_leader[k]),
+            "total_leader": int(total_with_leader[k]),
+        }
+        for k in base.keys()
+    }
+
+
 # ============================================================
 #  RunePieChart – custom QPainter donut chart (compact)
 # ============================================================
@@ -198,6 +292,10 @@ class RunePieChart(QWidget):
 #  MonsterCard – single monster in a defence team (compact)
 # ============================================================
 class MonsterCard(QFrame):
+    # 0 = Gesamt, 1 = Gesamt+LS, 2 = Detail (Base + Bonus)
+    _view_mode: ClassVar[int] = 0
+    _all_instances: ClassVar[weakref.WeakSet["MonsterCard"]] = weakref.WeakSet()
+
     def __init__(
         self,
         unit: Unit,
@@ -205,12 +303,13 @@ class MonsterCard(QFrame):
         element: str,
         monster_icon: QIcon,
         equipped_runes: List[Rune],
-        computed_stats: Dict[str, int],
+        computed_stats: Dict[str, Dict[str, int]],
         assets_dir: Path,
         equipped_artifacts: Optional[List[Artifact]] = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
+        MonsterCard._all_instances.add(self)
         self._runes = equipped_runes
         self._artifacts = list(equipped_artifacts or [])
         self._assets_dir = assets_dir
@@ -317,33 +416,12 @@ class MonsterCard(QFrame):
         eff_lbl.setStyleSheet("font-size: 8pt; color: #bbb;")
         stats_box.addWidget(eff_lbl)
 
-        # stats 4x2 grid
-        stats_grid = QGridLayout()
-        stats_grid.setSpacing(3)
-        stats_grid.setContentsMargins(0, 4, 0, 0)
-        cs = self._computed_stats
-        stat_data = [
-            ("HP",  cs.get("HP", 0)),
-            ("ATK", cs.get("ATK", 0)),
-            ("DEF", cs.get("DEF", 0)),
-            ("SPD", cs.get("SPD", 0)),
-            ("CR",  cs.get("CR", 0)),
-            ("CD",  cs.get("CD", 0)),
-            ("RES", cs.get("RES", 0)),
-            ("ACC", cs.get("ACC", 0)),
-        ]
-        for i, (label, value) in enumerate(stat_data):
-            row, col = divmod(i, 2)
-            display_label = _card_stat_label(label)
-            key_lbl = QLabel(f"<b>{display_label}:</b>")
-            key_lbl.setTextFormat(Qt.RichText)
-            key_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            key_lbl.setStyleSheet("font-size: 9pt;")
-            val_lbl = QLabel(f"{value:,}".replace(",", "."))
-            val_lbl.setStyleSheet("font-size: 9pt;")
-            stats_grid.addWidget(key_lbl, row, col * 2)
-            stats_grid.addWidget(val_lbl, row, col * 2 + 1)
-        stats_box.addLayout(stats_grid)
+        # stats grid (clickable to toggle view mode)
+        self._stats_grid = QGridLayout()
+        self._stats_grid.setSpacing(3)
+        self._stats_grid.setContentsMargins(0, 4, 0, 0)
+        self._refresh_stats()
+        stats_box.addLayout(self._stats_grid)
         mid.addLayout(stats_box, 1)
         layout.addLayout(mid)
 
@@ -391,6 +469,72 @@ class MonsterCard(QFrame):
         art_bar.addStretch()
         layout.addLayout(art_bar)
 
+    # ── stats view toggle ──────────────────────────────────
+    def _refresh_stats(self) -> None:
+        """Rebuild stats grid based on current view mode."""
+        # clear existing widgets
+        while self._stats_grid.count():
+            item = self._stats_grid.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        cs = self._computed_stats
+        mode = MonsterCard._view_mode
+        _PERCENT_STATS = {"CR", "CD", "RES", "ACC"}
+        row = 0
+
+        for group in (["HP", "ATK", "DEF", "SPD"], ["CR", "CD", "RES", "ACC"]):
+            for label in group:
+                display_label = _card_stat_label(label)
+                key_lbl = QLabel(f"<b>{display_label}</b>")
+                key_lbl.setTextFormat(Qt.RichText)
+                key_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                key_lbl.setStyleSheet("font-size: 9pt; color: #e8c252;")
+
+                vals = cs.get(label, {})
+                base_v = int(vals.get("base", 0))
+                rune_art_v = int(vals.get("rune_art", 0))
+                total_v = int(vals.get("total", 0))
+                total_ls_v = int(vals.get("total_leader", total_v))
+                suffix = "%" if label in _PERCENT_STATS else ""
+
+                self._stats_grid.addWidget(key_lbl, row, 0)
+
+                if mode == 0:  # Gesamt
+                    val_lbl = QLabel(f"{total_v:,}{suffix}".replace(",", "."))
+                    val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    val_lbl.setStyleSheet("font-size: 9pt; color: #ddd;")
+                    self._stats_grid.addWidget(val_lbl, row, 1)
+                elif mode == 1:  # Gesamt+LS
+                    val_lbl = QLabel(f"{total_ls_v:,}{suffix}".replace(",", "."))
+                    val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    val_lbl.setStyleSheet("font-size: 9pt; color: #ffcc66;")
+                    self._stats_grid.addWidget(val_lbl, row, 1)
+                else:  # Detail: Base + green bonus
+                    base_lbl = QLabel(f"{base_v:,}{suffix}".replace(",", "."))
+                    base_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    base_lbl.setStyleSheet("font-size: 9pt; color: #ddd;")
+                    bonus_lbl = QLabel(f"+{rune_art_v:,}{suffix}".replace(",", "."))
+                    bonus_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    bonus_lbl.setStyleSheet("font-size: 9pt; color: #6dcc5a;")
+                    self._stats_grid.addWidget(base_lbl, row, 1)
+                    self._stats_grid.addWidget(bonus_lbl, row, 2)
+
+                row += 1
+            # spacer row between groups
+            if group[0] == "HP":
+                spacer = QLabel("")
+                spacer.setFixedHeight(6)
+                self._stats_grid.addWidget(spacer, row, 0)
+                row += 1
+
+    def mousePressEvent(self, event) -> None:
+        MonsterCard._view_mode = (MonsterCard._view_mode + 1) % 3
+        for card in MonsterCard._all_instances:
+            card._refresh_stats()
+        super().mousePressEvent(event)
+
     # ── helpers ──────────────────────────────────────────────
     def _rune_set_icon(self, set_id: int) -> QIcon:
         name = SET_NAMES.get(set_id, "")
@@ -407,7 +551,7 @@ class TeamCard(QGroupBox):
     def __init__(
         self,
         team_index: int,
-        units: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, int]]],
+        units: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, Dict[str, int]]]],
         assets_dir: Path,
         parent: QWidget | None = None,
         title: str | None = None,
@@ -540,15 +684,25 @@ class SiegeDefCardsWidget(QWidget):
                       artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
                       team_label_prefix: str = ""):
         for ti, team in enumerate(teams, start=1):
-            speed_lead_pct = 0
-            for uid in team:
-                u = account.units_by_id.get(uid)
-                if u:
-                    lead = int(monster_db.speed_lead_percent_for(u.unit_master_id) or 0)
-                    if lead > speed_lead_pct:
-                        speed_lead_pct = lead
+            team_leader = None
+            if team:
+                lead_unit = account.units_by_id.get(int(team[0]))
+                if lead_unit:
+                    ls = monster_db.leader_skill_for(lead_unit.unit_master_id)
+                    if ls:
+                        area = str(getattr(ls, "area", "") or "")
+                        if rune_mode == "rta":
+                            if area in ("General", "Arena"):
+                                team_leader = ls
+                        else:
+                            if area in ("General", "Guild"):
+                                team_leader = ls
 
-            unit_data: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, int]]] = []
+            speed_lead_pct = 0
+            if team_leader and str(getattr(team_leader, "stat", "") or "").upper() == "SPD%":
+                speed_lead_pct = int(getattr(team_leader, "amount", 0) or 0)
+
+            unit_data: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, Dict[str, int]]]] = []
             for uid in team:
                 u = account.units_by_id.get(uid)
                 if not u:
@@ -570,7 +724,15 @@ class SiegeDefCardsWidget(QWidget):
                     speed_lead_pct,
                     int(account.sky_tribe_totem_spd_pct or 0),
                 )
-                unit_data.append((u, name, element, icon, equipped, equipped_artifacts, stats))
+                leader_bonus = _leader_bonus_for_unit(u, team_leader)
+                stat_breakdown = _build_stat_breakdown(
+                    unit=u,
+                    artifacts=equipped_artifacts,
+                    total_with_tower_and_leader=stats,
+                    leader_bonus=leader_bonus,
+                    sky_tribe_totem_spd_pct=int(account.sky_tribe_totem_spd_pct or 0),
+                )
+                unit_data.append((u, name, element, icon, equipped, equipped_artifacts, stat_breakdown))
             if unit_data:
                 prefix = team_label_prefix or tr("card.defense", n="").strip()
                 title = f"{prefix} {ti}"

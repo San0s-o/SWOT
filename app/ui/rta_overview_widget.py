@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from app.domain.models import AccountData, Unit, Rune, Artifact, compute_unit_stats
 from app.domain.monster_db import MonsterDB
-from app.ui.siege_cards_widget import MonsterCard, _icon_for
+from app.ui.siege_cards_widget import MonsterCard, _icon_for, _build_stat_breakdown
 from app.i18n import tr
 
 
@@ -156,7 +156,7 @@ class RtaOverviewWidget(QWidget):
         active_uids = self._account.rta_active_unit_ids()
 
         # Build (unit, name, element, icon, runes, artifacts, stats) tuples
-        entries: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, int]]] = []
+        entries: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, Dict[str, int]], int]] = []
         for uid in active_uids:
             unit = self._account.units_by_id.get(uid)
             if not unit:
@@ -172,13 +172,23 @@ class RtaOverviewWidget(QWidget):
                 self._current_speed_lead_pct,
                 int(self._account.sky_tribe_totem_spd_pct or 0),
             )
-            entries.append((unit, name, element, icon, runes, artifacts, stats))
+            leader_bonus: Dict[str, int] = {}
+            if int(self._current_speed_lead_pct or 0) > 0:
+                leader_bonus["SPD"] = int(int(unit.base_spd or 0) * int(self._current_speed_lead_pct) / 100)
+            breakdown = _build_stat_breakdown(
+                unit=unit,
+                artifacts=artifacts,
+                total_with_tower_and_leader=stats,
+                leader_bonus=leader_bonus,
+                sky_tribe_totem_spd_pct=int(self._account.sky_tribe_totem_spd_pct or 0),
+            )
+            entries.append((unit, name, element, icon, runes, artifacts, breakdown, int(stats.get("SPD", 0))))
 
         # Sort by SPD descending (turn order: fastest first)
-        entries.sort(key=lambda e: e[6].get("SPD", 0), reverse=True)
+        entries.sort(key=lambda e: int(e[7]), reverse=True)
 
         # Place into 4-column grid
-        for idx, (unit, name, element, icon, runes, artifacts, stats) in enumerate(entries):
+        for idx, (unit, name, element, icon, runes, artifacts, stats, _spd) in enumerate(entries):
             row, col = divmod(idx, COLUMNS)
             card = MonsterCard(
                 unit,

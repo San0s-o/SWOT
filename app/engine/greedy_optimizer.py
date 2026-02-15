@@ -7,6 +7,7 @@ from ortools.sat.python import cp_model
 
 from app.domain.models import AccountData, Rune, Artifact
 from app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
+from app.engine.efficiency import rune_efficiency, artifact_efficiency
 from app.domain.presets import (
     BuildStore,
     Build,
@@ -49,6 +50,15 @@ ARTIFACT_BONUS_FOR_SAME_UNIT = 60
 ARTIFACT_BUILD_FOCUS_BONUS = 35
 ARTIFACT_BUILD_MATCH_BONUS = 140
 ARTIFACT_BUILD_VALUE_WEIGHT = 6
+DEFAULT_BUILD_PRIORITY_PENALTY = 200
+SOFT_SPEED_WEIGHT = 24
+SET_OPTION_PREFERENCE_BONUS = 120
+REFINE_SAME_RUNE_PENALTY = 260
+REFINE_SAME_ARTIFACT_PENALTY = 180
+DEFAULT_SPEED_SLACK_FOR_QUALITY = 1
+RUNE_EFFICIENCY_WEIGHT_SOLVER = 6
+ARTIFACT_EFFICIENCY_WEIGHT_SOLVER = 5
+PASS_EFFICIENCY_WEIGHT = 10
 
 # Artifact main focus mapping (HP/ATK/DEF).
 # Supports both rune-like stat IDs and commonly seen artifact main IDs.
@@ -191,7 +201,13 @@ class GreedyRequest:
     multi_pass_enabled: bool = True
     multi_pass_count: int = 3
     multi_pass_time_factor: float = 0.2
+    multi_pass_strategy: str = "greedy_refine"  # greedy_only | greedy_refine
+    rune_top_per_set: int = 200
+    quality_profile: str = "balanced"  # fast | balanced | max_quality | gpu_search_fast | gpu_search_balanced | gpu_search_max
+    speed_slack_for_quality: int = DEFAULT_SPEED_SLACK_FOR_QUALITY
     progress_callback: Optional[Callable[[int, int], None]] = None
+    is_cancelled: Optional[Callable[[], bool]] = None
+    register_solver: Optional[Callable[[object], None]] = None
     enforce_turn_order: bool = True
     unit_team_index: Dict[int, int] | None = None
     unit_team_turn_order: Dict[int, int] | None = None
@@ -224,9 +240,43 @@ class _PassOutcome:
     score: Tuple[int, int, int, int, int, int, int]
 
 
-def _allowed_runes_for_mode(account: AccountData, _selected_unit_ids: List[int]) -> List[Rune]:
-    # User requested full account pool: use every rune from the JSON snapshot/import.
-    return list(account.runes)
+def _rune_pool_rank_score(r: Rune) -> int:
+    # Unit-agnostic pre-ranking for pool pruning (fast and stable enough).
+    base = 0
+    base += int(round(float(rune_efficiency(r)) * 100.0))
+    base += int(r.upgrade_curr or 0) * 40
+    base += int(r.rank or 0) * 30
+    base += int(r.rune_class or 0) * 25
+    return int(base)
+
+
+def _allowed_runes_for_mode(
+    account: AccountData,
+    req: GreedyRequest,
+    _selected_unit_ids: List[int],
+    rune_top_per_set_override: Optional[int] = None,
+) -> List[Rune]:
+    # Full account pool optionally pruned to top-N per set to keep search tractable.
+    all_runes = list(account.runes)
+    top_n_raw = rune_top_per_set_override if rune_top_per_set_override is not None else getattr(req, "rune_top_per_set", 0)
+    top_n = int(top_n_raw or 0)
+    if top_n <= 0:
+        return all_runes
+
+    by_set: Dict[int, List[Rune]] = {}
+    for r in all_runes:
+        sid = int(r.set_id or 0)
+        by_set.setdefault(sid, []).append(r)
+
+    pruned: List[Rune] = []
+    for sid, runes in by_set.items():
+        ranked = sorted(
+            runes,
+            key=lambda rr: (_rune_pool_rank_score(rr), int(rr.slot_no or 0), -int(rr.rune_id or 0)),
+            reverse=True,
+        )
+        pruned.extend(ranked[:top_n])
+    return pruned
 
 
 def _allowed_artifacts_for_mode(account: AccountData, _selected_unit_ids: List[int]) -> List[Artifact]:
@@ -294,6 +344,55 @@ def _rune_stat_total(r: Rune, eff_id_target: int) -> int:
         except Exception:
             continue
     return total
+
+
+def _build_allows_swift(b: Build) -> bool:
+    for opt in (getattr(b, "set_options", []) or []):
+        for name in (opt or []):
+            if str(name).strip().lower() == "swift":
+                return True
+    return False
+
+
+def _unit_is_turn_or_position_one(req: GreedyRequest, uid: int) -> bool:
+    turn_map = dict(req.unit_team_turn_order or {})
+    team_map = dict(req.unit_team_index or {})
+    turn = int(turn_map.get(int(uid), 0) or 0)
+    if turn > 0:
+        return turn == 1
+    team = team_map.get(int(uid), None)
+    if team is None:
+        # No team map: first in overall order counts as position 1 fallback.
+        ordered = [int(x) for x in (req.unit_ids_in_order or [])]
+        return bool(ordered and int(ordered[0]) == int(uid))
+    ordered = [int(x) for x in (req.unit_ids_in_order or [])]
+    for cand in ordered:
+        if team_map.get(int(cand), None) == team:
+            return int(cand) == int(uid)
+    return False
+
+
+def _force_swift_speed_priority(req: GreedyRequest, uid: int, builds: List[Build]) -> bool:
+    if not _unit_is_turn_or_position_one(req, uid):
+        return False
+    if not builds:
+        return False
+    # "Nothing further in min stats": allow SPD min, but no other min-stat requirements.
+    has_swift = any(_build_allows_swift(b) for b in builds)
+    if not has_swift:
+        return False
+    if any(int(getattr(b, "spd_tick", 0) or 0) > 0 for b in builds):
+        return False
+    for b in builds:
+        mins = dict(getattr(b, "min_stats", {}) or {})
+        for k, v in mins.items():
+            key = str(k).strip().upper()
+            val = int(v or 0)
+            if val <= 0:
+                continue
+            if key != "SPD":
+                return False
+    return True
 
 
 def _diagnose_single_unit_infeasible(
@@ -450,6 +549,20 @@ def _solve_single_unit_best(
     max_final_speed: Optional[int],
     rta_rune_ids_for_unit: Optional[Set[int]] = None,
     rta_artifact_ids_for_unit: Optional[Set[int]] = None,
+    speed_hard_priority: bool = True,
+    speed_weight_soft: int = SOFT_SPEED_WEIGHT,
+    build_priority_penalty: int = DEFAULT_BUILD_PRIORITY_PENALTY,
+    set_option_preference_offset: int = 0,
+    set_option_preference_bonus: int = SET_OPTION_PREFERENCE_BONUS,
+    avoid_runes_by_slot: Optional[Dict[int, int]] = None,
+    avoid_artifacts_by_type: Optional[Dict[int, int]] = None,
+    avoid_same_rune_penalty: int = 0,
+    avoid_same_artifact_penalty: int = 0,
+    speed_slack_for_quality: int = 0,
+    objective_mode: str = "balanced",  # balanced | efficiency
+    force_speed_priority: bool = False,
+    is_cancelled: Optional[Callable[[], bool]] = None,
+    register_solver: Optional[Callable[[object], None]] = None,
 ) -> GreedyUnitResult:
     """
     Solve for ONE unit:
@@ -459,6 +572,9 @@ def _solve_single_unit_best(
     - enforce build mainstats (2/4/6) + build set_option + artifact constraints
     - objective: maximize rune weight - priority penalty
     """
+    if is_cancelled and is_cancelled():
+        return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
+
     # candidates by slot
     runes_by_slot: Dict[int, List[Rune]] = {s: [] for s in range(1, 7)}
     for r in pool:
@@ -533,6 +649,7 @@ def _solve_single_unit_best(
 
     # for each build, add constraints only if chosen
     # set options: if present => choose one option if build chosen
+    option_bias_terms = []
     for b_idx, b in enumerate(builds):
         vb = use_build[b_idx]
 
@@ -576,6 +693,12 @@ def _solve_single_unit_best(
 
             for o_idx, opt in enumerate(b.set_options):
                 vo = opt_vars[o_idx]
+                if len(opt_vars) > 1 and int(set_option_preference_bonus) > 0:
+                    pref_idx = int(set_option_preference_offset) % len(opt_vars)
+                    distance = (o_idx - pref_idx) % len(opt_vars)
+                    bias = max(0, int(set_option_preference_bonus) - (distance * 12))
+                    if bias > 0:
+                        option_bias_terms.append(bias * vo)
                 needed = _count_required_set_pieces([str(s) for s in opt])
                 replacement_vars: List[cp_model.IntVar] = []
 
@@ -657,12 +780,14 @@ def _solve_single_unit_best(
     else:
         model.Add(swift_set_active == 0)
 
-    final_speed_expr = (
+    # Raw SPD for min-SPD constraints: base + runes (+swift), no tower, no leader.
+    final_speed_raw_expr = (
         int(base_spd or 0)
-        + int(base_spd_bonus_flat or 0)
         + sum(speed_terms)
         + (swift_bonus_value * swift_set_active)
     )
+    # Combat SPD for turn-order/tick/caps: includes tower and leader.
+    final_speed_expr = final_speed_raw_expr + int(base_spd_bonus_flat or 0)
     if max_final_speed is not None and max_final_speed > 0:
         model.Add(final_speed_expr <= int(max_final_speed))
 
@@ -671,9 +796,10 @@ def _solve_single_unit_best(
         spd_tick = int(getattr(b, "spd_tick", 0) or 0)
         min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
         min_spd_tick = int(min_spd_for_tick(spd_tick) or 0)
-        min_spd_required = max(min_spd_cfg, min_spd_tick)
-        if min_spd_required > 0:
-            model.Add(final_speed_expr >= min_spd_required).OnlyEnforceIf(vb)
+        if min_spd_cfg > 0:
+            model.Add(final_speed_raw_expr >= min_spd_cfg).OnlyEnforceIf(vb)
+        if min_spd_tick > 0:
+            model.Add(final_speed_expr >= min_spd_tick).OnlyEnforceIf(vb)
         if spd_tick > 0:
             max_spd_tick = int(max_spd_for_tick(spd_tick) or 0)
             if max_spd_tick > 0:
@@ -684,13 +810,29 @@ def _solve_single_unit_best(
     for slot in range(1, 7):
         for r in runes_by_slot[slot]:
             v = x[(slot, r.rune_id)]
-            w = _rune_quality_score(r, uid, rta_rune_ids_for_unit)
-            quality_terms.append(w * v)
+            if str(objective_mode) == "efficiency":
+                eff_bonus = int(round(float(rune_efficiency(r)) * 100.0))
+                if eff_bonus:
+                    quality_terms.append(eff_bonus * v)
+            else:
+                w = _rune_quality_score(r, uid, rta_rune_ids_for_unit)
+                quality_terms.append(w * v)
+                eff_bonus = int(round(float(rune_efficiency(r)) * float(RUNE_EFFICIENCY_WEIGHT_SOLVER)))
+                if eff_bonus:
+                    quality_terms.append(eff_bonus * v)
     for art_type in (1, 2):
         for art in artifacts_by_type[art_type]:
             av = xa[(art_type, int(art.artifact_id))]
-            aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
-            quality_terms.append(aw * av)
+            if str(objective_mode) == "efficiency":
+                art_eff_bonus = int(round(float(artifact_efficiency(art)) * 100.0))
+                if art_eff_bonus:
+                    quality_terms.append(art_eff_bonus * av)
+            else:
+                aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
+                quality_terms.append(aw * av)
+                art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(ARTIFACT_EFFICIENCY_WEIGHT_SOLVER)))
+                if art_eff_bonus:
+                    quality_terms.append(art_eff_bonus * av)
 
     # Build-aware artifact quality:
     # if artifact filters are selected, prefer higher rolls in those selected effects.
@@ -726,21 +868,60 @@ def _solve_single_unit_best(
                 model.Add(z >= av + vb - 1)
                 quality_terms.append(bonus * z)
 
-    BUILD_PRIORITY_PENALTY = 200
     for b_idx, b in enumerate(builds):
-        quality_terms.append((-int(b.priority) * BUILD_PRIORITY_PENALTY) * use_build[b_idx])
+        if str(objective_mode) == "efficiency":
+            quality_terms.append((-int(b.priority) * int(max(20, build_priority_penalty // 3))) * use_build[b_idx])
+        else:
+            quality_terms.append((-int(b.priority) * int(build_priority_penalty)) * use_build[b_idx])
+    quality_terms.extend(option_bias_terms)
+    if avoid_runes_by_slot and int(avoid_same_rune_penalty) > 0:
+        for slot, rid in avoid_runes_by_slot.items():
+            key = (int(slot), int(rid))
+            if key in x:
+                quality_terms.append((-int(avoid_same_rune_penalty)) * x[key])
+    if avoid_artifacts_by_type and int(avoid_same_artifact_penalty) > 0:
+        for art_type, aid in avoid_artifacts_by_type.items():
+            akey = (int(art_type), int(aid))
+            if akey in xa:
+                quality_terms.append((-int(avoid_same_artifact_penalty)) * xa[akey])
 
     solver = cp_model.CpSolver()
+    if register_solver:
+        try:
+            register_solver(solver)
+        except Exception:
+            pass
     solver.parameters.max_time_in_seconds = float(time_limit_s)
     solver.parameters.num_search_workers = int(workers)
 
-    model.Maximize(final_speed_expr)
-    status = solver.Solve(model)
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        best_speed = int(solver.Value(final_speed_expr))
-        model.Add(final_speed_expr == best_speed)
-        model.Maximize(sum(quality_terms))
+    if is_cancelled and is_cancelled():
+        return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
+
+    if speed_hard_priority or bool(force_speed_priority):
+        model.Maximize(final_speed_expr)
         status = solver.Solve(model)
+        if is_cancelled and is_cancelled():
+            return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            best_speed = int(solver.Value(final_speed_expr))
+            keep_speed_min = int(best_speed)
+            if not bool(force_speed_priority):
+                keep_speed_min = max(0, int(best_speed) - max(0, int(speed_slack_for_quality)))
+            # Keep speed near optimum but allow small slack so quality can win.
+            model.Add(final_speed_expr >= keep_speed_min)
+            model.Maximize(sum(quality_terms) + final_speed_expr)
+            status = solver.Solve(model)
+            if is_cancelled and is_cancelled():
+                return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
+    else:
+        if str(objective_mode) == "efficiency":
+            # In refinement we prioritize efficiency; speed only breaks ties.
+            model.Maximize((sum(quality_terms) * 1000) + final_speed_expr)
+        else:
+            model.Maximize(sum(quality_terms) + (int(speed_weight_soft) * final_speed_expr))
+        status = solver.Solve(model)
+        if is_cancelled and is_cancelled():
+            return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         detail = _diagnose_single_unit_infeasible(pool, artifact_pool, builds)
@@ -862,6 +1043,7 @@ def _evaluate_pass_score(
 
     ok_count = 0
     unit_scores: List[int] = []
+    total_eff_scaled = 0
     speed_sum = 0
     unit_speed_by_uid: Dict[int, int] = {}
     for res in results:
@@ -875,18 +1057,22 @@ def _evaluate_pass_score(
         if rta_art_equip:
             rta_aids = set(int(aid) for aid in rta_art_equip.get(uid, []))
         unit_quality = 0
+        unit_eff_scaled = 0
         for rid in res.runes_by_slot.values():
             rune = runes_by_id.get(int(rid))
             if rune is None:
                 continue
             unit_quality += _rune_quality_score(rune, uid, rta_rids)
+            unit_eff_scaled += int(round(float(rune_efficiency(rune)) * 10.0))
         for aid in (res.artifacts_by_type or {}).values():
             art = artifacts_by_id.get(int(aid))
             if art is None:
                 continue
             unit_quality += _artifact_quality_score(art, uid, rta_aids)
+            unit_eff_scaled += int(round(float(artifact_efficiency(art)) * 10.0))
         ok_count += 1
         unit_scores.append(int(unit_quality))
+        total_eff_scaled += int(unit_eff_scaled)
         speed_sum += int(res.final_speed or 0)
         unit_speed_by_uid[uid] = int(res.final_speed or 0)
 
@@ -919,7 +1105,11 @@ def _evaluate_pass_score(
     min_unit_quality = min(unit_scores) if unit_scores else -10**9
     total_quality = sum(unit_scores)
     avg_quality_scaled = int((total_quality * 1000) / max(1, ok_count))
-    effective_quality = int(total_quality - (gap_excess_squared * TURN_ORDER_GAP_PENALTY_WEIGHT))
+    effective_quality = int(
+        total_quality
+        + (int(total_eff_scaled) * int(PASS_EFFICIENCY_WEIGHT))
+        - (gap_excess_squared * TURN_ORDER_GAP_PENALTY_WEIGHT)
+    )
     return (
         int(ok_count),
         int(effective_quality),
@@ -931,17 +1121,27 @@ def _evaluate_pass_score(
     )
 
 
-def _run_greedy_pass(
+def _run_pass_with_profile(
     account: AccountData,
     presets: BuildStore,
     req: GreedyRequest,
     unit_ids: List[int],
     time_limit_per_unit_s: float,
+    speed_hard_priority: bool,
+    build_priority_penalty: int,
+    set_option_preference_offset_base: int = 0,
+    set_option_preference_bonus: int = 0,
+    avoid_solution_by_unit: Optional[Dict[int, GreedyUnitResult]] = None,
+    avoid_same_rune_penalty: int = 0,
+    avoid_same_artifact_penalty: int = 0,
+    speed_slack_for_quality: int = 0,
+    objective_mode: str = "balanced",
+    rune_top_per_set_override: Optional[int] = None,
 ) -> List[GreedyUnitResult]:
     unit_ids = _reorder_for_turn_order(req, unit_ids)
 
     # initial pool
-    pool = _allowed_runes_for_mode(account, unit_ids)
+    pool = _allowed_runes_for_mode(account, req, unit_ids, rune_top_per_set_override=rune_top_per_set_override)
     blocked: Set[int] = set()  # rune_id
     artifact_pool = _allowed_artifacts_for_mode(account, unit_ids)
     blocked_artifacts: Set[int] = set()  # artifact_id
@@ -952,7 +1152,9 @@ def _run_greedy_pass(
 
     results: List[GreedyUnitResult] = []
 
-    for uid in unit_ids:
+    for unit_pos, uid in enumerate(unit_ids):
+        if req.is_cancelled and req.is_cancelled():
+            break
         cur_pool = [r for r in pool if r.rune_id not in blocked]
         cur_art_pool = [a for a in artifact_pool if int(a.artifact_id or 0) not in blocked_artifacts]
         unit = account.units_by_id.get(uid)
@@ -995,6 +1197,8 @@ def _run_greedy_pass(
         builds = presets.get_unit_builds(req.mode, uid)
         # IMPORTANT: greedy feels more SWOP-like if we sort builds by priority ascending
         builds = sorted(builds, key=lambda b: int(b.priority))
+        avoid_ref = (avoid_solution_by_unit or {}).get(int(uid))
+        force_speed_priority = _force_swift_speed_priority(req, uid, builds)
 
         r = _solve_single_unit_best(
             uid=uid,
@@ -1012,7 +1216,23 @@ def _run_greedy_pass(
             max_final_speed=max_speed_cap,
             rta_rune_ids_for_unit=rta_rids,
             rta_artifact_ids_for_unit=rta_aids,
+            speed_hard_priority=speed_hard_priority,
+            speed_weight_soft=SOFT_SPEED_WEIGHT,
+            build_priority_penalty=build_priority_penalty,
+            set_option_preference_offset=int(set_option_preference_offset_base) + int(unit_pos),
+            set_option_preference_bonus=int(set_option_preference_bonus),
+            avoid_runes_by_slot=dict((avoid_ref.runes_by_slot or {})) if avoid_ref else None,
+            avoid_artifacts_by_type=dict((avoid_ref.artifacts_by_type or {})) if avoid_ref else None,
+            avoid_same_rune_penalty=int(avoid_same_rune_penalty),
+            avoid_same_artifact_penalty=int(avoid_same_artifact_penalty),
+            speed_slack_for_quality=int(speed_slack_for_quality),
+            objective_mode=str(objective_mode),
+            force_speed_priority=bool(force_speed_priority),
+            is_cancelled=req.is_cancelled,
+            register_solver=req.register_solver,
         )
+        if str(r.message or "") == tr("opt.cancelled"):
+            break
         results.append(r)
 
         if r.ok and r.runes_by_slot:
@@ -1025,6 +1245,31 @@ def _run_greedy_pass(
             # (alternativ: break; wenn du "alles muss klappen" willst)
             pass
     return results
+
+
+def _run_greedy_pass(
+    account: AccountData,
+    presets: BuildStore,
+    req: GreedyRequest,
+    unit_ids: List[int],
+    time_limit_per_unit_s: float,
+    speed_slack_for_quality: int = 0,
+    rune_top_per_set_override: Optional[int] = None,
+) -> List[GreedyUnitResult]:
+    return _run_pass_with_profile(
+        account=account,
+        presets=presets,
+        req=req,
+        unit_ids=unit_ids,
+        time_limit_per_unit_s=time_limit_per_unit_s,
+        speed_hard_priority=True,
+        build_priority_penalty=DEFAULT_BUILD_PRIORITY_PENALTY,
+        set_option_preference_offset_base=0,
+        set_option_preference_bonus=0,
+        speed_slack_for_quality=max(0, int(speed_slack_for_quality)),
+        objective_mode="balanced",
+        rune_top_per_set_override=rune_top_per_set_override,
+    )
 
 
 def _results_signature(
@@ -1057,7 +1302,8 @@ def _results_signature(
 def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyRequest) -> GreedyResult:
     """
     Extended SWOP-like greedy:
-    - runs one or multiple greedy passes with different optimization orders
+    - runs one or multiple passes with different optimization orders
+    - pass 1 uses greedy seed; optional later passes can use refine strategy
     - keeps the best full-account outcome (units built + fair quality distribution)
     """
     base_unit_ids = list(req.unit_ids_in_order)
@@ -1067,6 +1313,41 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
     pass_orders = [base_unit_ids]
     if bool(req.multi_pass_enabled) and len(base_unit_ids) > 1:
         pass_orders = _build_pass_orders(base_unit_ids, int(req.multi_pass_count or 1))
+    profile = str(getattr(req, "quality_profile", "balanced") or "balanced").strip().lower()
+    if profile not in (
+        "fast",
+        "balanced",
+        "max_quality",
+        "gpu_search",
+        "gpu_search_fast",
+        "gpu_search_balanced",
+        "gpu_search_max",
+    ):
+        profile = "balanced"
+    if profile == "max_quality":
+        from app.engine.global_optimizer import optimize_global
+
+        return optimize_global(account, presets, req)
+    if profile.startswith("gpu_search"):
+        from app.engine.gpu_search_optimizer import optimize_gpu_search
+
+        return optimize_gpu_search(account, presets, req)
+    strategy = str(getattr(req, "multi_pass_strategy", "greedy_refine") or "greedy_refine").strip().lower()
+    if strategy not in ("greedy_only", "greedy_refine"):
+        strategy = "greedy_refine"
+    if profile == "fast":
+        strategy = "greedy_only"
+        no_improve_patience = 2
+        rune_top_per_set_effective = min(int(getattr(req, "rune_top_per_set", 200) or 200), 120)
+        speed_slack_effective = 0
+    elif profile == "max_quality":
+        no_improve_patience = 6 if strategy == "greedy_refine" else 3
+        rune_top_per_set_effective = max(int(getattr(req, "rune_top_per_set", 200) or 200), 300)
+        speed_slack_effective = max(2, int(getattr(req, "speed_slack_for_quality", DEFAULT_SPEED_SLACK_FOR_QUALITY) or 2))
+    else:
+        no_improve_patience = 4 if strategy == "greedy_refine" else 2
+        rune_top_per_set_effective = int(getattr(req, "rune_top_per_set", 200) or 200)
+        speed_slack_effective = int(getattr(req, "speed_slack_for_quality", DEFAULT_SPEED_SLACK_FOR_QUALITY) or DEFAULT_SPEED_SLACK_FOR_QUALITY)
 
     outcomes: List[_PassOutcome] = []
     seen_signatures: Set[
@@ -1075,8 +1356,11 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
     best_score: Optional[Tuple[int, int, int, int, int, int, int]] = None
     no_improve_streak = 0
     early_stop_reason = ""
+    best_outcome: Optional[_PassOutcome] = None
     total_passes = len(pass_orders)
     for idx, unit_ids in enumerate(pass_orders):
+        if req.is_cancelled and req.is_cancelled():
+            break
         if req.progress_callback:
             try:
                 req.progress_callback(idx + 1, total_passes)
@@ -1084,14 +1368,42 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
                 pass
         pass_time = float(req.time_limit_per_unit_s)
         if idx > 0:
-            pass_time = max(0.5, float(req.time_limit_per_unit_s) * float(req.multi_pass_time_factor))
-        pass_results = _run_greedy_pass(
-            account=account,
-            presets=presets,
-            req=req,
-            unit_ids=unit_ids,
-            time_limit_per_unit_s=pass_time,
-        )
+            if profile == "max_quality":
+                pass_time = max(1.5, float(req.time_limit_per_unit_s) * max(1.2, float(req.multi_pass_time_factor)))
+            elif strategy == "greedy_refine":
+                # Refinement needs real search time; tiny budgets collapse to pass-1 clones.
+                pass_time = max(1.0, float(req.time_limit_per_unit_s) * max(0.8, float(req.multi_pass_time_factor)))
+            else:
+                pass_time = max(0.5, float(req.time_limit_per_unit_s) * float(req.multi_pass_time_factor))
+        use_refine = idx > 0 and strategy == "greedy_refine"
+        if use_refine:
+            from app.engine.refine_optimizer import run_refine_pass
+
+            pass_results = run_refine_pass(
+                account=account,
+                presets=presets,
+                req=req,
+                unit_ids=unit_ids,
+                time_limit_per_unit_s=pass_time,
+                pass_idx=idx,
+                avoid_solution_by_unit=(
+                    {int(r.unit_id): r for r in (best_outcome.results if best_outcome else [])}
+                ),
+                speed_slack_for_quality=max(0, int(speed_slack_effective)),
+                rune_top_per_set_override=max(0, int(rune_top_per_set_effective)),
+            )
+        else:
+            pass_results = _run_greedy_pass(
+                account=account,
+                presets=presets,
+                req=req,
+                unit_ids=unit_ids,
+                time_limit_per_unit_s=pass_time,
+                speed_slack_for_quality=(
+                    0 if idx == 0 else max(0, int(speed_slack_effective))
+                ),
+                rune_top_per_set_override=max(0, int(rune_top_per_set_effective)),
+            )
         outcome = _PassOutcome(
             pass_idx=idx,
             order=list(unit_ids),
@@ -1107,17 +1419,25 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
         improved = best_score is None or outcome.score > best_score
         if improved:
             best_score = outcome.score
+            best_outcome = outcome
             no_improve_streak = 0
         else:
             no_improve_streak += 1
 
         if idx > 0:
-            if repeated_solution and not improved:
+            if repeated_solution and not improved and strategy != "greedy_refine":
                 early_stop_reason = tr("opt.stable_solution")
                 break
-            if no_improve_streak >= 2:
+            if no_improve_streak >= int(no_improve_patience):
                 early_stop_reason = tr("opt.no_improvement")
                 break
+
+    if not outcomes:
+        return GreedyResult(False, tr("opt.cancelled"), [])
+
+    if req.is_cancelled and req.is_cancelled():
+        best_cancel = max(outcomes, key=lambda o: o.score)
+        return GreedyResult(False, tr("opt.cancelled"), best_cancel.results)
 
     best = max(outcomes, key=lambda o: o.score)
     ok_all = all(r.ok for r in best.results)

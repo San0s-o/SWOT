@@ -1,8 +1,11 @@
 ﻿from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import webbrowser
+import threading
 from itertools import product
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,7 +20,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QTabWidget, QGroupBox, QGridLayout, QComboBox, QSpacerItem,
     QSizePolicy, QDialog, QDialogButtonBox, QLineEdit, QListWidget,
     QListWidgetItem, QScrollArea, QFrame, QAbstractItemView, QSpinBox, QAbstractSpinBox, QCompleter,
-    QHeaderView
+    QHeaderView, QProgressDialog
 )
 
 from app.importer.sw_json_importer import load_account_from_data
@@ -1706,6 +1709,55 @@ class OptimizeResultDialog(QDialog):
         self.btn_save.setText(tr("btn.saved"))
 
 class MainWindow(QMainWindow):
+    @staticmethod
+    def _max_solver_workers() -> int:
+        total = max(1, int(os.cpu_count() or 8))
+        return max(1, int(total * 0.9))
+
+    @staticmethod
+    def _default_solver_workers() -> int:
+        m = MainWindow._max_solver_workers()
+        return max(1, min(m, m // 2 if m > 1 else 1))
+
+    @staticmethod
+    def _gpu_search_available() -> bool:
+        try:
+            import torch  # type: ignore
+
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    def _populate_worker_combo(self, combo: QComboBox) -> None:
+        combo.clear()
+        max_w = self._max_solver_workers()
+        for w in range(1, max_w + 1):
+            combo.addItem(str(w), int(w))
+        default_w = self._default_solver_workers()
+        idx = combo.findData(int(default_w))
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.setToolTip(tr("tooltip.workers"))
+
+    def _effective_workers(self, quality_profile: str, combo: QComboBox) -> int:
+        prof = str(quality_profile or "").strip().lower()
+        if prof in ("max_quality", "gpu_search_max"):
+            return int(combo.currentData() or self._default_solver_workers())
+        return int(self._default_solver_workers())
+
+    def _sync_worker_controls(self) -> None:
+        def _apply(profile_combo_attr: str, workers_combo_attr: str) -> None:
+            prof = getattr(self, profile_combo_attr, None)
+            workers = getattr(self, workers_combo_attr, None)
+            if prof is None or workers is None:
+                return
+            is_max = str(prof.currentData() or "").strip().lower() in ("max_quality", "gpu_search_max")
+            workers.setEnabled(bool(is_max))
+
+        _apply("combo_quality_profile_siege", "combo_workers_siege")
+        _apply("combo_quality_profile_wgb", "combo_workers_wgb")
+        _apply("combo_quality_profile_rta", "combo_workers_rta")
+        _apply("combo_quality_profile_team", "combo_workers_team")
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(tr("main.title"))
@@ -2020,6 +2072,104 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
         return _cb
 
+    def _run_with_busy_progress(
+        self,
+        text: str,
+        work_fn: Callable[[Callable[[], bool], Callable[[Any], None], Callable[[int, int], None]], Any],
+    ) -> Any:
+        dlg = QProgressDialog(text, tr("btn.cancel"), 0, 0, self)
+        dlg.setWindowTitle(tr("btn.optimize"))
+        dlg.setLabelText(text)
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.setCancelButtonText(tr("btn.cancel"))
+        dlg.setMinimumDuration(0)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setRange(0, 0)
+        dlg.show()
+        QApplication.processEvents()
+
+        cancel_event = threading.Event()
+        solver_lock = threading.Lock()
+        active_solvers: List[Any] = []
+        progress_lock = threading.Lock()
+        progress_state: Dict[str, int] = {"current": 0, "total": 0}
+
+        def _is_cancelled() -> bool:
+            return bool(cancel_event.is_set())
+
+        def _register_solver(solver_obj: Any) -> None:
+            with solver_lock:
+                active_solvers.append(solver_obj)
+
+        def _report_progress(current: int, total: int) -> None:
+            with progress_lock:
+                progress_state["current"] = max(0, int(current or 0))
+                progress_state["total"] = max(0, int(total or 0))
+
+        def _refresh_progress() -> None:
+            if cancel_event.is_set():
+                return
+            with progress_lock:
+                current = int(progress_state.get("current", 0))
+                total = int(progress_state.get("total", 0))
+            if total <= 0:
+                return
+            if dlg.maximum() == 0:
+                dlg.setRange(0, 100)
+                dlg.setValue(0)
+            pct = max(0, min(100, int(round((float(current) / float(total)) * 100.0))))
+            dlg.setValue(pct)
+            label_text = f"{text} ({pct}%)"
+            dlg.setLabelText(label_text)
+            self.statusBar().showMessage(label_text)
+
+        progress_timer = QTimer(dlg)
+        progress_timer.timeout.connect(_refresh_progress)
+        progress_timer.start(120)
+
+        def _request_cancel() -> None:
+            cancel_event.set()
+            dlg.setLabelText(tr("opt.cancelled"))
+            with solver_lock:
+                solvers = list(active_solvers)
+            for s in solvers:
+                try:
+                    if hasattr(s, "StopSearch"):
+                        s.StopSearch()
+                    elif hasattr(s, "stop_search"):
+                        s.stop_search()
+                except Exception:
+                    continue
+
+        dlg.canceled.connect(_request_cancel)
+
+        wait_loop = QEventLoop()
+        out: Dict[str, Any] = {}
+        err: Dict[str, str] = {}
+        worker = _TaskWorker(lambda: work_fn(_is_cancelled, _register_solver, _report_progress))
+
+        def _on_finished(result: Any) -> None:
+            out["result"] = result
+            wait_loop.quit()
+
+        def _on_failed(msg: str) -> None:
+            err["msg"] = str(msg)
+            wait_loop.quit()
+
+        worker.signals.finished.connect(_on_finished)
+        worker.signals.failed.connect(_on_failed)
+        QThreadPool.globalInstance().start(worker)
+        wait_loop.exec()
+
+        progress_timer.stop()
+        dlg.close()
+        dlg.deleteLater()
+        QApplication.processEvents()
+        if "msg" in err:
+            raise RuntimeError(err["msg"])
+        return out.get("result")
+
     # ============================================================
     # Helpers: names+icons
     # ============================================================
@@ -2324,6 +2474,25 @@ class MainWindow(QMainWindow):
         self.spin_multi_pass_siege.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_siege.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         btn_row.addWidget(self.spin_multi_pass_siege)
+        self.lbl_siege_workers = QLabel(tr("label.workers"))
+        btn_row.addWidget(self.lbl_siege_workers)
+        self.combo_workers_siege = QComboBox()
+        self._populate_worker_combo(self.combo_workers_siege)
+        btn_row.addWidget(self.combo_workers_siege)
+        self.lbl_siege_profile = QLabel("Profil")
+        btn_row.addWidget(self.lbl_siege_profile)
+        self.combo_quality_profile_siege = QComboBox()
+        self.combo_quality_profile_siege.addItem("Fast", "fast")
+        self.combo_quality_profile_siege.addItem("Balanced", "balanced")
+        self.combo_quality_profile_siege.addItem("Max Qualität", "max_quality")
+        if self._gpu_search_available():
+            self.combo_quality_profile_siege.addItem("GPU Fast", "gpu_search_fast")
+            self.combo_quality_profile_siege.addItem("GPU Balanced", "gpu_search_balanced")
+            self.combo_quality_profile_siege.addItem("GPU Max", "gpu_search_max")
+        self.combo_quality_profile_siege.setCurrentIndex(1)
+        self.combo_quality_profile_siege.currentIndexChanged.connect(self._sync_worker_controls)
+        btn_row.addWidget(self.combo_quality_profile_siege)
+        self._sync_worker_controls()
 
         btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -2380,6 +2549,25 @@ class MainWindow(QMainWindow):
         self.spin_multi_pass_wgb.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_wgb.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         btn_row.addWidget(self.spin_multi_pass_wgb)
+        self.lbl_wgb_workers = QLabel(tr("label.workers"))
+        btn_row.addWidget(self.lbl_wgb_workers)
+        self.combo_workers_wgb = QComboBox()
+        self._populate_worker_combo(self.combo_workers_wgb)
+        btn_row.addWidget(self.combo_workers_wgb)
+        self.lbl_wgb_profile = QLabel("Profil")
+        btn_row.addWidget(self.lbl_wgb_profile)
+        self.combo_quality_profile_wgb = QComboBox()
+        self.combo_quality_profile_wgb.addItem("Fast", "fast")
+        self.combo_quality_profile_wgb.addItem("Balanced", "balanced")
+        self.combo_quality_profile_wgb.addItem("Max Qualität", "max_quality")
+        if self._gpu_search_available():
+            self.combo_quality_profile_wgb.addItem("GPU Fast", "gpu_search_fast")
+            self.combo_quality_profile_wgb.addItem("GPU Balanced", "gpu_search_balanced")
+            self.combo_quality_profile_wgb.addItem("GPU Max", "gpu_search_max")
+        self.combo_quality_profile_wgb.setCurrentIndex(1)
+        self.combo_quality_profile_wgb.currentIndexChanged.connect(self._sync_worker_controls)
+        btn_row.addWidget(self.combo_quality_profile_wgb)
+        self._sync_worker_controls()
 
         btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -2454,6 +2642,25 @@ class MainWindow(QMainWindow):
         self.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_rta.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         btn_row.addWidget(self.spin_multi_pass_rta)
+        self.lbl_rta_workers = QLabel(tr("label.workers"))
+        btn_row.addWidget(self.lbl_rta_workers)
+        self.combo_workers_rta = QComboBox()
+        self._populate_worker_combo(self.combo_workers_rta)
+        btn_row.addWidget(self.combo_workers_rta)
+        self.lbl_rta_profile = QLabel("Profil")
+        btn_row.addWidget(self.lbl_rta_profile)
+        self.combo_quality_profile_rta = QComboBox()
+        self.combo_quality_profile_rta.addItem("Fast", "fast")
+        self.combo_quality_profile_rta.addItem("Balanced", "balanced")
+        self.combo_quality_profile_rta.addItem("Max Qualität", "max_quality")
+        if self._gpu_search_available():
+            self.combo_quality_profile_rta.addItem("GPU Fast", "gpu_search_fast")
+            self.combo_quality_profile_rta.addItem("GPU Balanced", "gpu_search_balanced")
+            self.combo_quality_profile_rta.addItem("GPU Max", "gpu_search_max")
+        self.combo_quality_profile_rta.setCurrentIndex(1)
+        self.combo_quality_profile_rta.currentIndexChanged.connect(self._sync_worker_controls)
+        btn_row.addWidget(self.combo_quality_profile_rta)
+        self._sync_worker_controls()
 
         btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
@@ -2496,6 +2703,25 @@ class MainWindow(QMainWindow):
         self.spin_multi_pass_team.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_team.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         pass_row.addWidget(self.spin_multi_pass_team)
+        self.lbl_team_workers = QLabel(tr("label.workers"))
+        pass_row.addWidget(self.lbl_team_workers)
+        self.combo_workers_team = QComboBox()
+        self._populate_worker_combo(self.combo_workers_team)
+        pass_row.addWidget(self.combo_workers_team)
+        self.lbl_team_profile = QLabel("Profil")
+        pass_row.addWidget(self.lbl_team_profile)
+        self.combo_quality_profile_team = QComboBox()
+        self.combo_quality_profile_team.addItem("Fast", "fast")
+        self.combo_quality_profile_team.addItem("Balanced", "balanced")
+        self.combo_quality_profile_team.addItem("Max Qualität", "max_quality")
+        if self._gpu_search_available():
+            self.combo_quality_profile_team.addItem("GPU Fast", "gpu_search_fast")
+            self.combo_quality_profile_team.addItem("GPU Balanced", "gpu_search_balanced")
+            self.combo_quality_profile_team.addItem("GPU Max", "gpu_search_max")
+        self.combo_quality_profile_team.setCurrentIndex(1)
+        self.combo_quality_profile_team.currentIndexChanged.connect(self._sync_worker_controls)
+        pass_row.addWidget(self.combo_quality_profile_team)
+        self._sync_worker_controls()
         pass_row.addStretch(1)
         layout.addLayout(pass_row)
 
@@ -2623,10 +2849,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("label.team"), tr("dlg.load_import_and_team"))
             return
         pass_count = int(self.spin_multi_pass_team.value())
-        progress_cb = self._build_pass_progress_callback(
-            self.lbl_team_opt_status,
-            tr("result.team_opt_running", name=team.name),
-        )
+        quality_profile = str(self.combo_quality_profile_team.currentData() or "balanced")
+        workers = self._effective_workers(quality_profile, self.combo_workers_team)
+        running_text = tr("result.team_opt_running", name=team.name)
+        self.lbl_team_opt_status.setText(running_text)
+        self.statusBar().showMessage(running_text)
         ordered_unit_ids = self._units_by_turn_order("siege", team.unit_ids)
         team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in team.unit_ids}
         leader_spd_bonus_by_uid = self._leader_spd_bonus_map([team.unit_ids])
@@ -2635,21 +2862,28 @@ class MainWindow(QMainWindow):
             builds = self.presets.get_unit_builds("siege", int(uid))
             b0 = builds[0] if builds else Build.default_any()
             team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
-        res = optimize_greedy(
-            self.account,
-            self.presets,
-            GreedyRequest(
-                mode="siege",
-                unit_ids_in_order=ordered_unit_ids,
-                time_limit_per_unit_s=5.0,
-                workers=8,
-                multi_pass_enabled=bool(pass_count > 1),
-                multi_pass_count=pass_count,
-                progress_callback=progress_cb,
-                enforce_turn_order=True,
-                unit_team_index=team_idx_by_uid,
-                unit_team_turn_order=team_turn_by_uid,
-                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+        res = self._run_with_busy_progress(
+            running_text,
+            lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+                self.account,
+                self.presets,
+                GreedyRequest(
+                    mode="siege",
+                    unit_ids_in_order=ordered_unit_ids,
+                    time_limit_per_unit_s=5.0,
+                    workers=workers,
+                    multi_pass_enabled=bool(pass_count > 1),
+                    multi_pass_count=pass_count,
+                    multi_pass_strategy="greedy_refine",
+                    quality_profile=quality_profile,
+                    progress_callback=progress_cb,
+                    is_cancelled=is_cancelled,
+                    register_solver=register_solver,
+                    enforce_turn_order=True,
+                    unit_team_index=team_idx_by_uid,
+                    unit_team_turn_order=team_turn_by_uid,
+                    unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                ),
             ),
         )
         self.lbl_team_opt_status.setText(res.message)
@@ -3122,10 +3356,11 @@ class MainWindow(QMainWindow):
         self.btn_optimize_siege.setEnabled(False)
         try:
             pass_count = int(self.spin_multi_pass_siege.value())
-            progress_cb = self._build_pass_progress_callback(
-                self.lbl_siege_validate,
-                tr("result.opt_running", mode="Siege"),
-            )
+            quality_profile = str(self.combo_quality_profile_siege.currentData() or "balanced")
+            workers = self._effective_workers(quality_profile, self.combo_workers_siege)
+            running_text = tr("result.opt_running", mode="Siege")
+            self.lbl_siege_validate.setText(running_text)
+            self.statusBar().showMessage(running_text)
             selections = self._collect_siege_selections()
             ok, msg, all_units = self._validate_team_structure("Siege", selections, must_have_team_size=3)
             if not ok:
@@ -3143,21 +3378,28 @@ class MainWindow(QMainWindow):
                 builds = self.presets.get_unit_builds("siege", int(uid))
                 b0 = builds[0] if builds else Build.default_any()
                 team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
-            res = optimize_greedy(
-                self.account,
-                self.presets,
-                GreedyRequest(
-                    mode="siege",
-                    unit_ids_in_order=ordered_unit_ids,
-                    time_limit_per_unit_s=5.0,
-                    workers=8,
-                    multi_pass_enabled=bool(pass_count > 1),
-                    multi_pass_count=pass_count,
-                    progress_callback=progress_cb,
-                    enforce_turn_order=True,
-                    unit_team_index=team_idx_by_uid,
-                    unit_team_turn_order=team_turn_by_uid,
-                    unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+            res = self._run_with_busy_progress(
+                running_text,
+                lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+                    self.account,
+                    self.presets,
+                    GreedyRequest(
+                        mode="siege",
+                        unit_ids_in_order=ordered_unit_ids,
+                        time_limit_per_unit_s=5.0,
+                        workers=workers,
+                        multi_pass_enabled=bool(pass_count > 1),
+                        multi_pass_count=pass_count,
+                        multi_pass_strategy="greedy_refine",
+                        quality_profile=quality_profile,
+                        progress_callback=progress_cb,
+                        is_cancelled=is_cancelled,
+                        register_solver=register_solver,
+                        enforce_turn_order=True,
+                        unit_team_index=team_idx_by_uid,
+                        unit_team_turn_order=team_turn_by_uid,
+                        unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                    ),
                 ),
             )
             self.lbl_siege_validate.setText(res.message)
@@ -3299,10 +3541,11 @@ class MainWindow(QMainWindow):
         if not self.account:
             return
         pass_count = int(self.spin_multi_pass_wgb.value())
-        progress_cb = self._build_pass_progress_callback(
-            self.lbl_wgb_validate,
-            tr("result.opt_running", mode="WGB"),
-        )
+        quality_profile = str(self.combo_quality_profile_wgb.currentData() or "balanced")
+        workers = self._effective_workers(quality_profile, self.combo_workers_wgb)
+        running_text = tr("result.opt_running", mode="WGB")
+        self.lbl_wgb_validate.setText(running_text)
+        self.statusBar().showMessage(running_text)
         selections = self._collect_wgb_selections()
         ok, msg, all_units = self._validate_team_structure("WGB", selections, must_have_team_size=3)
         if not ok:
@@ -3324,21 +3567,28 @@ class MainWindow(QMainWindow):
             builds = self.presets.get_unit_builds("wgb", int(uid))
             b0 = builds[0] if builds else Build.default_any()
             team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
-        res = optimize_greedy(
-            self.account,
-            self.presets,
-            GreedyRequest(
-                mode="wgb",
-                unit_ids_in_order=ordered_unit_ids,
-                time_limit_per_unit_s=5.0,
-                workers=8,
-                multi_pass_enabled=bool(pass_count > 1),
-                multi_pass_count=pass_count,
-                progress_callback=progress_cb,
-                enforce_turn_order=True,
-                unit_team_index=team_idx_by_uid,
-                unit_team_turn_order=team_turn_by_uid,
-                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+        res = self._run_with_busy_progress(
+            running_text,
+            lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+                self.account,
+                self.presets,
+                GreedyRequest(
+                    mode="wgb",
+                    unit_ids_in_order=ordered_unit_ids,
+                    time_limit_per_unit_s=5.0,
+                    workers=workers,
+                    multi_pass_enabled=bool(pass_count > 1),
+                    multi_pass_count=pass_count,
+                    multi_pass_strategy="greedy_refine",
+                    quality_profile=quality_profile,
+                    progress_callback=progress_cb,
+                    is_cancelled=is_cancelled,
+                    register_solver=register_solver,
+                    enforce_turn_order=True,
+                    unit_team_index=team_idx_by_uid,
+                    unit_team_turn_order=team_turn_by_uid,
+                    unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                ),
             ),
         )
         self.lbl_wgb_validate.setText(res.message)
@@ -3463,10 +3713,11 @@ class MainWindow(QMainWindow):
         if not self.account:
             return
         pass_count = int(self.spin_multi_pass_rta.value())
-        progress_cb = self._build_pass_progress_callback(
-            self.lbl_rta_validate,
-            tr("result.opt_running", mode="RTA"),
-        )
+        quality_profile = str(self.combo_quality_profile_rta.currentData() or "balanced")
+        workers = self._effective_workers(quality_profile, self.combo_workers_rta)
+        running_text = tr("result.opt_running", mode="RTA")
+        self.lbl_rta_validate.setText(running_text)
+        self.statusBar().showMessage(running_text)
         ids = self._collect_rta_unit_ids()
         if not ids:
             QMessageBox.critical(self, "RTA", tr("dlg.select_monsters_first"))
@@ -3478,21 +3729,28 @@ class MainWindow(QMainWindow):
         # List order = optimization order = turn order
         team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in ids}
         team_turn_by_uid: Dict[int, int] = {int(uid): pos + 1 for pos, uid in enumerate(ids)}
-        res = optimize_greedy(
-            self.account,
-            self.presets,
-            GreedyRequest(
-                mode="rta",
-                unit_ids_in_order=ids,
-                time_limit_per_unit_s=5.0,
-                workers=8,
-                multi_pass_enabled=bool(pass_count > 1),
-                multi_pass_count=pass_count,
-                progress_callback=progress_cb,
-                enforce_turn_order=True,
-                unit_team_index=team_idx_by_uid,
-                unit_team_turn_order=team_turn_by_uid,
-                unit_spd_leader_bonus_flat={},
+        res = self._run_with_busy_progress(
+            running_text,
+            lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+                self.account,
+                self.presets,
+                GreedyRequest(
+                    mode="rta",
+                    unit_ids_in_order=ids,
+                    time_limit_per_unit_s=5.0,
+                    workers=workers,
+                    multi_pass_enabled=bool(pass_count > 1),
+                    multi_pass_count=pass_count,
+                    multi_pass_strategy="greedy_refine",
+                    quality_profile=quality_profile,
+                    progress_callback=progress_cb,
+                    is_cancelled=is_cancelled,
+                    register_solver=register_solver,
+                    enforce_turn_order=True,
+                    unit_team_index=team_idx_by_uid,
+                    unit_team_turn_order=team_turn_by_uid,
+                    unit_spd_leader_bonus_flat={},
+                ),
             ),
         )
         self.lbl_rta_validate.setText(res.message)
@@ -3548,7 +3806,10 @@ class MainWindow(QMainWindow):
         self.btn_edit_presets_siege.setText(tr("btn.builds"))
         self.btn_optimize_siege.setText(tr("btn.optimize"))
         self.lbl_siege_passes.setText(tr("label.passes"))
+        self.lbl_siege_workers.setText(tr("label.workers"))
+        self.lbl_siege_profile.setText("Profil")
         self.spin_multi_pass_siege.setToolTip(tr("tooltip.passes"))
+        self.combo_workers_siege.setToolTip(tr("tooltip.workers"))
 
         # WGB builder
         self.box_wgb_select.setTitle(tr("group.wgb_select"))
@@ -3558,7 +3819,10 @@ class MainWindow(QMainWindow):
         self.btn_edit_presets_wgb.setText(tr("btn.builds"))
         self.btn_optimize_wgb.setText(tr("btn.optimize"))
         self.lbl_wgb_passes.setText(tr("label.passes"))
+        self.lbl_wgb_workers.setText(tr("label.workers"))
+        self.lbl_wgb_profile.setText("Profil")
         self.spin_multi_pass_wgb.setToolTip(tr("tooltip.passes"))
+        self.combo_workers_wgb.setToolTip(tr("tooltip.workers"))
 
         # RTA builder
         self.box_rta_select.setTitle(tr("group.rta_select"))
@@ -3569,7 +3833,10 @@ class MainWindow(QMainWindow):
         self.btn_edit_presets_rta.setText(tr("btn.builds"))
         self.btn_optimize_rta.setText(tr("btn.optimize"))
         self.lbl_rta_passes.setText(tr("label.passes"))
+        self.lbl_rta_workers.setText(tr("label.workers"))
+        self.lbl_rta_profile.setText("Profil")
         self.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
+        self.combo_workers_rta.setToolTip(tr("tooltip.workers"))
 
         # Team tab
         self.lbl_team.setText(tr("label.team"))
@@ -3578,7 +3845,10 @@ class MainWindow(QMainWindow):
         self.btn_remove_team.setText(tr("btn.delete_team"))
         self.btn_optimize_team.setText(tr("btn.optimize_team"))
         self.lbl_team_passes.setText(tr("label.passes"))
+        self.lbl_team_workers.setText(tr("label.workers"))
+        self.lbl_team_profile.setText("Profil")
         self.spin_multi_pass_team.setToolTip(tr("tooltip.passes"))
+        self.combo_workers_team.setToolTip(tr("tooltip.workers"))
         self._refresh_team_combo()
 
         # Search placeholder for all searchable unit combos

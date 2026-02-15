@@ -1,7 +1,7 @@
-"""English translations."""
+﻿"""English translations."""
 
 STRINGS: dict[str, str] = {
-    # ── Main Window ─────────────────────────────────────────────
+    # -- Main Window ---------------------------------------------
     "main.title": "SW Team Optimizer",
     "main.import_btn": "Import JSON",
     "main.no_import": "No import loaded.",
@@ -14,7 +14,7 @@ STRINGS: dict[str, str] = {
     "main.snapshot_failed": "Could not load snapshot:\n{exc}",
     "main.source_unknown": "Original name unknown",
 
-    # ── Tabs ────────────────────────────────────────────────────
+    # -- Tabs ----------------------------------------------------
     "tab.overview": "Overview",
     "tab.siege_current": "Siege Defenses (current)",
     "tab.rta_current": "RTA (current)",
@@ -25,16 +25,17 @@ STRINGS: dict[str, str] = {
     "tab.rta_builder": "RTA Builder (Custom)",
     "tab.rta_saved": "RTA Optimizations (saved)",
 
-    # ── Buttons ─────────────────────────────────────────────────
+    # -- Buttons -------------------------------------------------
     "btn.add": "Add",
     "btn.remove": "Remove",
     "btn.close": "Close",
+    "btn.cancel": "Cancel",
     "btn.save": "Save",
     "btn.saved": "Saved",
     "btn.delete": "Delete",
     "btn.validate": "Validate",
     "btn.validate_pools": "Validate (Pools/Teams)",
-    "btn.builds": "Builds (Sets+Mainstats)…",
+    "btn.builds": "Builds (Sets+Mainstats)...",
     "btn.optimize": "Optimize",
     "btn.activate": "Activate",
     "btn.quit": "Quit",
@@ -47,8 +48,9 @@ STRINGS: dict[str, str] = {
     "btn.take_siege": "Load current Siege Defenses",
     "btn.take_rta": "Load current RTA Monsters",
 
-    # ── Labels ──────────────────────────────────────────────────
+    # -- Labels --------------------------------------------------
     "label.passes": "Passes",
+    "label.workers": "Cores",
     "label.saved_opt": "Saved Optimization:",
     "label.team": "Team",
     "label.team_name": "Team Name",
@@ -61,7 +63,7 @@ STRINGS: dict[str, str] = {
     "label.error": "Error",
     "label.spd_tick_short": "Tick",
 
-    # ── Tooltips ────────────────────────────────────────────────
+    # -- Tooltips ------------------------------------------------
     "tooltip.set_multi": "Multi-select. After first selection only same-size sets (2-piece/4-piece).",
     "tooltip.set3": "Only active when Set 1 and Set 2 are both 2-piece sets.",
     "tooltip.mainstat_multi": "Multi-select possible. No selection = Any.",
@@ -69,16 +71,17 @@ STRINGS: dict[str, str] = {
     "tooltip.art_type_focus": "Type artifact: HP/ATK/DEF (multi-select, empty = Any).",
     "tooltip.art_sub": "{kind} artifact: Select substat (empty = Any).",
     "tooltip.passes": "Number of optimizer passes (1 = single pass only).",
+    "tooltip.workers": "Number of CPU cores/threads used by the solver (max 90% of available cores).",
     "tooltip.spd_tick": "Optional SPD tick per monster. Enforces the corresponding SPD breakpoint.",
 
-    # ── Group Boxes ─────────────────────────────────────────────
+    # -- Group Boxes ---------------------------------------------
     "group.opt_order": "Optimization Order (Drag & Drop)",
     "group.turn_order": "Turn Order per Team (Drag & Drop)",
-    "group.siege_select": "Select Siege Teams (up to 10 defenses × 3 monsters)",
-    "group.wgb_select": "Select GWB Teams (5 defenses × 3 monsters)",
-    "group.rta_select": "Select RTA Monsters (up to 15 – order via Drag & Drop)",
+    "group.siege_select": "Select Siege Teams (up to 10 defenses x 3 monsters)",
+    "group.wgb_select": "Select GWB Teams (5 defenses x 3 monsters)",
+    "group.rta_select": "Select RTA Monsters (up to 15 - order via Drag & Drop)",
 
-    # ── Table Headers ───────────────────────────────────────────
+    # -- Table Headers -------------------------------------------
     "header.monster": "Monster",
     "header.set1": "Set 1",
     "header.set2": "Set 2",
@@ -105,14 +108,14 @@ STRINGS: dict[str, str] = {
     "header.total": "Total",
     "header.value": "Value",
 
-    # ── Status / Validation ─────────────────────────────────────
+    # -- Status / Validation -------------------------------------
     "status.siege_ready": "Ready. Select/load Siege teams -> Validate -> Builds -> Optimize.",
     "status.wgb_ready": "Ready. (GWB) Select teams.",
     "status.siege_taken": "Current defenses loaded. Please validate.",
     "status.rta_taken": "{count} active RTA monsters loaded.",
     "status.pass_progress": "{prefix}: Pass {current}/{total}...",
 
-    # ── Validation Messages ─────────────────────────────────────
+    # -- Validation Messages -------------------------------------
     "val.incomplete_team": "{label}: Team {team} is incomplete ({have}/{need}).",
     "val.duplicate_in_team": "{label}: Team {team} contains '{name}' twice.",
     "val.no_teams": "{label}: No teams selected.",
@@ -127,7 +130,7 @@ STRINGS: dict[str, str] = {
     "val.title_rta_ok": "RTA Validation OK",
     "val.set_invalid": "Invalid set combo for {unit}: none of the set options fit in 6 slots.",
 
-    # ── Dialog Messages ─────────────────────────────────────────
+    # -- Dialog Messages -----------------------------------------
     "dlg.team_needs_units_title": "Team needs units",
     "dlg.team_needs_units": "Please add at least one monster.",
     "dlg.load_import_first": "Please load an import first.",
@@ -142,24 +145,24 @@ STRINGS: dict[str, str] = {
     "dlg.select_left": "Please select a monster on the left.",
     "dlg.no_result": "No result found.",
 
-    # ── Optimization result display ─────────────────────────────
+    # -- Optimization result display -----------------------------
     "result.title_team": "Team Optimization: {name}",
     "result.title_siege": "Greedy Optimization",
     "result.title_wgb": "GWB Greedy Optimization",
     "result.title_rta": "RTA Greedy Optimization",
     "result.opt_running": "{mode} optimization running",
     "result.team_opt_running": "Team '{name}' optimization running",
-    "result.avg_rune_eff": "Ø Rune efficiency: <b>{eff}%</b>",
-    "result.avg_rune_eff_none": "Ø Rune efficiency: <b>—</b>",
+    "result.avg_rune_eff": "O Rune efficiency: <b>{eff}%</b>",
+    "result.avg_rune_eff_none": "O Rune efficiency: <b>-</b>",
     "result.opt_name": "{mode} Optimization {ts}",
 
-    # ── Saved optimization display names ────────────────────────
+    # -- Saved optimization display names ------------------------
     "saved.opt_replace": " Optimization ",
     "saved.siege_opt": "SIEGE Optimization",
     "saved.wgb_opt": "GWB Optimization",
     "saved.rta_opt": "RTA Optimization",
 
-    # ── Stat Labels ─────────────────────────────────────────────
+    # -- Stat Labels ---------------------------------------------
     "stat.HP": "HP",
     "stat.ATK": "ATK",
     "stat.DEF": "DEF",
@@ -169,7 +172,7 @@ STRINGS: dict[str, str] = {
     "stat.RES": "Resistance",
     "stat.ACC": "Accuracy",
 
-    # ── Siege cards stat labels ─────────────────────────────────
+    # -- Siege cards stat labels ---------------------------------
     "card_stat.HP": "HP",
     "card_stat.ATK": "ATK",
     "card_stat.DEF": "DEF",
@@ -179,13 +182,13 @@ STRINGS: dict[str, str] = {
     "card_stat.RES": "RES",
     "card_stat.ACC": "ACC",
 
-    # ── Artifact labels ─────────────────────────────────────────
+    # -- Artifact labels -----------------------------------------
     "artifact.attribute": "Attribute",
     "artifact.type": "Type",
     "artifact.no_rune": "No rune",
     "artifact.no_artifact": "No artifact",
 
-    # ── Generic UI labels ──────────────────────────────────────
+    # -- Generic UI labels --------------------------------------
     "ui.artifact": "Artifact",
     "ui.artifacts_title": "Artifacts",
     "ui.rune_id": "Rune ID",
@@ -199,12 +202,12 @@ STRINGS: dict[str, str] = {
     "ui.rolls": "Rolls {n}",
     "ui.class_short": "Cls.",
 
-    # ── Update dialog ───────────────────────────────────────────
+    # -- Update dialog -------------------------------------------
     "update.title": "Update available",
     "update.text": "New version available: {latest}\nInstalled: {current}",
     "update.open_release": "Open GitHub release now?",
 
-    # ── License dialog ──────────────────────────────────────────
+    # -- License dialog ------------------------------------------
     "license.title": "License Activation",
     "license.enter_key": "Please enter your serial key.",
     "license.trial_remaining": "Trial ({remaining} remaining)",
@@ -214,10 +217,10 @@ STRINGS: dict[str, str] = {
     "license.minutes": "{n} minutes",
     "license.validating": "Validating license...",
 
-    # ── Help dialog ─────────────────────────────────────────────
+    # -- Help dialog ---------------------------------------------
     "help.title": "Guide",
     "help.content": (
-        "<h2>SW Team Optimizer – Quick Guide</h2>"
+        "<h2>SW Team Optimizer - Quick Guide</h2>"
 
         "<h3>1. Import JSON</h3>"
         "<p>Click <b>Import JSON</b> and select your "
@@ -226,22 +229,22 @@ STRINGS: dict[str, str] = {
         "set distribution on the <b>Overview</b> tab.</p>"
 
         "<h3>2. View current setups</h3>"
-        "<p><b>Siege Defenses (current)</b> – Shows your in-game "
+        "<p><b>Siege Defenses (current)</b> - Shows your in-game "
         "siege defenses as cards with rune details.<br>"
-        "<b>RTA (current)</b> – Shows your currently equipped RTA monsters.</p>"
+        "<b>RTA (current)</b> - Shows your currently equipped RTA monsters.</p>"
 
         "<h3>3. Build teams</h3>"
         "<p>In the <b>Builder</b> tabs (Siege / GWB / RTA) you can "
         "create custom team compositions:</p>"
         "<ul>"
-        "<li><b>Select monsters</b> – Via the dropdowns per defense (Siege/GWB) "
+        "<li><b>Select monsters</b> - Via the dropdowns per defense (Siege/GWB) "
         "or the Add button (RTA).</li>"
-        "<li><b>Load current</b> – Imports your in-game teams.</li>"
-        "<li><b>Validate</b> – Checks for rune pool conflicts and shows warnings.</li>"
+        "<li><b>Load current</b> - Imports your in-game teams.</li>"
+        "<li><b>Validate</b> - Checks for rune pool conflicts and shows warnings.</li>"
         "</ul>"
 
         "<h3>4. Define builds</h3>"
-        "<p>Click <b>Builds (Sets+Mainstats)…</b> to set the desired "
+        "<p>Click <b>Builds (Sets+Mainstats)...</b> to set the desired "
         "rune sets and slot 2/4/6 main stats per monster. "
         "Multi-select is available for main stats (no selection = Any). "
         "Additionally, you can select up to two substats per artifact type "
@@ -261,9 +264,14 @@ STRINGS: dict[str, str] = {
         "In the Turn Order block you can set an SPD tick per monster. "
         "The optimizer then enforces that exact tick range "
         "(e.g. Tick 6 = SPD 239 to 285). "
-        "Use <b>Passes</b> to select 1-10 multi-pass runs; "
+        "With profile <b>Fast</b> it runs a quick greedy pass. "
+        "<b>Balanced</b> uses greedy plus refinement from pass 2 onward. "
+        "<b>Max Qualität</b> uses a global optimization over all selected monsters "
+        "at once (efficiency-focused). "
+        "Use <b>Passes</b> for 1-10 multi-pass runs in Fast/Balanced; "
         "if no further improvement is possible, the optimizer stops early. "
-        "Results are shown as cards with all stats plus rune and artifact details.</p>"
+        "In Max Qualität, passes are not used as multi-pass. "
+        "The app shows a progress dialog while optimization is running.</p>"
 
         "<h3>6. Save results</h3>"
         "<p>Optimizations are saved automatically and can be "
@@ -281,7 +289,7 @@ STRINGS: dict[str, str] = {
         "</ul>"
     ),
 
-    # ── Optimizer messages ──────────────────────────────────────
+    # -- Optimizer messages --------------------------------------
     "opt.slot_no_runes": "Slot {slot}: no runes in pool.",
     "opt.no_attr_artifact": "No attribute artifact (type 1) in pool.",
     "opt.no_type_artifact": "No type artifact (type 2) in pool.",
@@ -299,6 +307,7 @@ STRINGS: dict[str, str] = {
     "opt.internal_no_artifact": "Internal error: Artifact type {art_type} missing.",
     "opt.no_units": "No units.",
     "opt.ok": "OK",
+    "opt.cancelled": "Optimization cancelled.",
     "opt.partial_fail": "Done, but at least one monster could not be built.",
     "opt.stable_solution": "stable solution without further improvement",
     "opt.no_improvement": "no improvement in consecutive passes",
@@ -312,7 +321,7 @@ STRINGS: dict[str, str] = {
         "({reason})."
     ),
 
-    # ── Update service messages ─────────────────────────────────
+    # -- Update service messages ---------------------------------
     "svc.no_repo": "No GitHub repo configured (github_repo missing).",
     "svc.no_version": "No release-ready app_version value set.",
     "svc.check_failed": "Update check failed: {detail}",
@@ -323,7 +332,7 @@ STRINGS: dict[str, str] = {
     "svc.download_failed": "Download failed: {detail}",
     "svc.download_ok": "Update downloaded successfully.",
 
-    # ── License service messages ────────────────────────────────
+    # -- License service messages --------------------------------
     "lic.invalid_response": "Invalid server response ({status}).",
     "lic.server_error": "Server error ({status}).",
     "lic.activation_failed": "Activation failed.",
@@ -335,7 +344,7 @@ STRINGS: dict[str, str] = {
     "lic.network_error": "Network error during license check: {detail}",
     "lic.not_configured": "License server not configured (license_config.json missing/incomplete).",
 
-    # ── Overview widget ─────────────────────────────────────────
+    # -- Overview widget -----------------------------------------
     "overview.monsters": "Monsters",
     "overview.runes": "Runes",
     "overview.artifacts": "Artifacts",
@@ -367,18 +376,20 @@ STRINGS: dict[str, str] = {
     "overview.slot_right": "Right",
     "overview.mainstat": "Main stat:",
 
-    # ── RTA overview ────────────────────────────────────────────
+    # -- RTA overview --------------------------------------------
     "rta.spd_lead": "<b>SPD Lead:</b>",
     "rta.no_lead": "No Lead (0%)",
 
-    # ── Siege cards ─────────────────────────────────────────────
-    "card.avg_rune_eff": "Ø Rune efficiency: <b>{eff}%</b>",
-    "card.avg_rune_eff_none": "Ø Rune efficiency: <b>—</b>",
+    # -- Siege cards ---------------------------------------------
+    "card.avg_rune_eff": "O Rune efficiency: <b>{eff}%</b>",
+    "card.avg_rune_eff_none": "O Rune efficiency: <b>-</b>",
     "card.focus": "Focus:",
     "card.defense": "Defense {n}",
 
-    # ── RTA validation messages ─────────────────────────────────
+    # -- RTA validation messages ---------------------------------
     "rta.no_monsters": "RTA: No monsters selected.",
     "rta.duplicate": "RTA: '{name}' is selected twice.",
     "rta.ok": "RTA: OK ({count} monsters).",
 }
+
+

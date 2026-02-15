@@ -77,6 +77,10 @@ def _run_once(
     workers: int,
     passes: int,
     enforce_turn_order: bool,
+    multi_pass_strategy: str,
+    speed_slack_for_quality: int,
+    rune_top_per_set: int,
+    quality_profile: str,
 ) -> Dict[str, Any]:
     from app.engine.greedy_optimizer import GreedyRequest, optimize_greedy
 
@@ -91,6 +95,10 @@ def _run_once(
         workers=int(workers),
         multi_pass_enabled=bool(int(passes) > 1),
         multi_pass_count=int(max(1, passes)),
+        multi_pass_strategy=str(multi_pass_strategy or "greedy_refine"),
+        rune_top_per_set=max(0, int(rune_top_per_set)),
+        quality_profile=str(quality_profile or "balanced"),
+        speed_slack_for_quality=max(0, int(speed_slack_for_quality)),
         enforce_turn_order=bool(enforce_turn_order),
         unit_team_index=team_idx_by_uid,
         unit_team_turn_order=team_turn_by_uid,
@@ -116,7 +124,19 @@ def main() -> int:
     parser.add_argument("--mode", type=str, default="rta", choices=["rta", "siege", "wgb"], help="Optimization mode.")
     parser.add_argument("--units", type=int, default=15, help="Max number of units to optimize.")
     parser.add_argument("--passes", type=int, default=3, help="Multi-pass count.")
+    parser.add_argument(
+        "--multi-pass-strategy",
+        type=str,
+        default="greedy_refine",
+        choices=["greedy_only", "greedy_refine"],
+        help="Pass strategy for >1 pass.",
+    )
     parser.add_argument("--time-limit", type=float, default=1.5, help="Time limit per unit (seconds).")
+    parser.add_argument("--speed-slack", type=int, default=1, help="Allowed SPD loss per unit to improve quality.")
+    parser.add_argument("--rune-top-per-set", type=int, default=200, help="Top-N runes per set in candidate pool (0 = all).")
+    parser.add_argument("--quality-profile", type=str, default="balanced",
+                        choices=["fast", "balanced", "max_quality", "gpu_search"],
+                        help="Preset profile for optimization behavior.")
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 8) // 2), help="OR-Tools worker threads.")
     parser.add_argument("--warmup", type=int, default=1, help="Warmup runs.")
     parser.add_argument("--runs", type=int, default=3, help="Measured runs.")
@@ -156,7 +176,9 @@ def main() -> int:
     print(
         f"Benchmark mode={args.mode} units={len(selected)} passes={int(args.passes)} "
         f"time_limit={float(args.time_limit):.2f}s workers={int(args.workers)} "
-        f"enforce_turn_order={enforce_turn_order}"
+        f"enforce_turn_order={enforce_turn_order} strategy={args.multi_pass_strategy} "
+        f"speed_slack={int(args.speed_slack)} rune_top_per_set={int(args.rune_top_per_set)} "
+        f"profile={args.quality_profile}"
     )
 
     for i in range(max(0, int(args.warmup))):
@@ -170,6 +192,10 @@ def main() -> int:
                 workers=int(args.workers),
                 passes=int(args.passes),
                 enforce_turn_order=enforce_turn_order,
+                multi_pass_strategy=str(args.multi_pass_strategy),
+                speed_slack_for_quality=int(args.speed_slack),
+                rune_top_per_set=int(args.rune_top_per_set),
+                quality_profile=str(args.quality_profile),
             )
         except ModuleNotFoundError as exc:
             print(f"Missing dependency for benchmark run: {exc}. Install requirements first.")
@@ -188,6 +214,10 @@ def main() -> int:
                 workers=int(args.workers),
                 passes=int(args.passes),
                 enforce_turn_order=enforce_turn_order,
+                multi_pass_strategy=str(args.multi_pass_strategy),
+                speed_slack_for_quality=int(args.speed_slack),
+                rune_top_per_set=int(args.rune_top_per_set),
+                quality_profile=str(args.quality_profile),
             )
         except ModuleNotFoundError as exc:
             print(f"Missing dependency for benchmark run: {exc}. Install requirements first.")
@@ -206,7 +236,11 @@ def main() -> int:
         "mode": str(args.mode),
         "units": len(selected),
         "passes": int(args.passes),
+        "multi_pass_strategy": str(args.multi_pass_strategy),
         "time_limit_s": float(args.time_limit),
+        "speed_slack_for_quality": int(args.speed_slack),
+        "rune_top_per_set": int(args.rune_top_per_set),
+        "quality_profile": str(args.quality_profile),
         "workers": int(args.workers),
         "enforce_turn_order": bool(enforce_turn_order),
         "runs": runs,
