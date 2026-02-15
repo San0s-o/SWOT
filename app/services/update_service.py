@@ -174,6 +174,33 @@ def _pick_asset(assets: list[dict[str, Any]], pattern: str = "") -> Optional[Rel
     return candidates[0][1]
 
 
+def _choose_latest_release_data(releases: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for rel in releases:
+        if not isinstance(rel, dict):
+            continue
+        if bool(rel.get("draft")):
+            continue
+        tag_name = str(rel.get("tag_name", "")).strip()
+        if not tag_name:
+            continue
+        candidates.append(rel)
+
+    if not candidates:
+        return None
+
+    def _release_sort_key(rel: dict[str, Any]) -> tuple[int, tuple[int, int, int, int, str] | tuple[str]]:
+        tag_name = str(rel.get("tag_name", "")).strip()
+        ver = _normalize_version(tag_name)
+        ver_tuple = _version_tuple(ver)
+        if ver_tuple is not None:
+            return (1, ver_tuple)
+        return (0, (ver.lower(),))
+
+    candidates.sort(key=_release_sort_key, reverse=True)
+    return candidates[0]
+
+
 def check_latest_release() -> UpdateCheckResult:
     cfg = _load_update_config()
     current_version = cfg["app_version"]
@@ -197,12 +224,12 @@ def check_latest_release() -> UpdateCheckResult:
             message=tr("svc.no_version"),
         )
 
-    url = f"https://api.github.com/repos/{repo}/releases/latest"
+    url = f"https://api.github.com/repos/{repo}/releases?per_page=30"
     headers = {"Accept": "application/vnd.github+json", "User-Agent": f"{APP_NAME}-updater"}
 
     try:
         response = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT_S)
-        data = response.json() if response.content else {}
+        data = response.json() if response.content else []
     except requests.RequestException as exc:
         return UpdateCheckResult(
             checked=False,
@@ -230,7 +257,7 @@ def check_latest_release() -> UpdateCheckResult:
             message=tr("svc.check_failed", detail=msg),
         )
 
-    if not isinstance(data, dict):
+    if not isinstance(data, list):
         return UpdateCheckResult(
             checked=False,
             update_available=False,
@@ -239,18 +266,28 @@ def check_latest_release() -> UpdateCheckResult:
             message=tr("svc.unexpected_format"),
         )
 
-    tag_name = str(data.get("tag_name", "")).strip()
+    release_data = _choose_latest_release_data(data)
+    if not release_data:
+        return UpdateCheckResult(
+            checked=False,
+            update_available=False,
+            current_version=current_version,
+            latest_version="",
+            message=tr("svc.unexpected_format"),
+        )
+
+    tag_name = str(release_data.get("tag_name", "")).strip()
     latest_version = _normalize_version(tag_name)
     update_available = is_newer_version(current_version, latest_version)
 
     release = ReleaseInfo(
         version=latest_version,
         tag_name=tag_name,
-        name=str(data.get("name", "")).strip(),
-        body=str(data.get("body", "")).strip(),
-        html_url=str(data.get("html_url", "")).strip(),
-        published_at=str(data.get("published_at", "")).strip(),
-        asset=_pick_asset(list(data.get("assets") or []), cfg["asset_pattern"]),
+        name=str(release_data.get("name", "")).strip(),
+        body=str(release_data.get("body", "")).strip(),
+        html_url=str(release_data.get("html_url", "")).strip(),
+        published_at=str(release_data.get("published_at", "")).strip(),
+        asset=_pick_asset(list(release_data.get("assets") or []), cfg["asset_pattern"]),
     )
 
     return UpdateCheckResult(
