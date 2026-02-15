@@ -35,7 +35,7 @@ STRINGS: dict[str, str] = {
     "btn.validate": "Validieren",
     "btn.validate_pools": "Validieren (Pools/Teams)",
     "btn.builds": "Builds (Sets+Mainstats)…",
-    "btn.optimize": "Optimieren (Runen)",
+    "btn.optimize": "Optimieren",
     "btn.activate": "Aktivieren",
     "btn.quit": "Beenden",
     "btn.later": "Spaeter",
@@ -243,6 +243,8 @@ STRINGS: dict[str, str] = {
         "<p>Klicke auf <b>Builds (Sets+Mainstats)…</b> um je Monster "
         "die gewünschten Runen-Sets und Slot-2/4/6-Hauptstats festzulegen. "
         "Bei Mainstats ist Mehrfachauswahl möglich (keine Auswahl = Any). "
+        "Zusätzlich kannst du pro Artefakt-Typ (Attribut/Typ) bis zu zwei "
+        "Substats auswählen (leer = Any). "
         "Set-Logik: In Set 1 und Set 2 ist Mehrfachauswahl möglich. "
         "Pro Set-Slot sind nur gleich große Sets erlaubt (2er oder 4er). "
         "Set 3 ist nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind. "
@@ -250,12 +252,18 @@ STRINGS: dict[str, str] = {
 
         "<h3>5. Optimieren</h3>"
         "<p>Klicke auf <b>Optimieren (Runen)</b> um die automatische "
-        "Runen-Verteilung zu starten. Der Optimizer verteilt deine Runen "
-        "so, dass die Vorgaben möglichst effizient erfüllt werden. "
+        "Runen-/Artefakt-Verteilung zu starten. Der Optimizer verteilt deine Runen "
+        "und wählt passende Artefakte nach Build-Vorgaben. "
+        "Bei gesetzten Artefakt-Substats werden passende Artefakte "
+        "mit besseren Werten bevorzugt. "
         "Die Turn-Order innerhalb von Teams wird dabei immer erzwungen. "
+        "Im Turn-Order-Block kannst du pro Monster einen SPD-Tick setzen. "
+        "Der Optimizer erzwingt dann genau diesen Tick-Bereich "
+        "(z.B. Tick 6 = SPD 239 bis 285). "
         "Über <b>Durchläufe</b> kannst du 1-10 Multi-Pass-Runs wählen; "
         "wenn keine Verbesserung mehr möglich ist, stoppt der Optimizer vorzeitig. "
-        "Das Ergebnis kannst du als Karten mit allen Stats und Runen-Details sehen.</p>"
+        "Das Ergebnis kannst du als Karten mit allen Stats sowie Runen- und "
+        "Artefakt-Details sehen.</p>"
 
         "<h3>6. Ergebnisse speichern</h3>"
         "<p>Optimierungen werden automatisch gespeichert und können "

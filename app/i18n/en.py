@@ -35,7 +35,7 @@ STRINGS: dict[str, str] = {
     "btn.validate": "Validate",
     "btn.validate_pools": "Validate (Pools/Teams)",
     "btn.builds": "Builds (Sets+Mainstats)…",
-    "btn.optimize": "Optimize (Runes)",
+    "btn.optimize": "Optimize",
     "btn.activate": "Activate",
     "btn.quit": "Quit",
     "btn.later": "Later",
@@ -243,6 +243,8 @@ STRINGS: dict[str, str] = {
         "<p>Click <b>Builds (Sets+Mainstats)…</b> to set the desired "
         "rune sets and slot 2/4/6 main stats per monster. "
         "Multi-select is available for main stats (no selection = Any). "
+        "Additionally, you can select up to two substats per artifact type "
+        "(Attribute/Type; empty = Any). "
         "Set logic: Set 1 and Set 2 support multi-select. "
         "Only same-size sets are allowed per set slot (2-piece or 4-piece). "
         "Set 3 is only active when Set 1 and Set 2 are both 2-piece sets. "
@@ -250,12 +252,17 @@ STRINGS: dict[str, str] = {
 
         "<h3>5. Optimize</h3>"
         "<p>Click <b>Optimize (Runes)</b> to start the automatic "
-        "rune distribution. The optimizer distributes your runes "
-        "to fulfil the requirements as efficiently as possible. "
+        "rune/artifact distribution. The optimizer distributes your runes "
+        "and selects matching artifacts based on build constraints. "
+        "When artifact substats are selected, matching artifacts with higher "
+        "values are preferred. "
         "Turn order within teams is always enforced. "
+        "In the Turn Order block you can set an SPD tick per monster. "
+        "The optimizer then enforces that exact tick range "
+        "(e.g. Tick 6 = SPD 239 to 285). "
         "Use <b>Passes</b> to select 1-10 multi-pass runs; "
         "if no further improvement is possible, the optimizer stops early. "
-        "Results are shown as cards with all stats and rune details.</p>"
+        "Results are shown as cards with all stats plus rune and artifact details.</p>"
 
         "<h3>6. Save results</h3>"
         "<p>Optimizations are saved automatically and can be "
