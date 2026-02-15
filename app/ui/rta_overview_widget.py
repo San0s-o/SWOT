@@ -69,6 +69,10 @@ class RtaOverviewWidget(QWidget):
         self._build_speed_lead_buttons()
         self._render_grid()
 
+    def retranslate(self) -> None:
+        self._lead_label.setText(tr("rta.spd_lead"))
+        self._build_speed_lead_buttons()
+
     # ── speed-lead buttons ───────────────────────────────────
     def _build_speed_lead_buttons(self) -> None:
         # Remove old buttons

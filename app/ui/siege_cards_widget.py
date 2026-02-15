@@ -59,14 +59,14 @@ def _rune_rich_tooltip(rune: Rune) -> str:
     set_name = SET_NAMES.get(int(rune.set_id or 0), "?")
     main_key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(rune.pri_eff[0] or 0), "?")
     lines = [
-        f"<b>{set_name}</b> &nbsp; Slot {rune.slot_no} &nbsp; +{rune.upgrade_curr}",
-        f"Main: <b>{main_key} +{rune.pri_eff[1]}</b>",
+        f"<b>{set_name}</b> &nbsp; {tr('ui.slot')} {rune.slot_no} &nbsp; +{rune.upgrade_curr}",
+        f"{tr('ui.main')}: <b>{main_key} +{rune.pri_eff[1]}</b>",
     ]
     if rune.prefix_eff and int(rune.prefix_eff[0] or 0) != 0:
         pfx_key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(rune.prefix_eff[0] or 0), "?")
-        lines.append(f"Prefix: {pfx_key} +{rune.prefix_eff[1]}")
+        lines.append(f"{tr('ui.prefix')}: {pfx_key} +{rune.prefix_eff[1]}")
     if rune.sec_eff:
-        lines.append("<b>Subs:</b>")
+        lines.append(f"<b>{tr('ui.subs')}:</b>")
         for sec in rune.sec_eff:
             if not sec:
                 continue
@@ -113,11 +113,11 @@ def _artifact_rich_tooltip(art: Artifact) -> str:
         base_rank = int(art.rank or 0)
     quality = artifact_rank_label(base_rank, fallback_prefix="Rank")
     lines = [
-        f"<b>{kind}-Artefakt</b> &nbsp; ID {int(art.artifact_id or 0)}",
+        f"<b>{kind} {tr('ui.artifact')}</b> &nbsp; ID {int(art.artifact_id or 0)}",
         f"{tr('card.focus')} <b>{focus}</b> &nbsp; {tr('overview.quality')} {quality} &nbsp; +{int(art.level or 0)}",
     ]
     if art.sec_effects:
-        lines.append("<b>Subs:</b>")
+        lines.append(f"<b>{tr('ui.subs')}:</b>")
         for sec in art.sec_effects:
             if not sec:
                 continue
@@ -127,7 +127,7 @@ def _artifact_rich_tooltip(art: Artifact) -> str:
                 continue
             val = sec[1] if len(sec) > 1 else 0
             rolls = int(sec[2] or 0) if len(sec) > 2 else 0
-            lines.append(f"&nbsp;&nbsp;{_artifact_effect_text(eff_id, val)} [Rolls {rolls}]")
+            lines.append(f"&nbsp;&nbsp;{_artifact_effect_text(eff_id, val)} [{tr('ui.rolls', n=rolls)}]")
     return "<br>".join(lines)
 
 
@@ -538,7 +538,7 @@ class SiegeDefCardsWidget(QWidget):
                       monster_db: MonsterDB, assets_dir: Path, rune_mode: str,
                       rune_overrides: Optional[Dict[int, List[Rune]]] = None,
                       artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
-                      team_label_prefix: str = "Verteidigung"):
+                      team_label_prefix: str = ""):
         for ti, team in enumerate(teams, start=1):
             speed_lead_pct = 0
             for uid in team:

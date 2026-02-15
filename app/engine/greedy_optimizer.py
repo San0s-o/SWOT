@@ -44,7 +44,10 @@ SET_SCORE_BONUS: Dict[int, int] = {
 # Applied on squared excess above the minimum legal gap (1 SPD).
 TURN_ORDER_GAP_PENALTY_WEIGHT = 35
 INTANGIBLE_SET_ID = 25
-ARTIFACT_BONUS_FOR_SAME_UNIT = 25
+ARTIFACT_BONUS_FOR_SAME_UNIT = 60
+ARTIFACT_BUILD_FOCUS_BONUS = 35
+ARTIFACT_BUILD_MATCH_BONUS = 140
+ARTIFACT_BUILD_VALUE_WEIGHT = 6
 
 # Artifact main focus mapping (HP/ATK/DEF).
 # Supports both rune-like stat IDs and commonly seen artifact main IDs.
@@ -129,6 +132,23 @@ def _artifact_substat_ids(art: Artifact) -> Set[int]:
             continue
     out.discard(0)
     return out
+
+
+def _artifact_effect_value_scaled(art: Artifact, effect_id: int) -> int:
+    target = int(effect_id or 0)
+    if target <= 0:
+        return 0
+    total = 0
+    for sec in (art.sec_effects or []):
+        if not sec or len(sec) < 2:
+            continue
+        try:
+            if int(sec[0] or 0) != target:
+                continue
+            total += int(round(float(sec[1] or 0) * 10.0))
+        except Exception:
+            continue
+    return int(total)
 
 
 def _artifact_quality_score(
@@ -656,6 +676,40 @@ def _solve_single_unit_best(
             av = xa[(art_type, int(art.artifact_id))]
             aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
             quality_terms.append(aw * av)
+
+    # Build-aware artifact quality:
+    # if artifact filters are selected, prefer higher rolls in those selected effects.
+    for b_idx, b in enumerate(builds):
+        vb = use_build[b_idx]
+        artifact_focus_cfg = dict(getattr(b, "artifact_focus", {}) or {})
+        artifact_sub_cfg = dict(getattr(b, "artifact_substats", {}) or {})
+        for art_type, cfg_key in ((1, "attribute"), (2, "type")):
+            allowed_focus = [str(x).upper() for x in (artifact_focus_cfg.get(cfg_key) or []) if str(x)]
+            preferred_subs = [int(x) for x in (artifact_sub_cfg.get(cfg_key) or []) if int(x) > 0][:2]
+            if not allowed_focus and not preferred_subs:
+                continue
+
+            for art in artifacts_by_type[art_type]:
+                aid = int(art.artifact_id)
+                av = xa[(art_type, aid)]
+                bonus = 0
+
+                if allowed_focus and _artifact_focus_key(art) in allowed_focus:
+                    bonus += ARTIFACT_BUILD_FOCUS_BONUS
+
+                for req_id in preferred_subs:
+                    val_scaled = _artifact_effect_value_scaled(art, req_id)
+                    if val_scaled > 0:
+                        bonus += ARTIFACT_BUILD_MATCH_BONUS + (val_scaled * ARTIFACT_BUILD_VALUE_WEIGHT)
+
+                if bonus <= 0:
+                    continue
+
+                z = model.NewBoolVar(f"qab_u{uid}_b{b_idx}_t{art_type}_a{aid}")
+                model.Add(z <= av)
+                model.Add(z <= vb)
+                model.Add(z >= av + vb - 1)
+                quality_terms.append(bonus * z)
 
     BUILD_PRIORITY_PENALTY = 200
     for b_idx, b in enumerate(builds):

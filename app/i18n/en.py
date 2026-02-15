@@ -52,6 +52,7 @@ STRINGS: dict[str, str] = {
     "label.saved_opt": "Saved Optimization:",
     "label.team": "Team",
     "label.team_name": "Team Name",
+    "label.units": "units",
     "label.defense": "Defense {n}",
     "label.import_account_first": "Import an account first.",
     "label.no_teams": "No teams defined.",
@@ -180,6 +181,20 @@ STRINGS: dict[str, str] = {
     "artifact.type": "Type",
     "artifact.no_rune": "No rune",
     "artifact.no_artifact": "No artifact",
+
+    # ── Generic UI labels ──────────────────────────────────────
+    "ui.artifact": "Artifact",
+    "ui.artifacts_title": "Artifacts",
+    "ui.rune_id": "Rune ID",
+    "ui.artifact_id": "Artifact ID",
+    "ui.focus": "Focus",
+    "ui.current_on": "currently on: {owner}",
+    "ui.slot": "Slot",
+    "ui.main": "Main",
+    "ui.prefix": "Prefix",
+    "ui.subs": "Subs",
+    "ui.rolls": "Rolls {n}",
+    "ui.class_short": "Cls.",
 
     # ── Update dialog ───────────────────────────────────────────
     "update.title": "Update available",
@@ -324,6 +339,8 @@ STRINGS: dict[str, str] = {
     "overview.axis_count": "Count / Rank",
     "overview.axis_eff": "Efficiency (%)",
     "overview.series_current": "Current",
+    "overview.series_hero_max": "Hero max",
+    "overview.series_legend_max": "Legend max",
     "overview.series_attr_art": "Attribute Artifact",
     "overview.series_type_art": "Type Artifact",
     "overview.other": "Other ({count})",

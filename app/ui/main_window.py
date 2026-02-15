@@ -538,12 +538,22 @@ class BuildDialog(QDialog):
         ])
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
-        # Wide selection columns
-        for col in (0, 1, 2, 3, 4, 5, 6, 7, 10):
-            header.setSectionResizeMode(col, QHeaderView.Stretch)
-        # Compact columns (artifact substats + stat thresholds)
+        # Keep monster column flexible, but reserve readable width for set/mainstat columns.
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for col in (1, 2, 3, 4, 5, 6, 7, 10):
+            header.setSectionResizeMode(col, QHeaderView.Interactive)
+
+        # Compact columns (artifact substats + stat thresholds).
         for col in (8, 9, 11, 12, 13, 14, 15, 16, 17):
             header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+
+        # Default widths to avoid clipped labels/values in Builder table.
+        for col in (1, 2, 3):
+            self.table.setColumnWidth(col, 110)
+        for col in (4, 5, 6):
+            self.table.setColumnWidth(col, 120)
+        self.table.setColumnWidth(7, 95)
+        self.table.setColumnWidth(10, 95)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setDragDropMode(QAbstractItemView.InternalMove)
@@ -1477,7 +1487,7 @@ class OptimizeResultDialog(QDialog):
         v = QVBoxLayout(w)
         v.setContentsMargins(8, 8, 8, 8)
         v.setSpacing(6)
-        v.addWidget(QLabel("<b>Artefakte</b>"))
+        v.addWidget(QLabel(f"<b>{tr('ui.artifacts_title')}</b>"))
 
         for art_type in (1, 2):
             aid = int((result.artifacts_by_type or {}).get(art_type, 0) or 0)
@@ -1496,19 +1506,16 @@ class OptimizeResultDialog(QDialog):
             fv.setSpacing(2)
 
             kind = _artifact_kind_label(art_type)
-            focus = ""
-            if art.pri_effect and len(art.pri_effect) >= 2:
-                try:
-                    focus = _artifact_focus_key_from_effect_id(int(art.pri_effect[0] or 0))
-                except Exception:
-                    focus = ""
-            focus_text = focus if focus else "—"
-            fv.addWidget(QLabel(f"<b>{kind}</b> | ID {int(art.artifact_id)} | Fokus {focus_text} | +{int(art.level or 0)}"))
+            fv.addWidget(
+                QLabel(
+                    f"<b>{kind}</b> | +{int(art.level or 0)}"
+                )
+            )
 
             owner_uid = int(art.occupied_id or 0)
             if owner_uid > 0:
                 owner = self._unit_label_fn(owner_uid)
-                owner_lbl = QLabel(f"aktuell auf: {owner}")
+                owner_lbl = QLabel(tr("ui.current_on", owner=owner))
                 owner_lbl.setStyleSheet("color: #888; font-size: 7pt;")
                 fv.addWidget(owner_lbl)
 
@@ -1551,7 +1558,7 @@ class OptimizeResultDialog(QDialog):
             icon_lbl.setFixedSize(28, 28)
         header.addWidget(icon_lbl)
         set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
-        header.addWidget(QLabel(f"<b>Slot {slot}</b> | {set_name} | +{rune.upgrade_curr}"))
+        header.addWidget(QLabel(f"<b>{tr('ui.slot')} {slot}</b> | {set_name} | +{rune.upgrade_curr}"))
         header.addStretch()
         main_v.addLayout(header)
 
@@ -1561,14 +1568,14 @@ class OptimizeResultDialog(QDialog):
             owner_uid = int(rune.occupied_id)
         if owner_uid:
             owner = self._unit_label_fn(owner_uid)
-            src = QLabel(f"aktuell auf: {owner}")
+            src = QLabel(tr("ui.current_on", owner=owner))
             src.setStyleSheet("color: #888; font-size: 7pt;")
             main_v.addWidget(src)
 
-        main_v.addWidget(QLabel(f"Main: {self._stat_label(rune.pri_eff)}"))
+        main_v.addWidget(QLabel(f"{tr('ui.main')}: {self._stat_label(rune.pri_eff)}"))
         pfx = self._prefix_text(rune.prefix_eff)
         if pfx != "—":
-            main_v.addWidget(QLabel(f"Prefix: {pfx}"))
+            main_v.addWidget(QLabel(f"{tr('ui.prefix')}: {pfx}"))
 
         for sec in (rune.sec_eff or []):
             if not sec:
@@ -2055,7 +2062,8 @@ class MainWindow(QMainWindow):
     def _init_saved_siege_tab(self):
         v = QVBoxLayout(self.tab_saved_siege)
         top = QHBoxLayout()
-        top.addWidget(QLabel(tr("label.saved_opt")))
+        self.lbl_saved_siege = QLabel(tr("label.saved_opt"))
+        top.addWidget(self.lbl_saved_siege)
         self.saved_siege_combo = QComboBox()
         self.saved_siege_combo.currentIndexChanged.connect(lambda: self._on_saved_opt_changed("siege"))
         top.addWidget(self.saved_siege_combo, 1)
@@ -2070,7 +2078,8 @@ class MainWindow(QMainWindow):
     def _init_saved_wgb_tab(self):
         v = QVBoxLayout(self.tab_saved_wgb)
         top = QHBoxLayout()
-        top.addWidget(QLabel(tr("label.saved_opt")))
+        self.lbl_saved_wgb = QLabel(tr("label.saved_opt"))
+        top.addWidget(self.lbl_saved_wgb)
         self.saved_wgb_combo = QComboBox()
         self.saved_wgb_combo.currentIndexChanged.connect(lambda: self._on_saved_opt_changed("wgb"))
         top.addWidget(self.saved_wgb_combo, 1)
@@ -2085,7 +2094,8 @@ class MainWindow(QMainWindow):
     def _init_saved_rta_tab(self):
         v = QVBoxLayout(self.tab_saved_rta)
         top = QHBoxLayout()
-        top.addWidget(QLabel(tr("label.saved_opt")))
+        self.lbl_saved_rta = QLabel(tr("label.saved_opt"))
+        top.addWidget(self.lbl_saved_rta)
         self.saved_rta_combo = QComboBox()
         self.saved_rta_combo.currentIndexChanged.connect(lambda: self._on_saved_opt_changed("rta"))
         top.addWidget(self.saved_rta_combo, 1)
@@ -2174,9 +2184,9 @@ class MainWindow(QMainWindow):
     def _init_siege_builder_ui(self):
         v = QVBoxLayout(self.tab_siege_builder)
 
-        box = QGroupBox(tr("group.siege_select"))
-        v.addWidget(box, 1)
-        box_layout = QVBoxLayout(box)
+        self.box_siege_select = QGroupBox(tr("group.siege_select"))
+        v.addWidget(self.box_siege_select, 1)
+        box_layout = QVBoxLayout(self.box_siege_select)
         siege_scroll = QScrollArea()
         siege_scroll.setWidgetResizable(True)
         box_layout.addWidget(siege_scroll)
@@ -2185,10 +2195,13 @@ class MainWindow(QMainWindow):
         siege_scroll.setWidget(siege_inner)
 
         self._all_unit_combos: List[QComboBox] = []
+        self.lbl_siege_defense: List[QLabel] = []
 
         self.siege_team_combos: List[List[QComboBox]] = []
         for t in range(10):
-            grid.addWidget(QLabel(tr("label.defense", n=t+1)), t, 0)
+            lbl = QLabel(tr("label.defense", n=t+1))
+            self.lbl_siege_defense.append(lbl)
+            grid.addWidget(lbl, t, 0)
             row: List[QComboBox] = []
             for s in range(3):
                 cmb = _UnitSearchComboBox()
@@ -2221,7 +2234,8 @@ class MainWindow(QMainWindow):
         self.btn_optimize_siege.clicked.connect(self.on_optimize_siege)
         btn_row.addWidget(self.btn_optimize_siege)
 
-        btn_row.addWidget(QLabel(tr("label.passes")))
+        self.lbl_siege_passes = QLabel(tr("label.passes"))
+        btn_row.addWidget(self.lbl_siege_passes)
         self.spin_multi_pass_siege = QSpinBox()
         self.spin_multi_pass_siege.setRange(1, 10)
         self.spin_multi_pass_siege.setValue(3)
@@ -2238,13 +2252,16 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(self.tab_wgb_builder)
 
         # -- team selection grid (5 defs x 3 monsters) --------
-        box = QGroupBox(tr("group.wgb_select"))
-        v.addWidget(box)
-        grid = QGridLayout(box)
+        self.box_wgb_select = QGroupBox(tr("group.wgb_select"))
+        v.addWidget(self.box_wgb_select)
+        grid = QGridLayout(self.box_wgb_select)
 
         self.wgb_team_combos: List[List[QComboBox]] = []
+        self.lbl_wgb_defense: List[QLabel] = []
         for t in range(5):
-            grid.addWidget(QLabel(tr("label.defense", n=t+1)), t, 0)
+            lbl = QLabel(tr("label.defense", n=t+1))
+            self.lbl_wgb_defense.append(lbl)
+            grid.addWidget(lbl, t, 0)
             row: List[QComboBox] = []
             for s in range(3):
                 cmb = _UnitSearchComboBox()
@@ -2273,7 +2290,8 @@ class MainWindow(QMainWindow):
         self.btn_optimize_wgb.clicked.connect(self.on_optimize_wgb)
         btn_row.addWidget(self.btn_optimize_wgb)
 
-        btn_row.addWidget(QLabel(tr("label.passes")))
+        self.lbl_wgb_passes = QLabel(tr("label.passes"))
+        btn_row.addWidget(self.lbl_wgb_passes)
         self.spin_multi_pass_wgb = QSpinBox()
         self.spin_multi_pass_wgb.setRange(1, 10)
         self.spin_multi_pass_wgb.setValue(3)
@@ -2293,9 +2311,9 @@ class MainWindow(QMainWindow):
     def _init_rta_builder_ui(self):
         v = QVBoxLayout(self.tab_rta_builder)
 
-        box = QGroupBox(tr("group.rta_select"))
-        v.addWidget(box, 1)
-        box_layout = QVBoxLayout(box)
+        self.box_rta_select = QGroupBox(tr("group.rta_select"))
+        v.addWidget(self.box_rta_select, 1)
+        box_layout = QVBoxLayout(self.box_rta_select)
 
         # Top row: combo selector + add/remove + load current
         top_row = QHBoxLayout()
@@ -2304,13 +2322,13 @@ class MainWindow(QMainWindow):
         self._all_unit_combos.append(self.rta_add_combo)
         top_row.addWidget(self.rta_add_combo, 1)
 
-        btn_add = QPushButton(tr("btn.add"))
-        btn_add.clicked.connect(self._on_rta_add_monster)
-        top_row.addWidget(btn_add)
+        self.btn_rta_add = QPushButton(tr("btn.add"))
+        self.btn_rta_add.clicked.connect(self._on_rta_add_monster)
+        top_row.addWidget(self.btn_rta_add)
 
-        btn_remove = QPushButton(tr("btn.remove"))
-        btn_remove.clicked.connect(self._on_rta_remove_monster)
-        top_row.addWidget(btn_remove)
+        self.btn_rta_remove = QPushButton(tr("btn.remove"))
+        self.btn_rta_remove.clicked.connect(self._on_rta_remove_monster)
+        top_row.addWidget(self.btn_rta_remove)
 
         self.btn_take_current_rta = QPushButton(tr("btn.take_rta"))
         self.btn_take_current_rta.setEnabled(False)
@@ -2346,7 +2364,8 @@ class MainWindow(QMainWindow):
         self.btn_optimize_rta.clicked.connect(self.on_optimize_rta)
         btn_row.addWidget(self.btn_optimize_rta)
 
-        btn_row.addWidget(QLabel(tr("label.passes")))
+        self.lbl_rta_passes = QLabel(tr("label.passes"))
+        btn_row.addWidget(self.lbl_rta_passes)
         self.spin_multi_pass_rta = QSpinBox()
         self.spin_multi_pass_rta.setRange(1, 10)
         self.spin_multi_pass_rta.setValue(3)
@@ -2363,7 +2382,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(self.tab_team_builder)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel(tr("label.team")))
+        self.lbl_team = QLabel(tr("label.team"))
+        row.addWidget(self.lbl_team)
         self.team_combo = QComboBox()
         self.team_combo.currentIndexChanged.connect(self._on_team_selected)
         row.addWidget(self.team_combo, 1)
@@ -2386,7 +2406,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.btn_optimize_team)
 
         pass_row = QHBoxLayout()
-        pass_row.addWidget(QLabel(tr("label.passes")))
+        self.lbl_team_passes = QLabel(tr("label.passes"))
+        pass_row.addWidget(self.lbl_team_passes)
         self.spin_multi_pass_team = QSpinBox()
         self.spin_multi_pass_team.setRange(1, 10)
         self.spin_multi_pass_team.setValue(3)
@@ -2417,7 +2438,7 @@ class MainWindow(QMainWindow):
         self.team_combo.clear()
         teams = sorted(self.team_store.teams.values(), key=lambda t: t.name)
         for team in teams:
-            self.team_combo.addItem(f"{team.name} ({len(team.unit_ids)} Units)", team.id)
+            self.team_combo.addItem(f"{team.name} ({len(team.unit_ids)} {tr('label.units')})", team.id)
         self.team_combo.blockSignals(False)
         if not teams:
             self.lbl_team_units.setText(tr("label.no_teams"))
@@ -2882,8 +2903,9 @@ class MainWindow(QMainWindow):
         for idx, units in enumerate(self.account.siege_def_teams(), start=1):
             if not units:
                 continue
-            name = f"Siege Verteidigung {idx}"
-            if name in existing_names:
+            name = tr("label.defense", n=idx)
+            legacy_name = f"Siege Verteidigung {idx}"
+            if name in existing_names or legacy_name in existing_names:
                 continue
             try:
                 self.team_store.upsert(name, units)
@@ -3384,6 +3406,72 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(6, tr("tab.wgb_saved"))
         self.tabs.setTabText(7, tr("tab.rta_builder"))
         self.tabs.setTabText(8, tr("tab.rta_saved"))
+
+        # Saved optimization tabs
+        self.lbl_saved_siege.setText(tr("label.saved_opt"))
+        self.lbl_saved_wgb.setText(tr("label.saved_opt"))
+        self.lbl_saved_rta.setText(tr("label.saved_opt"))
+        self.btn_delete_saved_siege.setText(tr("btn.delete"))
+        self.btn_delete_saved_wgb.setText(tr("btn.delete"))
+        self.btn_delete_saved_rta.setText(tr("btn.delete"))
+
+        # Siege builder
+        self.box_siege_select.setTitle(tr("group.siege_select"))
+        for idx, lbl in enumerate(self.lbl_siege_defense, start=1):
+            lbl.setText(tr("label.defense", n=idx))
+        self.btn_take_current_siege.setText(tr("btn.take_siege"))
+        self.btn_validate_siege.setText(tr("btn.validate_pools"))
+        self.btn_edit_presets_siege.setText(tr("btn.builds"))
+        self.btn_optimize_siege.setText(tr("btn.optimize"))
+        self.lbl_siege_passes.setText(tr("label.passes"))
+        self.spin_multi_pass_siege.setToolTip(tr("tooltip.passes"))
+
+        # WGB builder
+        self.box_wgb_select.setTitle(tr("group.wgb_select"))
+        for idx, lbl in enumerate(self.lbl_wgb_defense, start=1):
+            lbl.setText(tr("label.defense", n=idx))
+        self.btn_validate_wgb.setText(tr("btn.validate_pools"))
+        self.btn_edit_presets_wgb.setText(tr("btn.builds"))
+        self.btn_optimize_wgb.setText(tr("btn.optimize"))
+        self.lbl_wgb_passes.setText(tr("label.passes"))
+        self.spin_multi_pass_wgb.setToolTip(tr("tooltip.passes"))
+
+        # RTA builder
+        self.box_rta_select.setTitle(tr("group.rta_select"))
+        self.btn_rta_add.setText(tr("btn.add"))
+        self.btn_rta_remove.setText(tr("btn.remove"))
+        self.btn_take_current_rta.setText(tr("btn.take_rta"))
+        self.btn_validate_rta.setText(tr("btn.validate"))
+        self.btn_edit_presets_rta.setText(tr("btn.builds"))
+        self.btn_optimize_rta.setText(tr("btn.optimize"))
+        self.lbl_rta_passes.setText(tr("label.passes"))
+        self.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
+
+        # Team tab
+        self.lbl_team.setText(tr("label.team"))
+        self.btn_new_team.setText(tr("btn.new_team"))
+        self.btn_edit_team.setText(tr("btn.edit_team"))
+        self.btn_remove_team.setText(tr("btn.delete_team"))
+        self.btn_optimize_team.setText(tr("btn.optimize_team"))
+        self.lbl_team_passes.setText(tr("label.passes"))
+        self.spin_multi_pass_team.setToolTip(tr("tooltip.passes"))
+        self._refresh_team_combo()
+
+        # Search placeholder for all searchable unit combos
+        for cmb in self.findChildren(_UnitSearchComboBox):
+            le = cmb.lineEdit()
+            if le is not None:
+                le.setPlaceholderText(tr("main.search_placeholder"))
+
+        # Re-render views that contain translated text generated at render time
+        self.overview_widget.retranslate()
+        self.rta_overview.retranslate()
+        if self.account:
+            self._render_siege_raw()
+            self._render_wgb_preview()
+            self._on_saved_opt_changed("siege")
+            self._on_saved_opt_changed("wgb")
+            self._on_saved_opt_changed("rta")
 
 
 def _apply_dark_palette(app: QApplication) -> None:

@@ -104,6 +104,9 @@ class _SummaryCard(QFrame):
         if accent:
             self._lbl_val.setStyleSheet(f"color: {accent}; font-size: 16pt; font-weight: bold;")
 
+    def update_title(self, title: str) -> None:
+        self._lbl_title.setText(title)
+
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Chart helpers
@@ -160,19 +163,19 @@ _GEM_COLOR = "#1abc9c"  # teal for gem-swapped subs
 def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
     set_name = SET_NAMES.get(int(rune.set_id or 0), f"Set {int(rune.set_id or 0)}")
     cls_id = _rune_quality_class(rune)
-    cls = _RUNE_CLASS_NAMES.get(cls_id, f"Kl. {cls_id}")
+    cls = _RUNE_CLASS_NAMES.get(cls_id, f"{tr('ui.class_short')} {cls_id}")
     lines = [
         f"{tr('overview.rank', idx=idx + 1)} | {tr('overview.efficiency')} {eff:.2f}%",
-        f"Rune ID: {int(rune.rune_id or 0)}",
-        f"{set_name} | Slot {int(rune.slot_no or 0)} | +{int(rune.upgrade_curr or 0)} | {cls}",
-        f"Main: {_stat_label(int(rune.pri_eff[0] or 0), rune.pri_eff[1] if len(rune.pri_eff) > 1 else 0)}",
+        f"{tr('ui.rune_id')}: {int(rune.rune_id or 0)}",
+        f"{set_name} | {tr('ui.slot')} {int(rune.slot_no or 0)} | +{int(rune.upgrade_curr or 0)} | {cls}",
+        f"{tr('ui.main')}: {_stat_label(int(rune.pri_eff[0] or 0), rune.pri_eff[1] if len(rune.pri_eff) > 1 else 0)}",
     ]
     if rune.prefix_eff and int(rune.prefix_eff[0] or 0) != 0:
         lines.append(
-            f"Prefix: {_stat_label(int(rune.prefix_eff[0] or 0), rune.prefix_eff[1] if len(rune.prefix_eff) > 1 else 0)}"
+            f"{tr('ui.prefix')}: {_stat_label(int(rune.prefix_eff[0] or 0), rune.prefix_eff[1] if len(rune.prefix_eff) > 1 else 0)}"
         )
     if rune.sec_eff:
-        lines.append("Subs:")
+        lines.append(f"{tr('ui.subs')}:")
         for sec in rune.sec_eff:
             if not sec:
                 continue
@@ -201,20 +204,20 @@ def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
     quality = artifact_rank_label(base_rank, fallback_prefix="Rank")
     lines = [
         f"{tr('overview.rank', idx=idx + 1)} | {tr('overview.efficiency')} {eff:.2f}%",
-        f"Artefakt ID: {int(art.artifact_id or 0)}",
+        f"{tr('ui.artifact_id')}: {int(art.artifact_id or 0)}",
         f"{slot_name} | {tr('artifact.type')} {int(art.type_ or 0)} | {tr('overview.quality')} {quality} | +{int(art.level or 0)}",
     ]
     if art.pri_effect and len(art.pri_effect) >= 2:
         lines.append(f"{tr('overview.mainstat')} {_stat_label(int(art.pri_effect[0] or 0), art.pri_effect[1])}")
     if art.sec_effects:
-        lines.append("Subs:")
+        lines.append(f"{tr('ui.subs')}:")
         for sec in art.sec_effects:
             if not sec:
                 continue
             eff_id = int(sec[0] or 0)
             val = sec[1] if len(sec) > 1 else 0
             upgrades = int(sec[2] or 0) if len(sec) > 2 else 0
-            lines.append(f"  \u2022 {_stat_label(eff_id, val)} (Rolls {upgrades})")
+            lines.append(f"  \u2022 {_stat_label(eff_id, val)} ({tr('ui.rolls', n=upgrades)})")
     return "<br>".join(lines)
 
 
@@ -452,6 +455,20 @@ class OverviewWidget(QWidget):
         self._update_cards(account)
         self._build_charts(account)
 
+    def retranslate(self) -> None:
+        self._card_units.update_title(tr("overview.monsters"))
+        self._card_runes.update_title(tr("overview.runes"))
+        self._card_artifacts.update_title(tr("overview.artifacts"))
+        self._card_rune_avg.update_title(tr("overview.rune_eff"))
+        self._card_art_avg_t1.update_title(tr("overview.attr_art_eff"))
+        self._card_art_avg_t2.update_title(tr("overview.type_art_eff"))
+        self._card_rune_best.update_title(tr("overview.best_rune"))
+        for sid, card in self._set_eff_cards.items():
+            name = SET_NAMES.get(sid, f"Set {sid}")
+            card.update_title(tr("overview.set_eff", name=name))
+        if self._account is not None:
+            self._build_charts(self._account)
+
     # â”€â”€ cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _update_cards(self, acc: AccountData) -> None:
         n_units = len(acc.units_by_id)
@@ -567,13 +584,13 @@ class OverviewWidget(QWidget):
             series_current.append(float(idx), float(eff))
 
         series_hero = QLineSeries()
-        series_hero.setName("Hero max")
+        series_hero.setName(tr("overview.series_hero_max"))
         series_hero.setColor(QColor("#4aa3ff"))
         for idx, (eff, _) in enumerate(hero_items, start=1):
             series_hero.append(float(idx), float(eff))
 
         series_legend = QLineSeries()
-        series_legend.setName("Legend max")
+        series_legend.setName(tr("overview.series_legend_max"))
         series_legend.setColor(QColor("#2ecc71"))
         for idx, (eff, _) in enumerate(legend_items, start=1):
             series_legend.append(float(idx), float(eff))
@@ -615,8 +632,8 @@ class OverviewWidget(QWidget):
             chart,
             [
                 (tr("overview.series_current"), series_current, current_items, _rune_curve_tooltip),
-                ("Hero max", series_hero, hero_items, _rune_curve_tooltip),
-                ("Legend max", series_legend, legend_items, _rune_curve_tooltip),
+                (tr("overview.series_hero_max"), series_hero, hero_items, _rune_curve_tooltip),
+                (tr("overview.series_legend_max"), series_legend, legend_items, _rune_curve_tooltip),
             ],
             zoom_callback=self._change_top_n,
         )
