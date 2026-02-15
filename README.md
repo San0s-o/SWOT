@@ -97,6 +97,7 @@ Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Ein
 ### GPU Search Voraussetzungen
 
 `GPU Search` wird nur angezeigt, wenn PyTorch mit CUDA in der aktiven Python-Umgebung verfügbar ist.
+Die Standard-EXE wird ohne Torch ausgeliefert.
 
 Benötigt:
 - NVIDIA GPU mit aktuellem Treiber
@@ -113,6 +114,10 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 ```
 
 Wenn `True` ausgegeben wird, ist GPU Search aktivierbar.
+
+Hinweis zur EXE:
+- In der Standard-EXE ist `torch` absichtlich nicht enthalten.
+- Fuer GPU Search die App als Python-Version starten und `torch` selbst installieren.
 
 ### GPU Profile (Fast/Balanced/Max) - Laufzeit und Suchumfang
 
