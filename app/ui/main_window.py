@@ -1717,6 +1717,7 @@ class MainWindow(QMainWindow):
         self._unit_combo_model: Optional[QStandardItemModel] = None
         self._unit_combo_index_by_uid: Dict[int, int] = {}
         self._unit_text_cache_by_uid: Dict[int, str] = {}
+        self._siege_optimization_running = False
 
         # paths
         self.project_root = Path(__file__).resolve().parents[2]
@@ -3115,58 +3116,66 @@ class MainWindow(QMainWindow):
     def on_optimize_siege(self):
         if not self.account:
             return
-        pass_count = int(self.spin_multi_pass_siege.value())
-        progress_cb = self._build_pass_progress_callback(
-            self.lbl_siege_validate,
-            tr("result.opt_running", mode="Siege"),
-        )
-        selections = self._collect_siege_selections()
-        ok, msg, all_units = self._validate_team_structure("Siege", selections, must_have_team_size=3)
-        if not ok:
-            QMessageBox.critical(self, "Siege", tr("dlg.validate_first", msg=msg))
+        if self._siege_optimization_running:
             return
+        self._siege_optimization_running = True
+        self.btn_optimize_siege.setEnabled(False)
+        try:
+            pass_count = int(self.spin_multi_pass_siege.value())
+            progress_cb = self._build_pass_progress_callback(
+                self.lbl_siege_validate,
+                tr("result.opt_running", mode="Siege"),
+            )
+            selections = self._collect_siege_selections()
+            ok, msg, all_units = self._validate_team_structure("Siege", selections, must_have_team_size=3)
+            if not ok:
+                QMessageBox.critical(self, "Siege", tr("dlg.validate_first", msg=msg))
+                return
 
-        ordered_unit_ids = self._units_by_turn_order("siege", all_units)
-        team_idx_by_uid: Dict[int, int] = {}
-        for idx, sel in enumerate(selections):
-            for uid in sel.unit_ids:
-                team_idx_by_uid[int(uid)] = int(idx)
-        leader_spd_bonus_by_uid = self._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
-        team_turn_by_uid: Dict[int, int] = {}
-        for uid in all_units:
-            builds = self.presets.get_unit_builds("siege", int(uid))
-            b0 = builds[0] if builds else Build.default_any()
-            team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
-        res = optimize_greedy(
-            self.account,
-            self.presets,
-            GreedyRequest(
-                mode="siege",
-                unit_ids_in_order=ordered_unit_ids,
-                time_limit_per_unit_s=5.0,
-                workers=8,
-                multi_pass_enabled=bool(pass_count > 1),
-                multi_pass_count=pass_count,
-                progress_callback=progress_cb,
-                enforce_turn_order=True,
+            ordered_unit_ids = self._units_by_turn_order("siege", all_units)
+            team_idx_by_uid: Dict[int, int] = {}
+            for idx, sel in enumerate(selections):
+                for uid in sel.unit_ids:
+                    team_idx_by_uid[int(uid)] = int(idx)
+            leader_spd_bonus_by_uid = self._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
+            team_turn_by_uid: Dict[int, int] = {}
+            for uid in all_units:
+                builds = self.presets.get_unit_builds("siege", int(uid))
+                b0 = builds[0] if builds else Build.default_any()
+                team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
+            res = optimize_greedy(
+                self.account,
+                self.presets,
+                GreedyRequest(
+                    mode="siege",
+                    unit_ids_in_order=ordered_unit_ids,
+                    time_limit_per_unit_s=5.0,
+                    workers=8,
+                    multi_pass_enabled=bool(pass_count > 1),
+                    multi_pass_count=pass_count,
+                    progress_callback=progress_cb,
+                    enforce_turn_order=True,
+                    unit_team_index=team_idx_by_uid,
+                    unit_team_turn_order=team_turn_by_uid,
+                    unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                ),
+            )
+            self.lbl_siege_validate.setText(res.message)
+            self.statusBar().showMessage(res.message, 7000)
+            unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
+            siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+            self._show_optimize_results(
+                tr("result.title_siege"),
+                res.message,
+                res.results,
                 unit_team_index=team_idx_by_uid,
-                unit_team_turn_order=team_turn_by_uid,
-                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
-            ),
-        )
-        self.lbl_siege_validate.setText(res.message)
-        self.statusBar().showMessage(res.message, 7000)
-        unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
-        siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
-        self._show_optimize_results(
-            tr("result.title_siege"),
-            res.message,
-            res.results,
-            unit_team_index=team_idx_by_uid,
-            unit_display_order=unit_display_order,
-            mode="siege",
-            teams=siege_teams,
-        )
+                unit_display_order=unit_display_order,
+                mode="siege",
+                teams=siege_teams,
+            )
+        finally:
+            self._siege_optimization_running = False
+            self.btn_optimize_siege.setEnabled(bool(self.account))
 
     def _units_by_turn_order(self, mode: str, unit_ids: List[int]) -> List[int]:
         indexed: List[Tuple[int, int, int]] = []
