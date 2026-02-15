@@ -9,6 +9,8 @@ from typing import Any, Optional
 
 import requests
 
+from app.i18n import tr
+
 APP_NAME = "SWOT"
 CONFIG_FILENAME = "license_config.json"
 HTTP_TIMEOUT_S = 8
@@ -183,7 +185,7 @@ def check_latest_release() -> UpdateCheckResult:
             update_available=False,
             current_version=current_version,
             latest_version="",
-            message="Kein GitHub-Repo konfiguriert (github_repo fehlt).",
+            message=tr("svc.no_repo"),
         )
 
     if not current_version or current_version.lower() == "dev":
@@ -192,7 +194,7 @@ def check_latest_release() -> UpdateCheckResult:
             update_available=False,
             current_version=current_version,
             latest_version="",
-            message="Kein releasefaehiger app_version-Wert gesetzt.",
+            message=tr("svc.no_version"),
         )
 
     url = f"https://api.github.com/repos/{repo}/releases/latest"
@@ -207,7 +209,7 @@ def check_latest_release() -> UpdateCheckResult:
             update_available=False,
             current_version=current_version,
             latest_version="",
-            message=f"Update-Check fehlgeschlagen: {exc}",
+            message=tr("svc.check_failed", detail=str(exc)),
         )
     except Exception:
         return UpdateCheckResult(
@@ -215,7 +217,7 @@ def check_latest_release() -> UpdateCheckResult:
             update_available=False,
             current_version=current_version,
             latest_version="",
-            message="Update-Check: ungueltige API-Antwort.",
+            message=tr("svc.invalid_response"),
         )
 
     if response.status_code >= 400:
@@ -225,7 +227,7 @@ def check_latest_release() -> UpdateCheckResult:
             update_available=False,
             current_version=current_version,
             latest_version="",
-            message=f"Update-Check fehlgeschlagen: {msg}",
+            message=tr("svc.check_failed", detail=msg),
         )
 
     if not isinstance(data, dict):
@@ -234,7 +236,7 @@ def check_latest_release() -> UpdateCheckResult:
             update_available=False,
             current_version=current_version,
             latest_version="",
-            message="Update-Check: unerwartetes Datenformat.",
+            message=tr("svc.unexpected_format"),
         )
 
     tag_name = str(data.get("tag_name", "")).strip()
@@ -263,7 +265,7 @@ def check_latest_release() -> UpdateCheckResult:
 
 def download_release_asset(release: ReleaseInfo, target_dir: Path | None = None) -> DownloadResult:
     if not release.asset:
-        return DownloadResult(False, "Kein passendes Download-Asset im Release gefunden.")
+        return DownloadResult(False, tr("svc.no_asset"))
 
     out_dir = target_dir or (Path.home() / "Downloads" / "SWOT-updates")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -273,12 +275,12 @@ def download_release_asset(release: ReleaseInfo, target_dir: Path | None = None)
     try:
         with requests.get(release.asset.download_url, timeout=30, stream=True) as response:
             if response.status_code >= 400:
-                return DownloadResult(False, f"Download fehlgeschlagen (HTTP {response.status_code}).")
+                return DownloadResult(False, tr("svc.download_http_fail", status=response.status_code))
             with file_path.open("wb") as f:
                 for chunk in response.iter_content(chunk_size=1024 * 128):
                     if chunk:
                         f.write(chunk)
     except requests.RequestException as exc:
-        return DownloadResult(False, f"Download fehlgeschlagen: {exc}")
+        return DownloadResult(False, tr("svc.download_failed", detail=str(exc)))
 
-    return DownloadResult(True, "Update erfolgreich heruntergeladen.", file_path=file_path)
+    return DownloadResult(True, tr("svc.download_ok"), file_path=file_path)

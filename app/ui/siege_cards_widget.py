@@ -21,6 +21,7 @@ from app.domain.artifact_effects import (
     artifact_rank_label,
 )
 from app.engine.efficiency import rune_efficiency
+from app.i18n import tr
 
 
 # ── colour palette for main-stat pie slices ──────────────────
@@ -49,16 +50,8 @@ _ELEMENT_COLOURS: Dict[str, str] = {
     "Dark":   "#8e44ad",
 }
 
-_STAT_LABELS_DE: Dict[str, str] = {
-    "HP": "HP",
-    "ATK": "ATK",
-    "DEF": "DEF",
-    "SPD": "SPD",
-    "CR": "Krit. Rate",
-    "CD": "Krit. Schdn",
-    "RES": "RES",
-    "ACC": "ACC",
-}
+def _card_stat_label(key: str) -> str:
+    return tr("card_stat." + key)
 
 
 # ── rich HTML tooltip for a rune ─────────────────────────────
@@ -92,10 +85,12 @@ def _rune_rich_tooltip(rune: Rune) -> str:
     return "<br>".join(lines)
 
 
-_ARTIFACT_KIND_LABEL = {
-    1: "Attribut",
-    2: "Typ",
-}
+def _artifact_kind_label(type_id: int) -> str:
+    if type_id == 1:
+        return tr("artifact.attribute")
+    if type_id == 2:
+        return tr("artifact.type")
+    return str(type_id)
 
 def _artifact_focus(art: Artifact) -> str:
     if not art.pri_effect:
@@ -111,7 +106,7 @@ def _artifact_effect_text(effect_id: int, value: int | float | str) -> str:
 
 
 def _artifact_rich_tooltip(art: Artifact) -> str:
-    kind = _ARTIFACT_KIND_LABEL.get(int(art.type_ or 0), f"Typ {int(art.type_ or 0)}")
+    kind = _artifact_kind_label(int(art.type_ or 0))
     focus = _artifact_focus(art) or "—"
     base_rank = int(getattr(art, "original_rank", 0) or 0)
     if base_rank <= 0:
@@ -119,7 +114,7 @@ def _artifact_rich_tooltip(art: Artifact) -> str:
     quality = artifact_rank_label(base_rank, fallback_prefix="Rank")
     lines = [
         f"<b>{kind}-Artefakt</b> &nbsp; ID {int(art.artifact_id or 0)}",
-        f"Fokus: <b>{focus}</b> &nbsp; Qualität {quality} &nbsp; +{int(art.level or 0)}",
+        f"{tr('card.focus')} <b>{focus}</b> &nbsp; {tr('overview.quality')} {quality} &nbsp; +{int(art.level or 0)}",
     ]
     if art.sec_effects:
         lines.append("<b>Subs:</b>")
@@ -315,9 +310,9 @@ class MonsterCard(QFrame):
 
         if equipped_runes:
             avg_eff = sum(rune_efficiency(r) for r in equipped_runes) / len(equipped_runes)
-            eff_lbl = QLabel(f"Ø Rune-Effizienz: <b>{avg_eff:.2f}%</b>")
+            eff_lbl = QLabel(tr("card.avg_rune_eff", eff=f"{avg_eff:.2f}"))
         else:
-            eff_lbl = QLabel("Ø Rune-Effizienz: <b>—</b>")
+            eff_lbl = QLabel(tr("card.avg_rune_eff_none"))
         eff_lbl.setTextFormat(Qt.RichText)
         eff_lbl.setStyleSheet("font-size: 8pt; color: #bbb;")
         stats_box.addWidget(eff_lbl)
@@ -339,7 +334,7 @@ class MonsterCard(QFrame):
         ]
         for i, (label, value) in enumerate(stat_data):
             row, col = divmod(i, 2)
-            display_label = _STAT_LABELS_DE.get(label, label)
+            display_label = _card_stat_label(label)
             key_lbl = QLabel(f"<b>{display_label}:</b>")
             key_lbl.setTextFormat(Qt.RichText)
             key_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -369,7 +364,7 @@ class MonsterCard(QFrame):
                 btn.setToolTip(_rune_rich_tooltip(rune))
             else:
                 btn.setEnabled(False)
-                btn.setToolTip("Kein Rune")
+                btn.setToolTip(tr("artifact.no_rune"))
             rune_bar.addWidget(btn)
         rune_bar.addStretch()
         layout.addLayout(rune_bar)
@@ -380,18 +375,18 @@ class MonsterCard(QFrame):
         art_by_type: Dict[int, Artifact] = {int(a.type_ or 0): a for a in self._artifacts}
         for art_type in (1, 2):
             art = art_by_type.get(art_type)
-            btn = QPushButton(_ARTIFACT_KIND_LABEL.get(art_type, str(art_type)))
+            btn = QPushButton(_artifact_kind_label(art_type))
             btn.setFixedHeight(28)
             if art:
                 focus = _artifact_focus(art)
-                txt = _ARTIFACT_KIND_LABEL.get(art_type, str(art_type))
+                txt = _artifact_kind_label(art_type)
                 if focus:
                     txt = f"{txt} {focus}"
                 btn.setText(txt)
                 btn.setToolTip(_artifact_rich_tooltip(art))
             else:
                 btn.setEnabled(False)
-                btn.setToolTip("Kein Artefakt")
+                btn.setToolTip(tr("artifact.no_artifact"))
             art_bar.addWidget(btn)
         art_bar.addStretch()
         layout.addLayout(art_bar)
@@ -417,7 +412,7 @@ class TeamCard(QGroupBox):
         parent: QWidget | None = None,
         title: str | None = None,
     ):
-        super().__init__(title or f"Verteidigung {team_index}", parent)
+        super().__init__(title or tr("card.defense", n=team_index), parent)
         self.setStyleSheet("""
             TeamCard {
                 font-weight: bold;
@@ -493,7 +488,7 @@ class SiegeDefCardsWidget(QWidget):
                                assets_dir: Path, rune_mode: str = "siege",
                                rune_overrides: Optional[Dict[int, List[Rune]]] = None,
                                artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
-                               team_label_prefix: str = "Verteidigung"):
+                               team_label_prefix: str = ""):
         """Render manually selected teams (e.g. WGB builder).
 
         *teams* is a list of unit-id lists, e.g. [[uid1, uid2, uid3], ...].
@@ -572,7 +567,8 @@ class SiegeDefCardsWidget(QWidget):
                 stats = compute_unit_stats(u, equipped, speed_lead_pct)
                 unit_data.append((u, name, element, icon, equipped, equipped_artifacts, stats))
             if unit_data:
-                title = f"{team_label_prefix} {ti}"
+                prefix = team_label_prefix or tr("card.defense", n="").strip()
+                title = f"{prefix} {ti}"
                 card = TeamCard(ti, unit_data, assets_dir, title=title)
                 self._layout.addWidget(card)
 

@@ -24,6 +24,7 @@ from app.engine.efficiency import (
     artifact_efficiency,
     rune_efficiency_max,
 )
+from app.i18n import tr
 
 # â”€â”€ colours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _BG = "#1e1e1e"
@@ -161,7 +162,7 @@ def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
     cls_id = _rune_quality_class(rune)
     cls = _RUNE_CLASS_NAMES.get(cls_id, f"Kl. {cls_id}")
     lines = [
-        f"Rank #{idx + 1} | Effizienz {eff:.2f}%",
+        f"{tr('overview.rank', idx=idx + 1)} | {tr('overview.efficiency')} {eff:.2f}%",
         f"Rune ID: {int(rune.rune_id or 0)}",
         f"{set_name} | Slot {int(rune.slot_no or 0)} | +{int(rune.upgrade_curr or 0)} | {cls}",
         f"Main: {_stat_label(int(rune.pri_eff[0] or 0), rune.pri_eff[1] if len(rune.pri_eff) > 1 else 0)}",
@@ -193,18 +194,18 @@ def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
 
 
 def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
-    slot_name = "Links" if int(art.slot or 0) == 1 else "Rechts" if int(art.slot or 0) == 2 else f"Slot {int(art.slot or 0)}"
+    slot_name = tr("overview.slot_left") if int(art.slot or 0) == 1 else tr("overview.slot_right") if int(art.slot or 0) == 2 else f"Slot {int(art.slot or 0)}"
     base_rank = int(getattr(art, "original_rank", 0) or 0)
     if base_rank <= 0:
         base_rank = int(art.rank or 0)
     quality = artifact_rank_label(base_rank, fallback_prefix="Rank")
     lines = [
-        f"Rank #{idx + 1} | Effizienz {eff:.2f}%",
+        f"{tr('overview.rank', idx=idx + 1)} | {tr('overview.efficiency')} {eff:.2f}%",
         f"Artefakt ID: {int(art.artifact_id or 0)}",
-        f"{slot_name} | Typ {int(art.type_ or 0)} | Qualität {quality} | +{int(art.level or 0)}",
+        f"{slot_name} | {tr('artifact.type')} {int(art.type_ or 0)} | {tr('overview.quality')} {quality} | +{int(art.level or 0)}",
     ]
     if art.pri_effect and len(art.pri_effect) >= 2:
-        lines.append(f"Hauptstat: {_stat_label(int(art.pri_effect[0] or 0), art.pri_effect[1])}")
+        lines.append(f"{tr('overview.mainstat')} {_stat_label(int(art.pri_effect[0] or 0), art.pri_effect[1])}")
     if art.sec_effects:
         lines.append("Subs:")
         for sec in art.sec_effects:
@@ -221,9 +222,9 @@ def _rune_curve_tooltip(item: Tuple[float, Any], idx: int, series_name: str) -> 
     eff, payload = item
     rune, eff_curr, eff_hero, eff_legend = payload
     lines = [f"<b>{series_name}</b>", _rune_detail_text(rune, idx, eff)]
-    lines.append(f"Aktuell: {eff_curr:.2f}%")
-    lines.append(f"Hero max (Grind/Gem): {eff_hero:.2f}%")
-    lines.append(f"Legend max (Grind/Gem): {eff_legend:.2f}%")
+    lines.append(tr("overview.current_eff", eff=f"{eff_curr:.2f}"))
+    lines.append(tr("overview.hero_max", eff=f"{eff_hero:.2f}"))
+    lines.append(tr("overview.legend_max", eff=f"{eff_legend:.2f}"))
     return "<br>".join(lines)
 
 
@@ -373,18 +374,18 @@ class OverviewWidget(QWidget):
         self._cards_grid.setSpacing(8)
         self._top_overview_row.addWidget(self._cards_host, 3)
 
-        self._card_units = _SummaryCard("Monster", "\u2014")
-        self._card_runes = _SummaryCard("Runen", "\u2014")
-        self._card_artifacts = _SummaryCard("Artefakte", "\u2014")
-        self._card_rune_avg = _SummaryCard("Runen Eff. (%)", "\u2014", _GREEN)
-        self._card_art_avg_t1 = _SummaryCard("Attribut-Artefakt Eff. (%)", "—", _PURPLE)
-        self._card_art_avg_t2 = _SummaryCard("Typ-Artefakt Eff. (%)", "—", _PURPLE)
-        self._card_rune_best = _SummaryCard("Beste Rune", "\u2014", _ORANGE)
+        self._card_units = _SummaryCard(tr("overview.monsters"), "\u2014")
+        self._card_runes = _SummaryCard(tr("overview.runes"), "\u2014")
+        self._card_artifacts = _SummaryCard(tr("overview.artifacts"), "\u2014")
+        self._card_rune_avg = _SummaryCard(tr("overview.rune_eff"), "\u2014", _GREEN)
+        self._card_art_avg_t1 = _SummaryCard(tr("overview.attr_art_eff"), "—", _PURPLE)
+        self._card_art_avg_t2 = _SummaryCard(tr("overview.type_art_eff"), "—", _PURPLE)
+        self._card_rune_best = _SummaryCard(tr("overview.best_rune"), "\u2014", _ORANGE)
 
         self._set_eff_cards: dict[int, _SummaryCard] = {}
         for sid in _IMPORTANT_SET_IDS:
             name = SET_NAMES.get(sid, f"Set {sid}")
-            card = _SummaryCard(f"{name} Eff. (%)", "\u2014", _GREEN)
+            card = _SummaryCard(tr("overview.set_eff", name=name), "\u2014", _GREEN)
             self._set_eff_cards[sid] = card
 
         # row 1: count cards
@@ -412,7 +413,7 @@ class OverviewWidget(QWidget):
 
         controls_row = QHBoxLayout()
         controls_row.setSpacing(8)
-        lbl_top_n = QLabel("Runen-Chart Top:")
+        lbl_top_n = QLabel(tr("overview.chart_top_label"))
         lbl_top_n.setStyleSheet(f"color: {_TEXT_DIM};")
         self._top_n_spin = QSpinBox()
         self._top_n_spin.setRange(100, 1000)
@@ -560,7 +561,7 @@ class OverviewWidget(QWidget):
             legend_items.append((legend_eff, payload))
 
         series_current = QLineSeries()
-        series_current.setName("Aktuell")
+        series_current.setName(tr("overview.series_current"))
         series_current.setColor(QColor("#f39c12"))
         for idx, (eff, _) in enumerate(current_items, start=1):
             series_current.append(float(idx), float(eff))
@@ -577,7 +578,7 @@ class OverviewWidget(QWidget):
         for idx, (eff, _) in enumerate(legend_items, start=1):
             series_legend.append(float(idx), float(eff))
 
-        chart = _make_chart(f"Runen Effizienz (Top {top_n})")
+        chart = _make_chart(tr("overview.rune_eff_chart", n=top_n))
         chart.addSeries(series_current)
         chart.addSeries(series_hero)
         chart.addSeries(series_legend)
@@ -586,7 +587,7 @@ class OverviewWidget(QWidget):
         ax_x = QValueAxis()
         ax_x.setLabelFormat("%d")
         ax_x.setRange(1, max(n, 1))
-        ax_x.setTitleText("Anzahl / Rank")
+        ax_x.setTitleText(tr("overview.axis_count"))
         _style_bar_axis(ax_x)
         chart.addAxis(ax_x, Qt.AlignBottom)
         series_current.attachAxis(ax_x)
@@ -603,7 +604,7 @@ class OverviewWidget(QWidget):
         else:
             ax_y.setRange(0, 100)
         ax_y.setLabelFormat("%.1f")
-        ax_y.setTitleText("Effizienz (%)")
+        ax_y.setTitleText(tr("overview.axis_eff"))
         _style_bar_axis(ax_y)
         chart.addAxis(ax_y, Qt.AlignLeft)
         series_current.attachAxis(ax_y)
@@ -613,7 +614,7 @@ class OverviewWidget(QWidget):
         return _IndexedLineChartView(
             chart,
             [
-                ("Aktuell", series_current, current_items, _rune_curve_tooltip),
+                (tr("overview.series_current"), series_current, current_items, _rune_curve_tooltip),
                 ("Hero max", series_hero, hero_items, _rune_curve_tooltip),
                 ("Legend max", series_legend, legend_items, _rune_curve_tooltip),
             ],
@@ -641,12 +642,12 @@ class OverviewWidget(QWidget):
             slc.setLabelVisible(True)
             slc.setLabelColor(_CHART_TEXT)
         if other > 0:
-            slc = series.append(f"Andere ({other})", other)
+            slc = series.append(tr("overview.other", count=other), other)
             slc.setColor(QColor("#7f8c8d"))
             slc.setLabelVisible(True)
             slc.setLabelColor(_CHART_TEXT)
 
-        chart = _make_chart("Runen Set Verteilung")
+        chart = _make_chart(tr("overview.set_dist_chart"))
         chart.addSeries(series)
         chart.legend().setVisible(False)
 
@@ -654,7 +655,7 @@ class OverviewWidget(QWidget):
 
     def _build_important_set_eff_chart(self, items: List[Tuple[float, Rune]]) -> QChartView:
         top_n = int(self._top_n_spin.value())
-        chart = _make_chart(f"Wichtige Sets Effizienz (Top {top_n})")
+        chart = _make_chart(tr("overview.set_eff_chart", n=top_n))
         chart.legend().setVisible(True)
 
         set_colors = {
@@ -691,7 +692,7 @@ class OverviewWidget(QWidget):
         ax_x = QValueAxis()
         ax_x.setLabelFormat("%d")
         ax_x.setRange(1, max(max_len, 1))
-        ax_x.setTitleText("Anzahl / Rank")
+        ax_x.setTitleText(tr("overview.axis_count"))
         _style_bar_axis(ax_x)
         chart.addAxis(ax_x, Qt.AlignBottom)
         for _, s, _, _ in entries:
@@ -706,7 +707,7 @@ class OverviewWidget(QWidget):
         else:
             ax_y.setRange(0, 100)
         ax_y.setLabelFormat("%.1f")
-        ax_y.setTitleText("Effizienz (%)")
+        ax_y.setTitleText(tr("overview.axis_eff"))
         _style_bar_axis(ax_y)
         chart.addAxis(ax_y, Qt.AlignLeft)
         for _, s, _, _ in entries:
@@ -722,14 +723,14 @@ class OverviewWidget(QWidget):
             if t in by_type:
                 by_type[t].append((eff, art))
 
-        chart = _make_chart(f"Artefakt Effizienz (Top {top_n})")
+        chart = _make_chart(tr("overview.art_eff_chart", n=top_n))
         chart.legend().setVisible(True)
 
         entries: List[Tuple[str, QLineSeries, List[Tuple[float, Any]], Callable[[Tuple[float, Any], int, str], str]]] = []
         max_len = 0
         all_vals: List[float] = []
         colors = {1: "#1abc9c", 2: "#4aa3ff"}
-        names = {1: "Attribut-Artefakt", 2: "Typ-Artefakt"}
+        names = {1: tr("overview.series_attr_art"), 2: tr("overview.series_type_art")}
 
         for t in (1, 2):
             ranked = sorted(by_type[t], key=lambda x: x[0], reverse=True)[:top_n]
@@ -750,7 +751,7 @@ class OverviewWidget(QWidget):
         ax_x = QValueAxis()
         ax_x.setLabelFormat("%d")
         ax_x.setRange(1, max(max_len, 1))
-        ax_x.setTitleText("Anzahl / Rank")
+        ax_x.setTitleText(tr("overview.axis_count"))
         _style_bar_axis(ax_x)
         chart.addAxis(ax_x, Qt.AlignBottom)
         for _, s, _, _ in entries:
@@ -765,7 +766,7 @@ class OverviewWidget(QWidget):
         else:
             ax_y.setRange(0, 100)
         ax_y.setLabelFormat("%.1f")
-        ax_y.setTitleText("Effizienz (%)")
+        ax_y.setTitleText(tr("overview.axis_eff"))
         _style_bar_axis(ax_y)
         chart.addAxis(ax_y, Qt.AlignLeft)
         for _, s, _, _ in entries:

@@ -13,6 +13,7 @@ from app.domain.presets import (
     SET_SIZES,
     EFFECT_ID_TO_MAINSTAT_KEY,
 )
+from app.i18n import tr
 
 STAT_SCORE_WEIGHTS: Dict[int, int] = {
     1: 1,   # HP flat
@@ -285,7 +286,7 @@ def _diagnose_single_unit_infeasible(
 
     for s in range(1, 7):
         if not runes_by_slot[s]:
-            return f"Slot {s}: keine Runen im Pool."
+            return tr("opt.slot_no_runes", slot=s)
 
     art_by_type: Dict[int, List[Artifact]] = {1: [], 2: []}
     for art in artifact_pool:
@@ -294,12 +295,12 @@ def _diagnose_single_unit_infeasible(
             art_by_type[t].append(art)
 
     if not art_by_type[1]:
-        return "Kein Attribut-Artefakt (Typ 1) im Pool."
+        return tr("opt.no_attr_artifact")
     if not art_by_type[2]:
-        return "Kein Typ-Artefakt (Typ 2) im Pool."
+        return tr("opt.no_type_artifact")
 
     if not builds:
-        return "Keine Builds vorhanden."
+        return tr("opt.no_builds")
 
     reasons: List[str] = []
     for b in builds:
@@ -316,7 +317,7 @@ def _diagnose_single_unit_infeasible(
                     cnt += 1
             if cnt == 0:
                 ok_main = False
-                reasons.append(f"Build '{b.name}': Slot {slot} Mainstat {allowed} nicht verfügbar.")
+                reasons.append(tr("opt.mainstat_missing", name=b.name, slot=slot, allowed=allowed))
                 break
 
         if not ok_main:
@@ -345,10 +346,10 @@ def _diagnose_single_unit_infeasible(
 
             if feasible == 0:
                 artifact_ok = False
+                kind = tr("artifact.attribute") if type_id == 1 else tr("artifact.type")
                 reasons.append(
-                    f"Build '{b.name}': kein passendes Artefakt für "
-                    f"{'Attribut' if type_id == 1 else 'Typ'} "
-                    f"(Focus={allowed_focus or 'Any'}, Subs={needed_subs or 'Any'})."
+                    tr("opt.no_artifact_match", name=b.name, kind=kind,
+                       focus=allowed_focus or "Any", subs=needed_subs or "Any")
                 )
                 break
 
@@ -357,14 +358,14 @@ def _diagnose_single_unit_infeasible(
 
         # Set feasibility
         if not b.set_options:
-            return "Build ist bzgl. Runen/Artefakten grundsätzlich machbar."
+            return tr("opt.feasible")
 
         feasible_any_option = False
         for opt in b.set_options:
             needed = _count_required_set_pieces([str(s) for s in opt])
             total_pieces = sum(int(v) for v in needed.values())
             if total_pieces > 6:
-                reasons.append(f"Build '{b.name}': Set-Option {opt} verlangt {total_pieces} Teile (>6).")
+                reasons.append(tr("opt.set_too_many", name=b.name, opt=opt, pieces=total_pieces))
                 continue
             ok_opt = True
             intangible_avail = 0
@@ -381,7 +382,7 @@ def _diagnose_single_unit_infeasible(
                     if avail < pieces:
                         ok_opt = False
                         reasons.append(
-                            f"Build '{b.name}': Set {set_id} braucht {pieces}, verfügbar {avail}."
+                            tr("opt.set_not_enough", name=b.name, set_id=set_id, pieces=pieces, avail=avail)
                         )
                         break
                     continue
@@ -396,7 +397,7 @@ def _diagnose_single_unit_infeasible(
                 if avail < pieces:
                     ok_opt = False
                     reasons.append(
-                        f"Build '{b.name}': Set {set_id} braucht {pieces}, verfügbar {avail}."
+                        tr("opt.set_not_enough", name=b.name, set_id=set_id, pieces=pieces, avail=avail)
                     )
                     break
             if ok_opt:
@@ -404,11 +405,11 @@ def _diagnose_single_unit_infeasible(
                 break
 
         if feasible_any_option:
-            return "Build ist bzgl. Runen/Artefakten grundsätzlich machbar."
+            return tr("opt.feasible")
 
     if reasons:
         return " | ".join(reasons[:3])
-    return "Infeasible: Pool/Build-Constraints passen nicht zusammen."
+    return tr("opt.infeasible")
 
 
 def _solve_single_unit_best(
@@ -444,7 +445,7 @@ def _solve_single_unit_best(
     # Hard feasibility: each slot must have >= 1 candidate
     for s in range(1, 7):
         if not runes_by_slot[s]:
-            return GreedyUnitResult(uid, False, f"Slot {s}: keine Runen im Pool.", runes_by_slot={})
+            return GreedyUnitResult(uid, False, tr("opt.slot_no_runes", slot=s), runes_by_slot={})
 
     artifacts_by_type: Dict[int, List[Artifact]] = {1: [], 2: []}
     for art in artifact_pool:
@@ -453,9 +454,9 @@ def _solve_single_unit_best(
             artifacts_by_type[t].append(art)
 
     if not artifacts_by_type[1]:
-        return GreedyUnitResult(uid, False, "Kein Attribut-Artefakt (Typ 1) im Pool.", runes_by_slot={})
+        return GreedyUnitResult(uid, False, tr("opt.no_attr_artifact"), runes_by_slot={})
     if not artifacts_by_type[2]:
-        return GreedyUnitResult(uid, False, "Kein Typ-Artefakt (Typ 2) im Pool.", runes_by_slot={})
+        return GreedyUnitResult(uid, False, tr("opt.no_type_artifact"), runes_by_slot={})
 
     model = cp_model.CpModel()
 
@@ -691,7 +692,7 @@ def _solve_single_unit_best(
                 rid = r.rune_id
                 break
         if rid is None:
-            return GreedyUnitResult(uid, False, f"interner Fehler: Slot {slot} keine Rune.", runes_by_slot={})
+            return GreedyUnitResult(uid, False, tr("opt.internal_no_rune", slot=slot), runes_by_slot={})
         chosen[slot] = rid
 
     chosen_artifacts: Dict[int, int] = {}
@@ -702,7 +703,7 @@ def _solve_single_unit_best(
                 aid = int(art.artifact_id)
                 break
         if aid is None:
-            return GreedyUnitResult(uid, False, f"interner Fehler: Artefakt Typ {art_type} fehlt.", runes_by_slot={})
+            return GreedyUnitResult(uid, False, tr("opt.internal_no_artifact", art_type=art_type), runes_by_slot={})
         chosen_artifacts[art_type] = aid
 
     return GreedyUnitResult(
@@ -987,7 +988,7 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
     """
     base_unit_ids = list(req.unit_ids_in_order)
     if not base_unit_ids:
-        return GreedyResult(False, "Keine Units.", [])
+        return GreedyResult(False, tr("opt.no_units"), [])
 
     pass_orders = [base_unit_ids]
     if bool(req.multi_pass_enabled) and len(base_unit_ids) > 1:
@@ -1038,27 +1039,24 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
 
         if idx > 0:
             if repeated_solution and not improved:
-                early_stop_reason = "stabile Lösung ohne weiteren Gewinn"
+                early_stop_reason = tr("opt.stable_solution")
                 break
             if no_improve_streak >= 2:
-                early_stop_reason = "keine Verbesserung in aufeinanderfolgenden Durchläufen"
+                early_stop_reason = tr("opt.no_improvement")
                 break
 
     best = max(outcomes, key=lambda o: o.score)
     ok_all = all(r.ok for r in best.results)
 
     if len(outcomes) <= 1:
-        msg = "OK" if ok_all else "Fertig, aber mindestens ein Monster konnte nicht gebaut werden."
+        msg = tr("opt.ok") if ok_all else tr("opt.partial_fail")
         return GreedyResult(ok_all, msg, best.results)
 
-    msg_prefix = "OK" if ok_all else "Fertig, aber mindestens ein Monster konnte nicht gebaut werden."
+    msg_prefix = tr("opt.ok") if ok_all else tr("opt.partial_fail")
     planned = len(pass_orders)
     used = len(outcomes)
-    msg = f"{msg_prefix} Multi-Pass aktiv: bestes Ergebnis aus {used} Durchläufen (Pass {best.pass_idx + 1})."
+    msg = tr("opt.multi_pass", prefix=msg_prefix, used=used, pass_idx=best.pass_idx + 1)
     if early_stop_reason and used < planned:
-        msg = (
-            f"{msg_prefix} Multi-Pass aktiv: bestes Ergebnis aus {used} von {planned} "
-            f"geplanten Durchläufen (Pass {best.pass_idx + 1}); vorzeitig gestoppt "
-            f"({early_stop_reason})."
-        )
+        msg = tr("opt.multi_pass_early", prefix=msg_prefix, used=used, planned=planned,
+                 pass_idx=best.pass_idx + 1, reason=early_stop_reason)
     return GreedyResult(ok_all, msg, best.results)

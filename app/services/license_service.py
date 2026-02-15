@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import requests
 
+from app.i18n import tr
 
 APP_NAME = "SWOT"
 LICENSE_FILENAME = "license.json"
@@ -154,10 +155,10 @@ def _post_function(function_name: str, payload: dict[str, Any], cfg: dict[str, s
     try:
         data = response.json()
     except Exception:
-        data = {"ok": False, "message": f"Ungültige Serverantwort ({response.status_code})."}
+        data = {"ok": False, "message": tr("lic.invalid_response", status=response.status_code)}
     if response.status_code >= 400:
         if "message" not in data:
-            data["message"] = f"Serverfehler ({response.status_code})."
+            data["message"] = tr("lic.server_error", status=response.status_code)
         data["ok"] = False
     return data
 
@@ -190,7 +191,7 @@ def _activate_online(key: str, cfg: dict[str, str]) -> LicenseValidation:
     }
     data = _post_function("activate", payload, cfg)
     if not bool(data.get("ok")):
-        return LicenseValidation(False, str(data.get("message", "Aktivierung fehlgeschlagen.")))
+        return LicenseValidation(False, str(data.get("message", tr("lic.activation_failed"))))
 
     _save_local_license_data(
         {
@@ -204,7 +205,7 @@ def _activate_online(key: str, cfg: dict[str, str]) -> LicenseValidation:
     )
     return LicenseValidation(
         True,
-        str(data.get("message", "Lizenz aktiviert.")),
+        str(data.get("message", tr("lic.activated"))),
         license_type=str(data.get("license_type", "")).strip() or None,
         expires_at=_parse_expires_at(data.get("license_expires_at")),
     )
@@ -220,7 +221,7 @@ def _validate_online(key: str, session_token: str, cfg: dict[str, str]) -> Licen
     }
     data = _post_function("validate", payload, cfg)
     if not bool(data.get("ok")):
-        return LicenseValidation(False, str(data.get("message", "Lizenzprüfung fehlgeschlagen.")))
+        return LicenseValidation(False, str(data.get("message", tr("lic.check_failed"))))
     current = _load_local_license_data()
 
     # Optional token rotation from backend
@@ -239,7 +240,7 @@ def _validate_online(key: str, session_token: str, cfg: dict[str, str]) -> Licen
     expires_at = _parse_expires_at(data.get("license_expires_at", current.get("license_expires_at")))
     return LicenseValidation(
         True,
-        str(data.get("message", "Lizenz gültig.")),
+        str(data.get("message", tr("lic.valid"))),
         license_type=license_type,
         expires_at=expires_at,
     )
@@ -249,11 +250,11 @@ def validate_license_key(key: str, now_ts: Optional[int] = None) -> LicenseValid
     del now_ts
     key_norm = (key or "").strip()
     if not key_norm:
-        return LicenseValidation(False, "Kein Key eingegeben.")
+        return LicenseValidation(False, tr("lic.no_key"))
 
     cfg = _load_online_config()
     if not cfg["supabase_url"] or not cfg["supabase_anon_key"]:
-        return LicenseValidation(False, "Lizenz-Server nicht konfiguriert (license_config.json fehlt/ist unvollständig).")
+        return LicenseValidation(False, tr("lic.not_configured"))
 
     local_data = _load_local_license_data()
     local_key = str(local_data.get("key", "")).strip()

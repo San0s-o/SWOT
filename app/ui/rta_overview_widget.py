@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from app.domain.models import AccountData, Unit, Rune, Artifact, compute_unit_stats
 from app.domain.monster_db import MonsterDB
 from app.ui.siege_cards_widget import MonsterCard, _icon_for
+from app.i18n import tr
 
 
 COLUMNS = 4
@@ -39,7 +40,7 @@ class RtaOverviewWidget(QWidget):
         # ── speed-lead button bar ────────────────────────────
         self._lead_bar = QHBoxLayout()
         self._lead_bar.setSpacing(4)
-        self._lead_label = QLabel("<b>SPD Lead:</b>")
+        self._lead_label = QLabel(tr("rta.spd_lead"))
         self._lead_label.setTextFormat(Qt.RichText)
         self._lead_bar.addWidget(self._lead_label)
         self._lead_bar.addStretch()
@@ -93,7 +94,7 @@ class RtaOverviewWidget(QWidget):
                 leads.setdefault(pct, []).append(name)
 
         # "Kein Lead" button always first
-        btn_none = QPushButton("Kein Lead (0%)")
+        btn_none = QPushButton(tr("rta.no_lead"))
         btn_none.setCheckable(True)
         btn_none.setChecked(True)
         btn_none.setStyleSheet(self._lead_btn_style(checked=True))

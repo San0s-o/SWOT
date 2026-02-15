@@ -57,6 +57,7 @@ from app.domain.artifact_effects import (
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.overview_widget import OverviewWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
+from app.i18n import tr
 
 
 @dataclass
@@ -65,19 +66,17 @@ class TeamSelection:
     unit_ids: List[int]
 
 
-STAT_LABELS_DE: Dict[str, str] = {
-    "HP": "LP",
-    "ATK": "Angriff",
-    "DEF": "Verteidigung",
-    "SPD": "Tempo",
-    "CR": "Krit.-Rate",
-    "CD": "Krit.-Schaden",
-    "RES": "Widerstand",
-    "ACC": "Präzision",
-}
+def _stat_label_tr(key: str) -> str:
+    return tr("stat." + key)
 
 
-ARTIFACT_KIND_LABEL_BY_TYPE: Dict[int, str] = {1: "Attribut", 2: "Typ"}
+def _artifact_kind_label(type_id: int) -> str:
+    if type_id == 1:
+        return tr("artifact.attribute")
+    if type_id == 2:
+        return tr("artifact.type")
+    return str(type_id)
+
 ARTIFACT_FOCUS_BY_EFFECT_ID: Dict[int, str] = dict(ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID)
 
 
@@ -119,7 +118,7 @@ class _UnitSearchComboBox(_NoScrollComboBox):
         line_edit = self.lineEdit()
         if line_edit is not None:
             line_edit.setClearButtonEnabled(False)
-            line_edit.setPlaceholderText("Monster suchen...")
+            line_edit.setPlaceholderText(tr("main.search_placeholder"))
             line_edit.textChanged.connect(self._on_filter_text_edited)
         self.activated.connect(self._on_item_activated)
 
@@ -466,7 +465,7 @@ class BuildDialog(QDialog):
 
         if show_order_sections:
             # Global optimization order (independent from team turn order)
-            optimize_box = QGroupBox("Optimierungsreihenfolge (Drag & Drop)")
+            optimize_box = QGroupBox(tr("group.opt_order"))
             optimize_layout = QVBoxLayout(optimize_box)
             self._opt_order_list = QListWidget()
             self._opt_order_list.setDragDropMode(QAbstractItemView.InternalMove)
@@ -494,7 +493,7 @@ class BuildDialog(QDialog):
             layout.addWidget(optimize_box)
 
             # Team turn order (independent from optimization order)
-            order_box = QGroupBox("Turn Order pro Team (Drag & Drop)")
+            order_box = QGroupBox(tr("group.turn_order"))
             order_grid = QGridLayout(order_box)
             teams: List[List[Tuple[int, str]]] = [
                 self._unit_rows[i:i + self.team_size]
@@ -531,11 +530,11 @@ class BuildDialog(QDialog):
         # Build details table (without unit_id column)
         self.table = QTableWidget(0, 18)
         self.table.setHorizontalHeaderLabels([
-            "Monster", "Set 1", "Set 2", "Set 3",
-            "Slot 2 Main", "Slot 4 Main", "Slot 6 Main",
-            "Attr Main", "Attr Sub 1", "Attr Sub 2",
-            "Typ Main", "Typ Sub 1", "Typ Sub 2",
-            "Min SPD", "Min CR", "Min CD", "Min RES", "Min ACC"
+            tr("header.monster"), tr("header.set1"), tr("header.set2"), tr("header.set3"),
+            tr("header.slot2_main"), tr("header.slot4_main"), tr("header.slot6_main"),
+            tr("header.attr_main"), tr("header.attr_sub1"), tr("header.attr_sub2"),
+            tr("header.type_main"), tr("header.type_sub1"), tr("header.type_sub2"),
+            tr("header.min_spd"), tr("header.min_cr"), tr("header.min_cd"), tr("header.min_res"), tr("header.min_acc")
         ])
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
@@ -601,9 +600,9 @@ class BuildDialog(QDialog):
             cmb_set1 = _SetMultiCombo()
             cmb_set2 = _SetMultiCombo()
             cmb_set3 = _SetMultiCombo()
-            cmb_set1.setToolTip("Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).")
-            cmb_set2.setToolTip("Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).")
-            cmb_set3.setToolTip("Nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind.")
+            cmb_set1.setToolTip(tr("tooltip.set_multi"))
+            cmb_set2.setToolTip(tr("tooltip.set_multi"))
+            cmb_set3.setToolTip(tr("tooltip.set3"))
 
             builds = self.preset_store.get_unit_builds(self.mode, unit_id)
             b0 = builds[0] if builds else Build.default_any()
@@ -620,7 +619,7 @@ class BuildDialog(QDialog):
                 cmb = _MainstatMultiCombo(MAINSTAT_KEYS)
                 if defaults:
                     cmb.set_checked_values([str(defaults[0])])
-                cmb.setToolTip("Mehrfachauswahl möglich. Keine Auswahl = Any.")
+                cmb.setToolTip(tr("tooltip.mainstat_multi"))
                 return cmb
 
             cmb2 = _mk_ms_combo(SLOT2_DEFAULT)
@@ -628,8 +627,8 @@ class BuildDialog(QDialog):
             cmb6 = _mk_ms_combo(SLOT6_DEFAULT)
             art_attr_focus = _MainstatMultiCombo(ARTIFACT_MAIN_KEYS)
             art_type_focus = _MainstatMultiCombo(ARTIFACT_MAIN_KEYS)
-            art_attr_focus.setToolTip("Attribut-Artefakt: HP/ATK/DEF (Mehrfachauswahl, leer = Any).")
-            art_type_focus.setToolTip("Typ-Artefakt: HP/ATK/DEF (Mehrfachauswahl, leer = Any).")
+            art_attr_focus.setToolTip(tr("tooltip.art_attr_focus"))
+            art_type_focus.setToolTip(tr("tooltip.art_type_focus"))
 
             def _mk_art_sub_combo(artifact_type: int) -> QComboBox:
                 cmb = _NoScrollComboBox()
@@ -639,8 +638,7 @@ class BuildDialog(QDialog):
                 for eid in eids:
                     cmb.addItem(_artifact_effect_label(int(eid)), int(eid))
                 cmb.setToolTip(
-                    f"{ARTIFACT_KIND_LABEL_BY_TYPE.get(int(artifact_type), 'Artefakt')}-Artefakt: "
-                    "Substat auswählen (leer = Any)."
+                    tr("tooltip.art_sub", kind=_artifact_kind_label(int(artifact_type)))
                 )
                 return cmb
 
@@ -940,8 +938,7 @@ class BuildDialog(QDialog):
             if option_ids and not normalized_options:
                 unit_label = self._unit_label_by_id.get(unit_id, str(unit_id))
                 raise ValueError(
-                    f"Ungültige Set-Kombi für {unit_label}: "
-                    f"keine der Set-Optionen passt in 6 Slots."
+                    tr("val.set_invalid", unit=unit_label)
                 )
 
             ms2_values = [str(x) for x in self._ms2_combo[unit_id].checked_values()]
@@ -1024,14 +1021,14 @@ class TeamEditorDialog(QDialog):
         self.team = team
         self._unit_combo_model = unit_combo_model
 
-        title = "Team bearbeiten" if team else "Neues Team"
+        title = tr("btn.edit_team") if team else tr("btn.new_team")
         self.setWindowTitle(title)
         self.resize(600, 420)
 
         layout = QVBoxLayout(self)
 
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Team-Name"))
+        name_row.addWidget(QLabel(tr("label.team_name")))
         self.name_edit = QLineEdit(team.name if team else "")
         name_row.addWidget(self.name_edit, 1)
         layout.addLayout(name_row)
@@ -1040,10 +1037,10 @@ class TeamEditorDialog(QDialog):
         self.unit_combo = QComboBox()
         self.unit_combo.setIconSize(QSize(32, 32))
         control_row.addWidget(self.unit_combo, 1)
-        self.btn_add_unit = QPushButton("Hinzufügen")
+        self.btn_add_unit = QPushButton(tr("btn.add"))
         self.btn_add_unit.clicked.connect(self._add_unit_from_combo)
         control_row.addWidget(self.btn_add_unit)
-        self.btn_remove_unit = QPushButton("Entfernen")
+        self.btn_remove_unit = QPushButton(tr("btn.remove"))
         self.btn_remove_unit.clicked.connect(self._remove_selected_unit)
         control_row.addWidget(self.btn_remove_unit)
         layout.addLayout(control_row)
@@ -1100,7 +1097,7 @@ class TeamEditorDialog(QDialog):
 
     def _on_accept(self) -> None:
         if self.unit_list.count() == 0:
-            QMessageBox.warning(self, "Team braucht Units", "Bitte füge mindestens ein Monster hinzu.")
+            QMessageBox.warning(self, tr("dlg.team_needs_units_title"), tr("dlg.team_needs_units"))
             return
         self.accept()
 
@@ -1192,11 +1189,11 @@ class OptimizeResultDialog(QDialog):
         self._populate_nav()
 
         btn_bar = QHBoxLayout()
-        self.btn_save = QPushButton("Speichern")
+        self.btn_save = QPushButton(tr("btn.save"))
         self.btn_save.clicked.connect(self._on_save)
         btn_bar.addWidget(self.btn_save)
         btn_bar.addStretch()
-        btn_close = QPushButton("Schließen")
+        btn_close = QPushButton(tr("btn.close"))
         btn_close.clicked.connect(self.reject)
         btn_bar.addWidget(btn_close)
         root.addLayout(btn_bar)
@@ -1211,7 +1208,7 @@ class OptimizeResultDialog(QDialog):
             self.nav_list.addItem(header)
             for result in team_results:
                 label = self._unit_label_fn(result.unit_id)
-                state = "OK" if result.ok else "Fehler"
+                state = "OK" if result.ok else tr("label.error")
                 item = QListWidgetItem(f"{label} [{state}]")
                 icon = self._unit_icon_fn(result.unit_id)
                 if not icon.isNull():
@@ -1335,14 +1332,14 @@ class OptimizeResultDialog(QDialog):
 
         if unit_id is None:
             w = QWidget()
-            QVBoxLayout(w).addWidget(QLabel("Bitte links ein Monster auswählen."))
+            QVBoxLayout(w).addWidget(QLabel(tr("dlg.select_left")))
             self.detail_layout.addWidget(w)
             return
 
         result = self._results_by_uid.get(unit_id)
         if not result:
             w = QWidget()
-            QVBoxLayout(w).addWidget(QLabel("Kein Ergebnis gefunden."))
+            QVBoxLayout(w).addWidget(QLabel(tr("dlg.no_result")))
             self.detail_layout.addWidget(w)
             return
 
@@ -1376,7 +1373,7 @@ class OptimizeResultDialog(QDialog):
         v.setContentsMargins(8, 8, 8, 8)
 
         label = self._unit_label_fn(unit_id)
-        title = QLabel(f"<b>{label}</b>" if result.ok else f"<b>{label} (Fehler)</b>")
+        title = QLabel(f"<b>{label}</b>" if result.ok else f"<b>{label} ({tr('label.error')})</b>")
         title.setTextFormat(Qt.RichText)
         v.addWidget(title)
 
@@ -1384,9 +1381,9 @@ class OptimizeResultDialog(QDialog):
         eff_values = [rune_efficiency(r) for rid in rune_ids if (r := self._rune_lookup.get(int(rid)))]
         if eff_values:
             avg_eff = sum(eff_values) / len(eff_values)
-            eff_lbl = QLabel(f"Ø Rune-Effizienz: <b>{avg_eff:.2f}%</b>")
+            eff_lbl = QLabel(tr("result.avg_rune_eff", eff=f"{avg_eff:.2f}"))
         else:
-            eff_lbl = QLabel("Ø Rune-Effizienz: <b>—</b>")
+            eff_lbl = QLabel(tr("result.avg_rune_eff_none"))
         eff_lbl.setTextFormat(Qt.RichText)
         eff_lbl.setStyleSheet("color: #bbb;")
         v.addWidget(eff_lbl)
@@ -1409,16 +1406,16 @@ class OptimizeResultDialog(QDialog):
         if self._stats_detailed:
             if has_leader:
                 table.setColumnCount(5)
-                table.setHorizontalHeaderLabels(["Stat", "Basis", "Runen", "Leader", "Gesamt"])
+                table.setHorizontalHeaderLabels([tr("header.stat"), tr("header.base"), tr("header.runes"), tr("header.leader"), tr("header.total")])
             else:
                 table.setColumnCount(4)
-                table.setHorizontalHeaderLabels(["Stat", "Basis", "Runen", "Gesamt"])
+                table.setHorizontalHeaderLabels([tr("header.stat"), tr("header.base"), tr("header.runes"), tr("header.total")])
             for i, key in enumerate(stat_keys):
                 base = base_stats.get(key, 0)
                 total = total_stats.get(key, 0)
                 lead = leader_bonus.get(key, 0)
                 rune_bonus = total - base - lead
-                table.setItem(i, 0, QTableWidgetItem(STAT_LABELS_DE.get(key, key)))
+                table.setItem(i, 0, QTableWidgetItem(_stat_label_tr(key)))
                 it_b = QTableWidgetItem(str(base))
                 it_b.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 table.setItem(i, 1, it_b)
@@ -1440,9 +1437,9 @@ class OptimizeResultDialog(QDialog):
                     table.setItem(i, 3, it_t)
         else:
             table.setColumnCount(2)
-            table.setHorizontalHeaderLabels(["Stat", "Wert"])
+            table.setHorizontalHeaderLabels([tr("header.stat"), tr("header.value")])
             for i, key in enumerate(stat_keys):
-                table.setItem(i, 0, QTableWidgetItem(STAT_LABELS_DE.get(key, key)))
+                table.setItem(i, 0, QTableWidgetItem(_stat_label_tr(key)))
                 it_v = QTableWidgetItem(str(total_stats.get(key, 0)))
                 it_v.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 table.setItem(i, 1, it_v)
@@ -1488,7 +1485,7 @@ class OptimizeResultDialog(QDialog):
                 continue
             art = self._artifact_lookup.get(aid)
             if art is None:
-                v.addWidget(QLabel(f"{ARTIFACT_KIND_LABEL_BY_TYPE.get(art_type, f'Typ {art_type}')}: {aid}"))
+                v.addWidget(QLabel(f"{_artifact_kind_label(art_type)}: {aid}"))
                 continue
 
             frame = QFrame()
@@ -1498,7 +1495,7 @@ class OptimizeResultDialog(QDialog):
             fv.setContentsMargins(6, 4, 6, 4)
             fv.setSpacing(2)
 
-            kind = ARTIFACT_KIND_LABEL_BY_TYPE.get(art_type, f"Typ {art_type}")
+            kind = _artifact_kind_label(art_type)
             focus = ""
             if art.pri_effect and len(art.pri_effect) >= 2:
                 try:
@@ -1618,12 +1615,12 @@ class OptimizeResultDialog(QDialog):
     def _on_save(self):
         self.saved = True
         self.btn_save.setEnabled(False)
-        self.btn_save.setText("Gespeichert")
+        self.btn_save.setText(tr("btn.saved"))
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SW Team Optimizer")
+        self.setWindowTitle(tr("main.title"))
         self.resize(1600, 980)
         self.setMinimumSize(1360, 820)
 
@@ -1659,13 +1656,24 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         layout.addLayout(top)
 
-        self.btn_import = QPushButton("JSON importieren")
+        self.btn_import = QPushButton(tr("main.import_btn"))
         self.btn_import.clicked.connect(self.on_import)
         top.addWidget(self.btn_import)
 
-        self.lbl_status = QLabel("Kein Import geladen.")
+        self.lbl_status = QLabel(tr("main.no_import"))
         self.lbl_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         top.addWidget(self.lbl_status, 1)
+
+        import app.i18n as i18n
+        self.lang_combo = QComboBox()
+        self.lang_combo.setFixedWidth(100)
+        for code, name in i18n.available_languages().items():
+            self.lang_combo.addItem(name, code)
+        idx = self.lang_combo.findData(i18n.get_language())
+        if idx >= 0:
+            self.lang_combo.setCurrentIndex(idx)
+        self.lang_combo.currentIndexChanged.connect(self._on_language_changed)
+        top.addWidget(self.lang_combo)
 
         btn_help = QPushButton("?")
         btn_help.setFixedSize(32, 32)
@@ -1686,7 +1694,7 @@ class MainWindow(QMainWindow):
 
         # Overview
         self.tab_overview = QWidget()
-        self.tabs.addTab(self.tab_overview, "Übersicht")
+        self.tabs.addTab(self.tab_overview, tr("tab.overview"))
         ov = QVBoxLayout(self.tab_overview)
         ov.setContentsMargins(0, 0, 0, 0)
         self.overview_widget = OverviewWidget()
@@ -1694,46 +1702,46 @@ class MainWindow(QMainWindow):
 
         # Raw Siege – card-based layout
         self.tab_siege_raw = QWidget()
-        self.tabs.addTab(self.tab_siege_raw, "Siege Verteidigungen (aktuell)")
+        self.tabs.addTab(self.tab_siege_raw, tr("tab.siege_current"))
         sv = QVBoxLayout(self.tab_siege_raw)
         self.siege_cards = SiegeDefCardsWidget()
         sv.addWidget(self.siege_cards)
 
         # RTA (aktuell) – card-based overview of current RTA monsters
         self.tab_rta_overview = QWidget()
-        self.tabs.addTab(self.tab_rta_overview, "RTA (aktuell)")
+        self.tabs.addTab(self.tab_rta_overview, tr("tab.rta_current"))
         rv = QVBoxLayout(self.tab_rta_overview)
         self.rta_overview = RtaOverviewWidget()
         rv.addWidget(self.rta_overview)
 
         # Siege Builder
         self.tab_siege_builder = QWidget()
-        self.tabs.addTab(self.tab_siege_builder, "Siege Builder (Custom)")
+        self.tabs.addTab(self.tab_siege_builder, tr("tab.siege_builder"))
         self._init_siege_builder_ui()
 
         # Saved Siege Optimizations
         self.tab_saved_siege = QWidget()
-        self.tabs.addTab(self.tab_saved_siege, "Siege Optimierungen (gespeichert)")
+        self.tabs.addTab(self.tab_saved_siege, tr("tab.siege_saved"))
         self._init_saved_siege_tab()
 
         # WGB Builder (nur Validierung)
         self.tab_wgb_builder = QWidget()
-        self.tabs.addTab(self.tab_wgb_builder, "WGB Builder (Custom)")
+        self.tabs.addTab(self.tab_wgb_builder, tr("tab.wgb_builder"))
         self._init_wgb_builder_ui()
 
         # Saved WGB Optimizations
         self.tab_saved_wgb = QWidget()
-        self.tabs.addTab(self.tab_saved_wgb, "WGB Optimierungen (gespeichert)")
+        self.tabs.addTab(self.tab_saved_wgb, tr("tab.wgb_saved"))
         self._init_saved_wgb_tab()
 
         # RTA Builder
         self.tab_rta_builder = QWidget()
-        self.tabs.addTab(self.tab_rta_builder, "RTA Builder (Custom)")
+        self.tabs.addTab(self.tab_rta_builder, tr("tab.rta_builder"))
         self._init_rta_builder_ui()
 
         # Saved RTA Optimizations
         self.tab_saved_rta = QWidget()
-        self.tabs.addTab(self.tab_saved_rta, "RTA Optimierungen (gespeichert)")
+        self.tabs.addTab(self.tab_saved_rta, tr("tab.rta_saved"))
         self._init_saved_rta_tab()
 
         # Team Manager (fixed + custom teams)
@@ -1800,7 +1808,7 @@ class MainWindow(QMainWindow):
     # ============================================================
     def _show_help_dialog(self) -> None:
         dlg = QDialog(self)
-        dlg.setWindowTitle("Anleitung")
+        dlg.setWindowTitle(tr("help.title"))
         dlg.resize(620, 520)
         layout = QVBoxLayout(dlg)
 
@@ -1815,66 +1823,10 @@ class MainWindow(QMainWindow):
         content.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         content.setContentsMargins(16, 12, 16, 12)
         content.setStyleSheet("font-size: 10pt; line-height: 1.5;")
-        content.setText(
-            "<h2>SW Team Optimizer – Kurzanleitung</h2>"
-
-            "<h3>1. JSON importieren</h3>"
-            "<p>Klicke auf <b>JSON importieren</b> und wähle deinen "
-            "Summoners War JSON-Export aus. Nach dem Import siehst du "
-            "auf dem <b>Übersicht</b>-Tab deine Account-Statistiken, "
-            "Runen-Effizienz-Charts und die Set-Verteilung.</p>"
-
-            "<h3>2. Aktuelle Aufstellungen ansehen</h3>"
-            "<p><b>Siege Verteidigungen (aktuell)</b> – Zeigt deine im Spiel "
-            "eingestellten Siege-Verteidigungen als Karten mit Runen-Details.<br>"
-            "<b>RTA (aktuell)</b> – Zeigt deine aktuell für RTA gerüsteten Monster.</p>"
-
-            "<h3>3. Teams zusammenstellen</h3>"
-            "<p>In den <b>Builder</b>-Tabs (Siege / WGB / RTA) kannst du "
-            "eigene Team-Aufstellungen erstellen:</p>"
-            "<ul>"
-            "<li><b>Monster wählen</b> – Über die Dropdowns je Verteidigung (Siege/WGB) "
-            "oder per Hinzufügen-Button (RTA).</li>"
-            "<li><b>Aktuelle übernehmen</b> – Übernimmt die im Spiel eingestellten Teams.</li>"
-            "<li><b>Validieren</b> – Prüft ob Runen-Pools kollidieren und zeigt Warnungen.</li>"
-            "</ul>"
-
-            "<h3>4. Builds definieren</h3>"
-            "<p>Klicke auf <b>Builds (Sets+Mainstats)…</b> um je Monster "
-            "die gewünschten Runen-Sets und Slot-2/4/6-Hauptstats festzulegen. "
-            "Bei Mainstats ist Mehrfachauswahl möglich (keine Auswahl = Any). "
-            "Set-Logik: In Set 1 und Set 2 ist Mehrfachauswahl möglich. "
-            "Pro Set-Slot sind nur gleich große Sets erlaubt (2er oder 4er). "
-            "Set 3 ist nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind. "
-            "Hier kannst du auch Mindest-Werte (z.B. min SPD) definieren.</p>"
-
-            "<h3>5. Optimieren</h3>"
-            "<p>Klicke auf <b>Optimieren (Runen)</b> um die automatische "
-            "Runen-Verteilung zu starten. Der Optimizer verteilt deine Runen "
-            "so, dass die Vorgaben möglichst effizient erfüllt werden. "
-            "Die Turn-Order innerhalb von Teams wird dabei immer erzwungen. "
-            "Über <b>Durchläufe</b> kannst du 1-10 Multi-Pass-Runs wählen; "
-            "wenn keine Verbesserung mehr möglich ist, stoppt der Optimizer vorzeitig. "
-            "Das Ergebnis kannst du als Karten mit allen Stats und Runen-Details sehen.</p>"
-
-            "<h3>6. Ergebnisse speichern</h3>"
-            "<p>Optimierungen werden automatisch gespeichert und können "
-            "in den <b>Optimierungen (gespeichert)</b>-Tabs jederzeit "
-            "wieder aufgerufen oder gelöscht werden.</p>"
-
-            "<h3>Tipps</h3>"
-            "<ul>"
-            "<li>Im Runen-Chart kannst du mit <b>Strg+Mausrad</b> die Anzahl "
-            "der angezeigten Top-Runen ändern.</li>"
-            "<li>Fahre mit der Maus über einen Datenpunkt im Chart, um "
-            "Runen-Details inkl. Subs und Grinds zu sehen.</li>"
-            "<li>Subs die mit einem <span style='color:#1abc9c'><b>Gem</b></span> "
-            "getauscht wurden, werden farblich hervorgehoben.</li>"
-            "</ul>"
-        )
+        content.setText(tr("help.content"))
         scroll.setWidget(content)
 
-        btn_close = QPushButton("Schließen")
+        btn_close = QPushButton(tr("btn.close"))
         btn_close.clicked.connect(dlg.accept)
         layout.addWidget(btn_close, 0, Qt.AlignRight)
 
@@ -1886,9 +1838,9 @@ class MainWindow(QMainWindow):
     def on_import(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Summoners War JSON auswählen",
+            tr("main.file_dialog_title"),
             str(Path.home()),
-            "JSON (*.json);;Alle Dateien (*.*)",
+            tr("main.file_dialog_filter"),
         )
         if not path:
             return
@@ -1897,7 +1849,7 @@ class MainWindow(QMainWindow):
             self.account_persistence.save(raw_json, source_name=Path(path).name)
             account = load_account_from_data(raw_json)
         except Exception as e:
-            QMessageBox.critical(self, "Import fehlgeschlagen", str(e))
+            QMessageBox.critical(self, tr("main.import_failed"), str(e))
             return
 
         self._apply_saved_account(account, Path(path).name)
@@ -1911,7 +1863,7 @@ class MainWindow(QMainWindow):
         self._unit_combo_index_by_uid = {}
         self._unit_text_cache_by_uid = {}
 
-        self.lbl_status.setText(f"Import: {source_label}")
+        self.lbl_status.setText(tr("main.import_label", source=source_label))
         self.overview_widget.set_data(account)
 
         self._render_siege_raw()
@@ -1932,8 +1884,8 @@ class MainWindow(QMainWindow):
         self.btn_edit_presets_rta.setEnabled(True)
         self.btn_optimize_rta.setEnabled(True)
 
-        self.lbl_siege_validate.setText("Bereit. Siege auswählen/übernehmen -> Validieren -> Builds -> Optimieren.")
-        self.lbl_wgb_validate.setText("Bereit. (WGB) Teams auswählen.")
+        self.lbl_siege_validate.setText(tr("status.siege_ready"))
+        self.lbl_wgb_validate.setText(tr("status.wgb_ready"))
 
         self._ensure_siege_team_defaults()
         self._refresh_team_combo()
@@ -1948,10 +1900,10 @@ class MainWindow(QMainWindow):
         try:
             account = load_account_from_data(raw)
         except Exception as exc:
-            QMessageBox.warning(self, "Snapshot laden", f"Snapshot konnte nicht geladen werden:\n{exc}")
+            QMessageBox.warning(self, tr("main.snapshot_title"), tr("main.snapshot_failed", exc=exc))
             return
         meta = self.account_persistence.load_meta()
-        source_name = str(meta.get("source_name", "")).strip() or "Originalname unbekannt"
+        source_name = str(meta.get("source_name", "")).strip() or tr("main.source_unknown")
         imported_at_raw = str(meta.get("imported_at", "")).strip()
         imported_at = None
         if imported_at_raw:
@@ -1973,7 +1925,7 @@ class MainWindow(QMainWindow):
 
     def _build_pass_progress_callback(self, label: QLabel, prefix: str) -> Callable[[int, int], None]:
         def _cb(current_pass: int, total_passes: int) -> None:
-            text = f"{prefix}: Durchlauf {int(current_pass)}/{int(total_passes)}..."
+            text = tr("status.pass_progress", prefix=prefix, current=int(current_pass), total=int(total_passes))
             label.setText(text)
             self.statusBar().showMessage(text)
             QApplication.processEvents()
@@ -2103,11 +2055,11 @@ class MainWindow(QMainWindow):
     def _init_saved_siege_tab(self):
         v = QVBoxLayout(self.tab_saved_siege)
         top = QHBoxLayout()
-        top.addWidget(QLabel("Gespeicherte Optimierung:"))
+        top.addWidget(QLabel(tr("label.saved_opt")))
         self.saved_siege_combo = QComboBox()
         self.saved_siege_combo.currentIndexChanged.connect(lambda: self._on_saved_opt_changed("siege"))
         top.addWidget(self.saved_siege_combo, 1)
-        self.btn_delete_saved_siege = QPushButton("Löschen")
+        self.btn_delete_saved_siege = QPushButton(tr("btn.delete"))
         self.btn_delete_saved_siege.clicked.connect(lambda: self._on_delete_saved_opt("siege"))
         top.addWidget(self.btn_delete_saved_siege)
         v.addLayout(top)
@@ -2118,11 +2070,11 @@ class MainWindow(QMainWindow):
     def _init_saved_wgb_tab(self):
         v = QVBoxLayout(self.tab_saved_wgb)
         top = QHBoxLayout()
-        top.addWidget(QLabel("Gespeicherte Optimierung:"))
+        top.addWidget(QLabel(tr("label.saved_opt")))
         self.saved_wgb_combo = QComboBox()
         self.saved_wgb_combo.currentIndexChanged.connect(lambda: self._on_saved_opt_changed("wgb"))
         top.addWidget(self.saved_wgb_combo, 1)
-        self.btn_delete_saved_wgb = QPushButton("Löschen")
+        self.btn_delete_saved_wgb = QPushButton(tr("btn.delete"))
         self.btn_delete_saved_wgb.clicked.connect(lambda: self._on_delete_saved_opt("wgb"))
         top.addWidget(self.btn_delete_saved_wgb)
         v.addLayout(top)
@@ -2133,11 +2085,11 @@ class MainWindow(QMainWindow):
     def _init_saved_rta_tab(self):
         v = QVBoxLayout(self.tab_saved_rta)
         top = QHBoxLayout()
-        top.addWidget(QLabel("Gespeicherte Optimierung:"))
+        top.addWidget(QLabel(tr("label.saved_opt")))
         self.saved_rta_combo = QComboBox()
         self.saved_rta_combo.currentIndexChanged.connect(lambda: self._on_saved_opt_changed("rta"))
         top.addWidget(self.saved_rta_combo, 1)
-        self.btn_delete_saved_rta = QPushButton("Löschen")
+        self.btn_delete_saved_rta = QPushButton(tr("btn.delete"))
         self.btn_delete_saved_rta.clicked.connect(lambda: self._on_delete_saved_opt("rta"))
         top.addWidget(self.btn_delete_saved_rta)
         v.addLayout(top)
@@ -2161,14 +2113,14 @@ class MainWindow(QMainWindow):
         items = self.opt_store.get_by_mode(mode)
         for opt in items:
             display_name = str(opt.name)
-            display_name = display_name.replace(" Opt ", " Optimierung ")
-            display_name = display_name.replace(" Optimizer ", " Optimierung ")
-            display_name = display_name.replace("SIEGE Opt", "SIEGE Optimierung")
-            display_name = display_name.replace("WGB Opt", "WGB Optimierung")
-            display_name = display_name.replace("RTA Opt", "RTA Optimierung")
-            display_name = display_name.replace("SIEGE Optimizer", "SIEGE Optimierung")
-            display_name = display_name.replace("WGB Optimizer", "WGB Optimierung")
-            display_name = display_name.replace("RTA Optimizer", "RTA Optimierung")
+            display_name = display_name.replace(" Opt ", tr("saved.opt_replace"))
+            display_name = display_name.replace(" Optimizer ", tr("saved.opt_replace"))
+            display_name = display_name.replace("SIEGE Opt", tr("saved.siege_opt"))
+            display_name = display_name.replace("WGB Opt", tr("saved.wgb_opt"))
+            display_name = display_name.replace("RTA Opt", tr("saved.rta_opt"))
+            display_name = display_name.replace("SIEGE Optimizer", tr("saved.siege_opt"))
+            display_name = display_name.replace("WGB Optimizer", tr("saved.wgb_opt"))
+            display_name = display_name.replace("RTA Optimizer", tr("saved.rta_opt"))
             combo.addItem(f"{display_name}  ({opt.timestamp})", opt.id)
         if current_id:
             idx = combo.findData(current_id)
@@ -2199,7 +2151,7 @@ class MainWindow(QMainWindow):
         opt = self.opt_store.optimizations.get(oid)
         name = opt.name if opt else oid
         reply = QMessageBox.question(
-            self, "Löschen", f"'{name}' wirklich löschen?",
+            self, tr("btn.delete"), tr("dlg.delete_confirm", name=name),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
@@ -2222,7 +2174,7 @@ class MainWindow(QMainWindow):
     def _init_siege_builder_ui(self):
         v = QVBoxLayout(self.tab_siege_builder)
 
-        box = QGroupBox("Siege-Teams auswählen (bis zu 10 Verteidigungen × 3 Monster)")
+        box = QGroupBox(tr("group.siege_select"))
         v.addWidget(box, 1)
         box_layout = QVBoxLayout(box)
         siege_scroll = QScrollArea()
@@ -2236,7 +2188,7 @@ class MainWindow(QMainWindow):
 
         self.siege_team_combos: List[List[QComboBox]] = []
         for t in range(10):
-            grid.addWidget(QLabel(f"Verteidigung {t+1}"), t, 0)
+            grid.addWidget(QLabel(tr("label.defense", n=t+1)), t, 0)
             row: List[QComboBox] = []
             for s in range(3):
                 cmb = _UnitSearchComboBox()
@@ -2249,31 +2201,31 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         v.addLayout(btn_row)
 
-        self.btn_take_current_siege = QPushButton("Aktuelle Siege-Verteidigungen übernehmen")
+        self.btn_take_current_siege = QPushButton(tr("btn.take_siege"))
         self.btn_take_current_siege.setEnabled(False)
         self.btn_take_current_siege.clicked.connect(self.on_take_current_siege)
         btn_row.addWidget(self.btn_take_current_siege)
 
-        self.btn_validate_siege = QPushButton("Validieren (Pools/Teams)")
+        self.btn_validate_siege = QPushButton(tr("btn.validate_pools"))
         self.btn_validate_siege.setEnabled(False)
         self.btn_validate_siege.clicked.connect(self.on_validate_siege)
         btn_row.addWidget(self.btn_validate_siege)
 
-        self.btn_edit_presets_siege = QPushButton("Builds (Sets+Mainstats)…")
+        self.btn_edit_presets_siege = QPushButton(tr("btn.builds"))
         self.btn_edit_presets_siege.setEnabled(False)
         self.btn_edit_presets_siege.clicked.connect(self.on_edit_presets_siege)
         btn_row.addWidget(self.btn_edit_presets_siege)
 
-        self.btn_optimize_siege = QPushButton("Optimieren (Runen)")
+        self.btn_optimize_siege = QPushButton(tr("btn.optimize"))
         self.btn_optimize_siege.setEnabled(False)
         self.btn_optimize_siege.clicked.connect(self.on_optimize_siege)
         btn_row.addWidget(self.btn_optimize_siege)
 
-        btn_row.addWidget(QLabel("Durchläufe"))
+        btn_row.addWidget(QLabel(tr("label.passes")))
         self.spin_multi_pass_siege = QSpinBox()
         self.spin_multi_pass_siege.setRange(1, 10)
         self.spin_multi_pass_siege.setValue(3)
-        self.spin_multi_pass_siege.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_siege.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_siege.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         btn_row.addWidget(self.spin_multi_pass_siege)
 
@@ -2286,13 +2238,13 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(self.tab_wgb_builder)
 
         # -- team selection grid (5 defs x 3 monsters) --------
-        box = QGroupBox("WGB-Teams auswählen (5 Verteidigungen × 3 Monster)")
+        box = QGroupBox(tr("group.wgb_select"))
         v.addWidget(box)
         grid = QGridLayout(box)
 
         self.wgb_team_combos: List[List[QComboBox]] = []
         for t in range(5):
-            grid.addWidget(QLabel(f"Verteidigung {t+1}"), t, 0)
+            grid.addWidget(QLabel(tr("label.defense", n=t+1)), t, 0)
             row: List[QComboBox] = []
             for s in range(3):
                 cmb = _UnitSearchComboBox()
@@ -2306,26 +2258,26 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         v.addLayout(btn_row)
 
-        self.btn_validate_wgb = QPushButton("Validieren (Pools/Teams)")
+        self.btn_validate_wgb = QPushButton(tr("btn.validate_pools"))
         self.btn_validate_wgb.setEnabled(False)
         self.btn_validate_wgb.clicked.connect(self.on_validate_wgb)
         btn_row.addWidget(self.btn_validate_wgb)
 
-        self.btn_edit_presets_wgb = QPushButton("Builds (Sets+Mainstats)…")
+        self.btn_edit_presets_wgb = QPushButton(tr("btn.builds"))
         self.btn_edit_presets_wgb.setEnabled(False)
         self.btn_edit_presets_wgb.clicked.connect(self.on_edit_presets_wgb)
         btn_row.addWidget(self.btn_edit_presets_wgb)
 
-        self.btn_optimize_wgb = QPushButton("Optimieren (Runen)")
+        self.btn_optimize_wgb = QPushButton(tr("btn.optimize"))
         self.btn_optimize_wgb.setEnabled(False)
         self.btn_optimize_wgb.clicked.connect(self.on_optimize_wgb)
         btn_row.addWidget(self.btn_optimize_wgb)
 
-        btn_row.addWidget(QLabel("Durchläufe"))
+        btn_row.addWidget(QLabel(tr("label.passes")))
         self.spin_multi_pass_wgb = QSpinBox()
         self.spin_multi_pass_wgb.setRange(1, 10)
         self.spin_multi_pass_wgb.setValue(3)
-        self.spin_multi_pass_wgb.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_wgb.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_wgb.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         btn_row.addWidget(self.spin_multi_pass_wgb)
 
@@ -2341,7 +2293,7 @@ class MainWindow(QMainWindow):
     def _init_rta_builder_ui(self):
         v = QVBoxLayout(self.tab_rta_builder)
 
-        box = QGroupBox("RTA Monster auswählen (bis zu 15 – Reihenfolge per Drag & Drop)")
+        box = QGroupBox(tr("group.rta_select"))
         v.addWidget(box, 1)
         box_layout = QVBoxLayout(box)
 
@@ -2352,15 +2304,15 @@ class MainWindow(QMainWindow):
         self._all_unit_combos.append(self.rta_add_combo)
         top_row.addWidget(self.rta_add_combo, 1)
 
-        btn_add = QPushButton("Hinzufügen")
+        btn_add = QPushButton(tr("btn.add"))
         btn_add.clicked.connect(self._on_rta_add_monster)
         top_row.addWidget(btn_add)
 
-        btn_remove = QPushButton("Entfernen")
+        btn_remove = QPushButton(tr("btn.remove"))
         btn_remove.clicked.connect(self._on_rta_remove_monster)
         top_row.addWidget(btn_remove)
 
-        self.btn_take_current_rta = QPushButton("Aktuelle RTA Monster übernehmen")
+        self.btn_take_current_rta = QPushButton(tr("btn.take_rta"))
         self.btn_take_current_rta.setEnabled(False)
         self.btn_take_current_rta.clicked.connect(self.on_take_current_rta)
         top_row.addWidget(self.btn_take_current_rta)
@@ -2379,26 +2331,26 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         v.addLayout(btn_row)
 
-        self.btn_validate_rta = QPushButton("Validieren")
+        self.btn_validate_rta = QPushButton(tr("btn.validate"))
         self.btn_validate_rta.setEnabled(False)
         self.btn_validate_rta.clicked.connect(self.on_validate_rta)
         btn_row.addWidget(self.btn_validate_rta)
 
-        self.btn_edit_presets_rta = QPushButton("Builds (Sets+Mainstats)…")
+        self.btn_edit_presets_rta = QPushButton(tr("btn.builds"))
         self.btn_edit_presets_rta.setEnabled(False)
         self.btn_edit_presets_rta.clicked.connect(self.on_edit_presets_rta)
         btn_row.addWidget(self.btn_edit_presets_rta)
 
-        self.btn_optimize_rta = QPushButton("Optimieren (Runen)")
+        self.btn_optimize_rta = QPushButton(tr("btn.optimize"))
         self.btn_optimize_rta.setEnabled(False)
         self.btn_optimize_rta.clicked.connect(self.on_optimize_rta)
         btn_row.addWidget(self.btn_optimize_rta)
 
-        btn_row.addWidget(QLabel("Durchläufe"))
+        btn_row.addWidget(QLabel(tr("label.passes")))
         self.spin_multi_pass_rta = QSpinBox()
         self.spin_multi_pass_rta.setRange(1, 10)
         self.spin_multi_pass_rta.setValue(3)
-        self.spin_multi_pass_rta.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_rta.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         btn_row.addWidget(self.spin_multi_pass_rta)
 
@@ -2411,34 +2363,34 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(self.tab_team_builder)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("Team"))
+        row.addWidget(QLabel(tr("label.team")))
         self.team_combo = QComboBox()
         self.team_combo.currentIndexChanged.connect(self._on_team_selected)
         row.addWidget(self.team_combo, 1)
         layout.addLayout(row)
 
         btn_row = QHBoxLayout()
-        self.btn_new_team = QPushButton("Neues Team")
+        self.btn_new_team = QPushButton(tr("btn.new_team"))
         self.btn_new_team.clicked.connect(self._on_new_team)
         btn_row.addWidget(self.btn_new_team)
-        self.btn_edit_team = QPushButton("Team bearbeiten")
+        self.btn_edit_team = QPushButton(tr("btn.edit_team"))
         self.btn_edit_team.clicked.connect(self._on_edit_team)
         btn_row.addWidget(self.btn_edit_team)
-        self.btn_remove_team = QPushButton("Team löschen")
+        self.btn_remove_team = QPushButton(tr("btn.delete_team"))
         self.btn_remove_team.clicked.connect(self._on_remove_team)
         btn_row.addWidget(self.btn_remove_team)
         layout.addLayout(btn_row)
 
-        self.btn_optimize_team = QPushButton("Team optimieren")
+        self.btn_optimize_team = QPushButton(tr("btn.optimize_team"))
         self.btn_optimize_team.clicked.connect(self._optimize_team)
         layout.addWidget(self.btn_optimize_team)
 
         pass_row = QHBoxLayout()
-        pass_row.addWidget(QLabel("Durchläufe"))
+        pass_row.addWidget(QLabel(tr("label.passes")))
         self.spin_multi_pass_team = QSpinBox()
         self.spin_multi_pass_team.setRange(1, 10)
         self.spin_multi_pass_team.setValue(3)
-        self.spin_multi_pass_team.setToolTip("Anzahl Optimizer-Durchläufe (1 = nur ein Durchlauf).")
+        self.spin_multi_pass_team.setToolTip(tr("tooltip.passes"))
         self.spin_multi_pass_team.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         pass_row.addWidget(self.spin_multi_pass_team)
         pass_row.addStretch(1)
@@ -2447,7 +2399,7 @@ class MainWindow(QMainWindow):
         self.lbl_team_opt_status = QLabel("—")
         layout.addWidget(self.lbl_team_opt_status)
 
-        self.lbl_team_units = QLabel("Importiere zuerst ein Konto.")
+        self.lbl_team_units = QLabel(tr("label.import_account_first"))
         layout.addWidget(self.lbl_team_units)
 
         self._refresh_team_combo()
@@ -2468,7 +2420,7 @@ class MainWindow(QMainWindow):
             self.team_combo.addItem(f"{team.name} ({len(team.unit_ids)} Units)", team.id)
         self.team_combo.blockSignals(False)
         if not teams:
-            self.lbl_team_units.setText("Keine Teams definiert.")
+            self.lbl_team_units.setText(tr("label.no_teams"))
             self._set_team_controls_enabled(False)
             return
         self._select_team_by_id(current_id or teams[0].id)
@@ -2491,9 +2443,9 @@ class MainWindow(QMainWindow):
         team = self._current_team()
         if not team:
             if not self.team_store.teams:
-                self.lbl_team_units.setText("Keine Teams definiert.")
+                self.lbl_team_units.setText(tr("label.no_teams"))
             else:
-                self.lbl_team_units.setText("Kein Team ausgewählt.")
+                self.lbl_team_units.setText(tr("label.no_team_selected"))
             self._set_team_controls_enabled(bool(self.account))
             return
         self.lbl_team_units.setText(self._team_units_text(team))
@@ -2503,12 +2455,12 @@ class MainWindow(QMainWindow):
 
     def _team_units_text(self, team: Team) -> str:
         if not team.unit_ids:
-            return "Keine Units."
+            return tr("label.no_units")
         return "\n".join(self._unit_text_cached(uid) for uid in team.unit_ids)
 
     def _on_new_team(self) -> None:
         if not self.account:
-            QMessageBox.warning(self, "Team", "Bitte zuerst einen Import laden.")
+            QMessageBox.warning(self, tr("label.team"), tr("dlg.load_import_first"))
             return
         dlg = TeamEditorDialog(
             self,
@@ -2522,7 +2474,7 @@ class MainWindow(QMainWindow):
         try:
             team = self.team_store.upsert(dlg.team_name or "Team", dlg.unit_ids)
         except ValueError as exc:
-            QMessageBox.warning(self, "Team", str(exc))
+            QMessageBox.warning(self, tr("label.team"), str(exc))
             return
         self.team_store.save(self.team_config_path)
         self._refresh_team_combo()
@@ -2530,7 +2482,7 @@ class MainWindow(QMainWindow):
 
     def _on_edit_team(self) -> None:
         if not self.account:
-            QMessageBox.warning(self, "Team", "Bitte zuerst einen Import laden.")
+            QMessageBox.warning(self, tr("label.team"), tr("dlg.load_import_first"))
             return
         team = self._current_team()
         if not team:
@@ -2548,7 +2500,7 @@ class MainWindow(QMainWindow):
         try:
             self.team_store.upsert(dlg.team_name or team.name, dlg.unit_ids, tid=team.id)
         except ValueError as exc:
-            QMessageBox.warning(self, "Team", str(exc))
+            QMessageBox.warning(self, tr("label.team"), str(exc))
             return
         self.team_store.save(self.team_config_path)
         self._refresh_team_combo()
@@ -2565,12 +2517,12 @@ class MainWindow(QMainWindow):
     def _optimize_team(self) -> None:
         team = self._current_team()
         if not self.account or not team:
-            QMessageBox.warning(self, "Team", "Bitte zuerst einen Import laden und ein Team auswählen.")
+            QMessageBox.warning(self, tr("label.team"), tr("dlg.load_import_and_team"))
             return
         pass_count = int(self.spin_multi_pass_team.value())
         progress_cb = self._build_pass_progress_callback(
             self.lbl_team_opt_status,
-            f"Team '{team.name}' Optimierung läuft",
+            tr("result.team_opt_running", name=team.name),
         )
         ordered_unit_ids = self._units_by_turn_order("siege", team.unit_ids)
         team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in team.unit_ids}
@@ -2598,7 +2550,7 @@ class MainWindow(QMainWindow):
         self.lbl_team_opt_status.setText(res.message)
         self.statusBar().showMessage(res.message, 7000)
         self._show_optimize_results(
-            f"Team Optimierung: {team.name}", res.message, res.results,
+            tr("result.title_team", name=team.name), res.message, res.results,
             mode="siege", teams=[team.unit_ids],
         )
 
@@ -2613,7 +2565,7 @@ class MainWindow(QMainWindow):
         teams: Optional[List[List[int]]] = None,
     ) -> None:
         if not self.account:
-            QMessageBox.warning(self, "Optimierung", "Bitte zuerst einen Import laden.")
+            QMessageBox.warning(self, tr("result.title_siege"), tr("dlg.load_import_first"))
             return
         rune_lookup: Dict[int, Rune] = {r.rune_id: r for r in self.account.runes}
         artifact_lookup: Dict[int, Artifact] = {int(a.artifact_id): a for a in self.account.artifacts}
@@ -2650,7 +2602,7 @@ class MainWindow(QMainWindow):
         if dlg.saved and mode and teams:
             from datetime import datetime
             ts = datetime.now().strftime("%d.%m.%Y %H:%M")
-            name = f"{mode.upper()} Optimierung {ts}"
+            name = tr("result.opt_name", mode=mode.upper(), ts=ts)
             saved_results: List[SavedUnitResult] = []
             for r in results:
                 if r.ok and r.runes_by_slot:
@@ -2957,7 +2909,7 @@ class MainWindow(QMainWindow):
                 idx = cmb.findData(uid)
                 cmb.setCurrentIndex(idx if idx >= 0 else 0)
 
-        self.lbl_siege_validate.setText("Aktuelle Verteidigungen übernommen. Bitte validieren.")
+        self.lbl_siege_validate.setText(tr("status.siege_taken"))
 
     def _collect_siege_selections(self) -> List[TeamSelection]:
         self._ensure_unit_dropdowns_populated()
@@ -2983,20 +2935,20 @@ class MainWindow(QMainWindow):
             if not sel.unit_ids:
                 continue
             if len(sel.unit_ids) != must_have_team_size:
-                return False, f"{label}: Team {sel.team_index+1} ist unvollständig ({len(sel.unit_ids)}/{must_have_team_size}).", []
+                return False, tr("val.incomplete_team", label=label, team=sel.team_index+1, have=len(sel.unit_ids), need=must_have_team_size), []
             # intra-team duplicate check
             team_set: Set[int] = set()
             for uid in sel.unit_ids:
                 if uid in team_set:
                     name = self._unit_text(uid) if self.account else str(uid)
-                    return False, f"{label}: Team {sel.team_index+1} enthält '{name}' doppelt.", []
+                    return False, tr("val.duplicate_in_team", label=label, team=sel.team_index+1, name=name), []
                 team_set.add(uid)
             all_units.extend(sel.unit_ids)
 
         if not all_units:
-            return False, f"{label}: Keine Teams ausgewählt.", []
+            return False, tr("val.no_teams", label=label), []
 
-        return True, f"{label}: OK ({len(all_units)} Units).", all_units
+        return True, tr("val.ok", label=label, count=len(all_units)), all_units
 
     def on_validate_siege(self):
         if not self.account:
@@ -3005,10 +2957,10 @@ class MainWindow(QMainWindow):
         ok, msg, all_units = self._validate_team_structure("Siege", selections, must_have_team_size=3)
         if not ok:
             self.lbl_siege_validate.setText(msg)
-            QMessageBox.critical(self, "Siege Validierung", msg)
+            QMessageBox.critical(self, tr("val.title_siege"), msg)
             return
         self.lbl_siege_validate.setText(msg)
-        QMessageBox.information(self, "Siege Validierung OK", msg)
+        QMessageBox.information(self, tr("val.title_siege_ok"), msg)
 
     def on_edit_presets_siege(self):
         if not self.account:
@@ -3016,7 +2968,7 @@ class MainWindow(QMainWindow):
         selections = self._collect_siege_selections()
         ok, msg, all_units = self._validate_team_structure("Siege", selections, must_have_team_size=3)
         if not ok:
-            QMessageBox.critical(self, "Siege", f"Bitte erst validieren.\n\n{msg}")
+            QMessageBox.critical(self, "Siege", tr("dlg.validate_first", msg=msg))
             return
 
         unit_rows: List[Tuple[int, str]] = [(uid, self._unit_text(uid)) for uid in all_units]
@@ -3038,7 +2990,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Builds", str(exc))
                 return
             self.presets.save(self.presets_path)
-            QMessageBox.information(self, "Builds gespeichert", f"Gespeichert in {self.presets_path}")
+            QMessageBox.information(self, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=self.presets_path))
 
     def on_optimize_siege(self):
         if not self.account:
@@ -3046,12 +2998,12 @@ class MainWindow(QMainWindow):
         pass_count = int(self.spin_multi_pass_siege.value())
         progress_cb = self._build_pass_progress_callback(
             self.lbl_siege_validate,
-            "Siege Optimierung läuft",
+            tr("result.opt_running", mode="Siege"),
         )
         selections = self._collect_siege_selections()
         ok, msg, all_units = self._validate_team_structure("Siege", selections, must_have_team_size=3)
         if not ok:
-            QMessageBox.critical(self, "Siege", f"Bitte erst validieren.\n\n{msg}")
+            QMessageBox.critical(self, "Siege", tr("dlg.validate_first", msg=msg))
             return
 
         ordered_unit_ids = self._units_by_turn_order("siege", all_units)
@@ -3085,7 +3037,7 @@ class MainWindow(QMainWindow):
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
         siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
         self._show_optimize_results(
-            "Greedy Optimierung",
+            tr("result.title_siege"),
             res.message,
             res.results,
             unit_team_index=team_idx_by_uid,
@@ -3134,7 +3086,7 @@ class MainWindow(QMainWindow):
     def _validate_unique_monsters(self, all_unit_ids: List[int]) -> Tuple[bool, str]:
         """Check that no unit_master_id appears more than once."""
         if not self.account:
-            return False, "Kein Account geladen."
+            return False, tr("val.no_account")
         seen: Dict[int, str] = {}  # master_id -> first unit name
         for uid in all_unit_ids:
             u = self.account.units_by_id.get(uid)
@@ -3143,7 +3095,7 @@ class MainWindow(QMainWindow):
             mid = u.unit_master_id
             name = self.monster_db.name_for(mid)
             if mid in seen:
-                return False, f"Monster '{name}' kommt mehrfach vor (WGB erlaubt jedes Monster nur 1×)."
+                return False, tr("val.duplicate_monster_wgb", name=name)
             seen[mid] = name
         return True, ""
 
@@ -3154,16 +3106,16 @@ class MainWindow(QMainWindow):
         ok, msg, all_units = self._validate_team_structure("WGB", selections, must_have_team_size=3)
         if not ok:
             self.lbl_wgb_validate.setText(msg)
-            QMessageBox.critical(self, "WGB Validierung", msg)
+            QMessageBox.critical(self, tr("val.title_wgb"), msg)
             return
         # unique monster check
         ok2, msg2 = self._validate_unique_monsters(all_units)
         if not ok2:
             self.lbl_wgb_validate.setText(msg2)
-            QMessageBox.critical(self, "WGB Validierung", msg2)
+            QMessageBox.critical(self, tr("val.title_wgb"), msg2)
             return
         self.lbl_wgb_validate.setText(msg)
-        QMessageBox.information(self, "WGB Validierung OK", msg)
+        QMessageBox.information(self, tr("val.title_wgb_ok"), msg)
         # update preview cards
         self._render_wgb_preview(selections)
 
@@ -3173,7 +3125,7 @@ class MainWindow(QMainWindow):
         selections = self._collect_wgb_selections()
         ok, msg, all_units = self._validate_team_structure("WGB", selections, must_have_team_size=3)
         if not ok:
-            QMessageBox.critical(self, "WGB", f"Bitte erst validieren.\n\n{msg}")
+            QMessageBox.critical(self, "WGB", tr("dlg.validate_first", msg=msg))
             return
         ok2, msg2 = self._validate_unique_monsters(all_units)
         if not ok2:
@@ -3198,7 +3150,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Builds", str(exc))
                 return
             self.presets.save(self.presets_path)
-            QMessageBox.information(self, "Builds gespeichert", f"Gespeichert in {self.presets_path}")
+            QMessageBox.information(self, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=self.presets_path))
 
     def on_optimize_wgb(self):
         if not self.account:
@@ -3206,12 +3158,12 @@ class MainWindow(QMainWindow):
         pass_count = int(self.spin_multi_pass_wgb.value())
         progress_cb = self._build_pass_progress_callback(
             self.lbl_wgb_validate,
-            "WGB Optimierung läuft",
+            tr("result.opt_running", mode="WGB"),
         )
         selections = self._collect_wgb_selections()
         ok, msg, all_units = self._validate_team_structure("WGB", selections, must_have_team_size=3)
         if not ok:
-            QMessageBox.critical(self, "WGB", f"Bitte erst validieren.\n\n{msg}")
+            QMessageBox.critical(self, "WGB", tr("dlg.validate_first", msg=msg))
             return
         ok2, msg2 = self._validate_unique_monsters(all_units)
         if not ok2:
@@ -3249,7 +3201,7 @@ class MainWindow(QMainWindow):
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
         wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
         self._show_optimize_results(
-            "WGB Greedy Optimierung",
+            tr("result.title_wgb"),
             res.message,
             res.results,
             unit_team_index=team_idx_by_uid,
@@ -3277,7 +3229,7 @@ class MainWindow(QMainWindow):
         if uid == 0:
             return
         if self.rta_selected_list.count() >= 15:
-            QMessageBox.warning(self, "RTA", "Maximal 15 Monster erlaubt.")
+            QMessageBox.warning(self, "RTA", tr("dlg.max_15_rta"))
             return
         for i in range(self.rta_selected_list.count()):
             if int(self.rta_selected_list.item(i).data(Qt.UserRole) or 0) == uid:
@@ -3302,7 +3254,7 @@ class MainWindow(QMainWindow):
             item.setIcon(self._unit_icon_for_unit_id(uid))
             self.rta_selected_list.addItem(item)
         self.lbl_rta_validate.setText(
-            f"{min(len(active_uids), 15)} aktive RTA Monster übernommen."
+            tr("status.rta_taken", count=min(len(active_uids), 15))
         )
 
     def _collect_rta_unit_ids(self) -> List[int]:
@@ -3319,32 +3271,32 @@ class MainWindow(QMainWindow):
             return
         ids = self._collect_rta_unit_ids()
         if not ids:
-            msg = "RTA: Keine Monster ausgewählt."
+            msg = tr("rta.no_monsters")
             self.lbl_rta_validate.setText(msg)
-            QMessageBox.critical(self, "RTA Validierung", msg)
+            QMessageBox.critical(self, tr("val.title_rta"), msg)
             return
         seen: Set[int] = set()
         for uid in ids:
             if uid in seen:
                 name = self._unit_text(uid)
-                msg = f"RTA: '{name}' ist doppelt ausgewählt."
+                msg = tr("rta.duplicate", name=name)
                 self.lbl_rta_validate.setText(msg)
-                QMessageBox.critical(self, "RTA Validierung", msg)
+                QMessageBox.critical(self, tr("val.title_rta"), msg)
                 return
             seen.add(uid)
-        msg = f"RTA: OK ({len(ids)} Monster)."
+        msg = tr("rta.ok", count=len(ids))
         self.lbl_rta_validate.setText(msg)
-        QMessageBox.information(self, "RTA Validierung OK", msg)
+        QMessageBox.information(self, tr("val.title_rta_ok"), msg)
 
     def on_edit_presets_rta(self):
         if not self.account:
             return
         ids = self._collect_rta_unit_ids()
         if not ids:
-            QMessageBox.critical(self, "RTA", "Bitte erst Monster auswählen.")
+            QMessageBox.critical(self, "RTA", tr("dlg.select_monsters_first"))
             return
         if len(ids) != len(set(ids)):
-            QMessageBox.critical(self, "RTA", "Duplikate gefunden. Bitte erst validieren.")
+            QMessageBox.critical(self, "RTA", tr("dlg.duplicates_found"))
             return
 
         unit_rows: List[Tuple[int, str]] = [(uid, self._unit_text(uid)) for uid in ids]
@@ -3360,7 +3312,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Builds", str(exc))
                 return
             self.presets.save(self.presets_path)
-            QMessageBox.information(self, "Builds gespeichert", f"Gespeichert in {self.presets_path}")
+            QMessageBox.information(self, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=self.presets_path))
 
     def on_optimize_rta(self):
         if not self.account:
@@ -3368,14 +3320,14 @@ class MainWindow(QMainWindow):
         pass_count = int(self.spin_multi_pass_rta.value())
         progress_cb = self._build_pass_progress_callback(
             self.lbl_rta_validate,
-            "RTA Optimierung läuft",
+            tr("result.opt_running", mode="RTA"),
         )
         ids = self._collect_rta_unit_ids()
         if not ids:
-            QMessageBox.critical(self, "RTA", "Bitte erst Monster auswählen.")
+            QMessageBox.critical(self, "RTA", tr("dlg.select_monsters_first"))
             return
         if len(ids) != len(set(ids)):
-            QMessageBox.critical(self, "RTA", "Duplikate gefunden. Bitte erst validieren.")
+            QMessageBox.critical(self, "RTA", tr("dlg.duplicates_found"))
             return
 
         # List order = optimization order = turn order
@@ -3402,7 +3354,7 @@ class MainWindow(QMainWindow):
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
         rta_teams = [ids]
         self._show_optimize_results(
-            "RTA Greedy Optimierung",
+            tr("result.title_rta"),
             res.message,
             res.results,
             unit_team_index=team_idx_by_uid,
@@ -3410,6 +3362,28 @@ class MainWindow(QMainWindow):
             mode="rta",
             teams=rta_teams,
         )
+
+    def _on_language_changed(self, index: int) -> None:
+        import app.i18n as i18n
+        code = self.lang_combo.itemData(index)
+        if code and code != i18n.get_language():
+            i18n.set_language(code)
+            self._retranslate_ui()
+
+    def _retranslate_ui(self) -> None:
+        self.setWindowTitle(tr("main.title"))
+        self.btn_import.setText(tr("main.import_btn"))
+        if not self.account:
+            self.lbl_status.setText(tr("main.no_import"))
+        self.tabs.setTabText(0, tr("tab.overview"))
+        self.tabs.setTabText(1, tr("tab.siege_current"))
+        self.tabs.setTabText(2, tr("tab.rta_current"))
+        self.tabs.setTabText(3, tr("tab.siege_builder"))
+        self.tabs.setTabText(4, tr("tab.siege_saved"))
+        self.tabs.setTabText(5, tr("tab.wgb_builder"))
+        self.tabs.setTabText(6, tr("tab.wgb_saved"))
+        self.tabs.setTabText(7, tr("tab.rta_builder"))
+        self.tabs.setTabText(8, tr("tab.rta_saved"))
 
 
 def _apply_dark_palette(app: QApplication) -> None:
@@ -3442,15 +3416,14 @@ def _show_update_dialog(window: QMainWindow) -> None:
     rel = result.release
     message = QMessageBox(window)
     message.setIcon(QMessageBox.Information)
-    message.setWindowTitle("Update verfuegbar")
+    message.setWindowTitle(tr("update.title"))
     message.setText(
-        f"Neue Version verfuegbar: {result.latest_version}\n"
-        f"Installiert: {result.current_version}"
+        tr("update.text", latest=result.latest_version, current=result.current_version)
     )
-    message.setInformativeText("GitHub-Release jetzt oeffnen?")
+    message.setInformativeText(tr("update.open_release"))
 
-    btn_open_release = message.addButton("Release-Seite", QMessageBox.AcceptRole)
-    message.addButton("Spaeter", QMessageBox.RejectRole)
+    btn_open_release = message.addButton(tr("btn.release_page"), QMessageBox.AcceptRole)
+    message.addButton(tr("btn.later"), QMessageBox.RejectRole)
     message.exec()
 
     if message.clickedButton() == btn_open_release:
@@ -3460,6 +3433,9 @@ def _show_update_dialog(window: QMainWindow) -> None:
 def run_app():
     app = QApplication(sys.argv)
     _apply_dark_palette(app)
+    import app.i18n as i18n
+    config_dir = Path(__file__).resolve().parents[1] / "config"
+    i18n.init(config_dir)
     license_info = _ensure_license_accepted()
     if not license_info:
         sys.exit(1)
@@ -3474,11 +3450,11 @@ class LicenseDialog(QDialog):
     def __init__(self, parent: QWidget | None = None, initial_key: str = ""):
         super().__init__(parent)
         self.validation_result: LicenseValidation | None = None
-        self.setWindowTitle("Lizenz Aktivierung")
+        self.setWindowTitle(tr("license.title"))
         self.resize(520, 180)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Bitte gib deinen Serial Key ein."))
+        layout.addWidget(QLabel(tr("license.enter_key")))
 
         self.edit_key = QLineEdit()
         self.edit_key.setPlaceholderText("SWTO-...")
@@ -3489,8 +3465,8 @@ class LicenseDialog(QDialog):
         layout.addWidget(self.lbl_status)
 
         buttons = QDialogButtonBox()
-        self.btn_validate = buttons.addButton("Aktivieren", QDialogButtonBox.AcceptRole)
-        self.btn_cancel = buttons.addButton("Beenden", QDialogButtonBox.RejectRole)
+        self.btn_validate = buttons.addButton(tr("btn.activate"), QDialogButtonBox.AcceptRole)
+        self.btn_cancel = buttons.addButton(tr("btn.quit"), QDialogButtonBox.RejectRole)
         self.btn_validate.clicked.connect(self._on_validate)
         self.btn_cancel.clicked.connect(self.reject)
         layout.addWidget(buttons)
@@ -3514,12 +3490,12 @@ def _format_trial_remaining(expires_at: int, now_ts: int | None = None) -> str:
     remaining_s = max(0, int(expires_at) - now)
     if remaining_s >= 24 * 60 * 60:
         days = max(1, remaining_s // (24 * 60 * 60))
-        return f"{days} Tage"
+        return tr("license.days", n=days)
     if remaining_s >= 60 * 60:
         hours = max(1, remaining_s // (60 * 60))
-        return f"{hours} Stunden"
+        return tr("license.hours", n=hours)
     minutes = max(1, remaining_s // 60)
-    return f"{minutes} Minuten"
+    return tr("license.minutes", n=minutes)
 
 
 def _apply_license_title(window: QMainWindow, result: LicenseValidation) -> None:
@@ -3529,9 +3505,9 @@ def _apply_license_title(window: QMainWindow, result: LicenseValidation) -> None
         return
     if result.expires_at:
         remaining = _format_trial_remaining(result.expires_at)
-        window.setWindowTitle(f"{base_title} - Trial ({remaining} gültig)")
+        window.setWindowTitle(f"{base_title} - {tr('license.trial_remaining', remaining=remaining)}")
         return
-    window.setWindowTitle(f"{base_title} - Trial")
+    window.setWindowTitle(f"{base_title} - {tr('license.trial')}")
 
 
 def _ensure_license_accepted() -> LicenseValidation | None:
