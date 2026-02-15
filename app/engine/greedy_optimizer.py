@@ -224,12 +224,12 @@ class _PassOutcome:
     score: Tuple[int, int, int, int, int, int, int]
 
 
-def _allowed_runes_for_mode(account: AccountData, selected_unit_ids: List[int]) -> List[Rune]:
+def _allowed_runes_for_mode(account: AccountData, _selected_unit_ids: List[int]) -> List[Rune]:
     # User requested full account pool: use every rune from the JSON snapshot/import.
     return list(account.runes)
 
 
-def _allowed_artifacts_for_mode(account: AccountData, selected_unit_ids: List[int]) -> List[Artifact]:
+def _allowed_artifacts_for_mode(account: AccountData, _selected_unit_ids: List[int]) -> List[Artifact]:
     # User requested full account pool: use every artifact from the JSON snapshot/import.
     return [a for a in account.artifacts if int(a.type_ or 0) in (1, 2)]
 
@@ -800,10 +800,11 @@ def _reorder_for_turn_order(req: GreedyRequest, unit_ids: List[int]) -> List[int
                 team_queues.setdefault(int(team), []).append(int(uid))
         for team in team_queues:
             orig = list(team_queues[team])
+            orig_pos: Dict[int, int] = {int(u): idx for idx, u in enumerate(orig)}
             team_queues[team].sort(
-                key=lambda u, _o=orig: (
+                key=lambda u, _pos=orig_pos: (
                     int(req.unit_team_turn_order.get(u, 0) or 0) or 999,
-                    _o.index(u),
+                    int(_pos.get(int(u), 10**9)),
                 )
             )
         team_iters: Dict[int, int] = {t: 0 for t in team_queues}

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -13,25 +15,62 @@ class AccountPersistence:
     """
 
     def __init__(self) -> None:
-        self.data_dir = Path("app/data")
+        self.data_dir = self._primary_data_dir()
         self.snapshot_path = self.data_dir / "account_snapshot.json"
         self.snapshot_meta_path = self.data_dir / "account_snapshot_meta.json"
+        self.legacy_data_dir = Path("app/data")
+        self.legacy_snapshot_path = self.legacy_data_dir / "account_snapshot.json"
+        self.legacy_snapshot_meta_path = self.legacy_data_dir / "account_snapshot_meta.json"
+
+    def _runtime_app_name(self) -> str:
+        if getattr(sys, "frozen", False):
+            return "SWOT"
+        return "SWOT-dev"
+
+    def _primary_data_dir(self) -> Path:
+        override_dir = (os.environ.get("SWOT_DATA_DIR") or "").strip()
+        if override_dir:
+            return Path(override_dir)
+
+        app_name = (os.environ.get("SWOT_DATA_APP_NAME") or "").strip() or self._runtime_app_name()
+        base_dir = (
+            (os.environ.get("LOCALAPPDATA") or "").strip()
+            or (os.environ.get("APPDATA") or "").strip()
+        )
+        if base_dir:
+            return Path(base_dir) / app_name
+        return Path.home() / ".config" / app_name
+
+    def active_snapshot_path(self) -> Path:
+        if self.snapshot_path.exists():
+            return self.snapshot_path
+        if self.legacy_snapshot_path.exists():
+            return self.legacy_snapshot_path
+        return self.snapshot_path
+
+    def active_snapshot_meta_path(self) -> Path:
+        if self.snapshot_meta_path.exists():
+            return self.snapshot_meta_path
+        if self.legacy_snapshot_meta_path.exists():
+            return self.legacy_snapshot_meta_path
+        return self.snapshot_meta_path
 
     def exists(self) -> bool:
-        return self.snapshot_path.exists()
+        return self.snapshot_path.exists() or self.legacy_snapshot_path.exists()
 
     def load(self) -> Optional[Dict[str, Any]]:
         if not self.exists():
             return None
 
-        with self.snapshot_path.open("r", encoding="utf-8") as f:
+        with self.active_snapshot_path().open("r", encoding="utf-8") as f:
             return json.load(f)
 
     def load_meta(self) -> Dict[str, Any]:
-        if not self.snapshot_meta_path.exists():
+        meta_path = self.active_snapshot_meta_path()
+        if not meta_path.exists():
             return {}
         try:
-            raw = json.loads(self.snapshot_meta_path.read_text(encoding="utf-8"))
+            raw = json.loads(meta_path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
                 return raw
         except Exception:
@@ -53,7 +92,14 @@ class AccountPersistence:
         self.snapshot_meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def clear(self) -> None:
-        if self.exists():
-            self.snapshot_path.unlink()
-        if self.snapshot_meta_path.exists():
-            self.snapshot_meta_path.unlink()
+        for p in {
+            self.snapshot_path,
+            self.snapshot_meta_path,
+            self.legacy_snapshot_path,
+            self.legacy_snapshot_meta_path,
+        }:
+            try:
+                if p.exists():
+                    p.unlink()
+            except OSError:
+                continue

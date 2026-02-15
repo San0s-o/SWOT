@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Set, Dict, Callable, Any
 
-from PySide6.QtCore import Qt, QSize, QTimer, QSortFilterProxyModel, QRegularExpression, Signal
+from PySide6.QtCore import Qt, QSize, QTimer, QSortFilterProxyModel, QRegularExpression, Signal, QObject, QRunnable, QThreadPool, QEventLoop
 from PySide6.QtGui import QColor, QIcon, QPalette, QStandardItem, QStandardItemModel, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -41,11 +41,11 @@ from app.engine.efficiency import rune_efficiency
 from app.services.account_persistence import AccountPersistence
 from app.services.license_service import (
     LicenseValidation,
-    load_license_key,
+    load_license_keys,
     save_license_key,
     validate_license_key,
 )
-from app.services.update_service import check_latest_release
+from app.services.update_service import check_latest_release, UpdateCheckResult
 from app.domain.team_store import TeamStore, Team
 from app.domain.optimization_store import OptimizationStore, SavedUnitResult
 from app.domain.artifact_effects import (
@@ -91,6 +91,27 @@ def _artifact_effect_label(effect_id: int) -> str:
 
 def _artifact_effect_text(effect_id: int, value: int | float | str) -> str:
     return artifact_effect_text(effect_id, value, fallback_prefix="Effekt")
+
+
+class _TaskWorkerSignals(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class _TaskWorker(QRunnable):
+    def __init__(self, fn: Callable[..., Any], *args: Any, **kwargs: Any):
+        super().__init__()
+        self.signals = _TaskWorkerSignals()
+        self._fn = fn
+        self._args = args
+        self._kwargs = kwargs
+
+    def run(self) -> None:
+        try:
+            result = self._fn(*self._args, **self._kwargs)
+            self.signals.finished.emit(result)
+        except Exception as exc:
+            self.signals.failed.emit(str(exc))
 
 
 class _NoScrollComboBox(QComboBox):
@@ -1980,7 +2001,7 @@ class MainWindow(QMainWindow):
                 imported_at = None
         if imported_at is None:
             try:
-                imported_at = datetime.fromtimestamp(self.account_persistence.snapshot_path.stat().st_mtime)
+                imported_at = datetime.fromtimestamp(self.account_persistence.active_snapshot_path().stat().st_mtime)
             except OSError:
                 imported_at = None
 
@@ -3590,12 +3611,10 @@ def _apply_dark_palette(app: QApplication) -> None:
     app.setStyleSheet("QToolTip { color: #e6edf3; background: #1f242a; border: 1px solid #3a3f46; }")
 
 
-def _show_update_dialog(window: QMainWindow) -> None:
-    result = check_latest_release()
+def _show_update_dialog(window: QMainWindow, result: UpdateCheckResult) -> None:
     if not result.checked or not result.update_available or not result.release:
         return
 
-    rel = result.release
     message = QMessageBox(window)
     message.setIcon(QMessageBox.Information)
     message.setWindowTitle(tr("update.title"))
@@ -3609,7 +3628,31 @@ def _show_update_dialog(window: QMainWindow) -> None:
     message.exec()
 
     if message.clickedButton() == btn_open_release:
-        webbrowser.open("https://github.com/San0s-o/Summoners-War-Team-Optimizer/releases")
+        release_url = (result.release.html_url or "").strip()
+        if release_url.startswith("https://"):
+            webbrowser.open(release_url)
+        else:
+            webbrowser.open("https://github.com/San0s-o/Summoners-War-Team-Optimizer/releases")
+
+
+def _start_update_check(window: QMainWindow) -> None:
+    worker = _TaskWorker(check_latest_release)
+    window._update_check_worker = worker
+
+    def _on_finished(result_obj: object) -> None:
+        window._update_check_worker = None
+        if not isinstance(result_obj, UpdateCheckResult):
+            return
+        _show_update_dialog(window, result_obj)
+
+    def _on_failed(detail: str) -> None:
+        window._update_check_worker = None
+        if window.statusBar() is not None:
+            window.statusBar().showMessage(tr("svc.check_failed", detail=detail), 6000)
+
+    worker.signals.finished.connect(_on_finished)
+    worker.signals.failed.connect(_on_failed)
+    QThreadPool.globalInstance().start(worker)
 
 
 def run_app():
@@ -3624,14 +3667,15 @@ def run_app():
     w = MainWindow()
     _apply_license_title(w, license_info)
     w.show()
-    QTimer.singleShot(1200, lambda: _show_update_dialog(w))
+    QTimer.singleShot(1200, lambda: _start_update_check(w))
     sys.exit(app.exec())
 
 
 class LicenseDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None, initial_key: str = ""):
+    def __init__(self, parent: QWidget | None = None, initial_key: str = "", auto_validate: bool = False):
         super().__init__(parent)
         self.validation_result: LicenseValidation | None = None
+        self._validation_worker: _TaskWorker | None = None
         self.setWindowTitle(tr("license.title"))
         self.resize(520, 180)
 
@@ -3653,18 +3697,59 @@ class LicenseDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         layout.addWidget(buttons)
 
+        self.edit_key.returnPressed.connect(self._on_validate)
+        if auto_validate and self.key_text:
+            QTimer.singleShot(120, self._on_validate)
+
     @property
     def key_text(self) -> str:
         return self.edit_key.text().strip()
 
+    def _set_busy(self, busy: bool) -> None:
+        is_busy = bool(busy)
+        self.edit_key.setEnabled(not is_busy)
+        self.btn_validate.setEnabled(not is_busy)
+        self.btn_cancel.setEnabled(not is_busy)
+
     def _on_validate(self) -> None:
-        result = validate_license_key(self.key_text)
+        if self._validation_worker is not None:
+            return
+        if not self.key_text:
+            self.lbl_status.setText(tr("lic.no_key"))
+            return
+        self._set_busy(True)
+        self.lbl_status.setText(tr("license.validating"))
+        worker = _TaskWorker(validate_license_key, self.key_text)
+        self._validation_worker = worker
+        worker.signals.finished.connect(self._on_validation_result)
+        worker.signals.failed.connect(self._on_validation_failed)
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_validation_result(self, result_obj: object) -> None:
+        self._validation_worker = None
+        self._set_busy(False)
+        if not isinstance(result_obj, LicenseValidation):
+            self.lbl_status.setText(tr("lic.invalid_response", status="unknown"))
+            return
+        result = result_obj
         if result.valid:
             save_license_key(self.key_text)
             self.validation_result = result
             self.accept()
             return
         self.lbl_status.setText(result.message)
+
+    def _on_validation_failed(self, detail: str) -> None:
+        self._validation_worker = None
+        self._set_busy(False)
+        self.lbl_status.setText(tr("lic.check_failed"))
+        if detail:
+            self.lbl_status.setToolTip(detail)
+
+    def reject(self) -> None:
+        if self._validation_worker is not None:
+            return
+        super().reject()
 
 
 def _format_trial_remaining(expires_at: int, now_ts: int | None = None) -> str:
@@ -3692,12 +3777,47 @@ def _apply_license_title(window: QMainWindow, result: LicenseValidation) -> None
     window.setWindowTitle(f"{base_title} - {tr('license.trial')}")
 
 
+def _validate_license_key_threaded_sync(key: str) -> LicenseValidation:
+    wait_loop = QEventLoop()
+    result_box: dict[str, LicenseValidation] = {"result": LicenseValidation(False, tr("lic.check_failed"))}
+    worker = _TaskWorker(validate_license_key, key)
+
+    def _on_finished(result_obj: object) -> None:
+        if isinstance(result_obj, LicenseValidation):
+            result_box["result"] = result_obj
+        wait_loop.quit()
+
+    def _on_failed(_detail: str) -> None:
+        wait_loop.quit()
+
+    worker.signals.finished.connect(_on_finished)
+    worker.signals.failed.connect(_on_failed)
+    QThreadPool.globalInstance().start(worker)
+    wait_loop.exec()
+    return result_box["result"]
+
+
 def _ensure_license_accepted() -> LicenseValidation | None:
-    existing = load_license_key()
-    if existing:
-        check = validate_license_key(existing)
-        if check.valid:
+    known_keys = load_license_keys()
+    existing = known_keys[0] if known_keys else None
+    cached_candidate: tuple[str, LicenseValidation] | None = None
+    for key in known_keys:
+        check = _validate_license_key_threaded_sync(key)
+        if check.valid and check.error_kind != "cached":
+            save_license_key(key)
             return check
+        if check.valid:
+            if cached_candidate is None:
+                cached_candidate = (key, check)
+            else:
+                current_exp = check.expires_at or -1
+                best_exp = (cached_candidate[1].expires_at or -1)
+                if current_exp > best_exp:
+                    cached_candidate = (key, check)
+
+    if cached_candidate is not None:
+        save_license_key(cached_candidate[0])
+        return cached_candidate[1]
 
     dlg = LicenseDialog(initial_key=existing or "")
     if dlg.exec() == QDialog.Accepted:

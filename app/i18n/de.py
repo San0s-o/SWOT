@@ -212,6 +212,7 @@ STRINGS: dict[str, str] = {
     "license.days": "{n} Tage",
     "license.hours": "{n} Stunden",
     "license.minutes": "{n} Minuten",
+    "license.validating": "Lizenz wird geprüft...",
 
     # ── Help dialog ─────────────────────────────────────────────
     "help.title": "Anleitung",
@@ -330,7 +331,9 @@ STRINGS: dict[str, str] = {
     "lic.activated": "Lizenz aktiviert.",
     "lic.check_failed": "Lizenzprüfung fehlgeschlagen.",
     "lic.valid": "Lizenz gültig.",
+    "lic.valid_cached": "Lizenz vorübergehend aus lokalem Cache bestätigt.",
     "lic.no_key": "Kein Key eingegeben.",
+    "lic.network_error": "Netzwerkfehler bei der Lizenzprüfung: {detail}",
     "lic.not_configured": "Lizenz-Server nicht konfiguriert (license_config.json fehlt/ist unvollständig).",
 
     # ── Overview widget ─────────────────────────────────────────

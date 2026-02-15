@@ -88,3 +88,27 @@ Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Ein
 
 - Windows 10/11
 - Summoners War JSON-Export (z.B. via SWEX)
+
+## Tests
+
+Folgende automatisierte Tests sind jetzt enthalten:
+- `tests/test_license_service.py`
+- `tests/test_update_service.py`
+- `tests/test_import.py` (Smoke-Test)
+
+Ausfuehren:
+
+```bash
+pytest -q tests/test_license_service.py tests/test_update_service.py tests/test_import.py
+```
+
+## Benchmark
+
+Runtime- und Qualitaetsvergleich des Greedy-Optimizers:
+
+```bash
+python benchmark_optimizer.py --mode rta --units 15 --passes 3 --runs 5 --time-limit 1.5 --out-json benchmark/latest.json
+```
+
+Hinweis:
+- Ohne `--snapshot` nimmt das Script automatisch den aktiven gespeicherten Snapshot (inkl. Legacy-Fallback).
