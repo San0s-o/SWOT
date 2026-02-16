@@ -189,7 +189,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         for bb in builds:
             cfg_min = int((getattr(bb, "min_stats", {}) or {}).get("SPD", 0) or 0)
             cfg_min_no_base = int((getattr(bb, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
-            tick_min = int(min_spd_for_tick(int(getattr(bb, "spd_tick", 0) or 0)) or 0)
+            tick_min = int(min_spd_for_tick(int(getattr(bb, "spd_tick", 0) or 0), req.mode) or 0)
             unit_min_spd_floor_raw = max(unit_min_spd_floor_raw, cfg_min)
             unit_min_spd_floor_no_base = max(unit_min_spd_floor_no_base, cfg_min_no_base)
             unit_min_tick_floor = max(unit_min_tick_floor, tick_min)
@@ -357,7 +357,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             spd_tick = int(getattr(b, "spd_tick", 0) or 0)
             min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
             min_spd_no_base_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
-            min_spd_tick = int(min_spd_for_tick(spd_tick) or 0)
+            min_spd_tick = int(min_spd_for_tick(spd_tick, req.mode) or 0)
             if min_spd_cfg > 0:
                 model.Add(final_spd_raw >= min_spd_cfg).OnlyEnforceIf(vb)
             if min_spd_no_base_cfg > 0:
@@ -365,7 +365,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             if min_spd_tick > 0:
                 model.Add(final_spd >= min_spd_tick).OnlyEnforceIf(vb)
             if spd_tick > 0:
-                max_spd_tick = int(max_spd_for_tick(spd_tick) or 0)
+                max_spd_tick = int(max_spd_for_tick(spd_tick, req.mode) or 0)
                 if max_spd_tick > 0:
                     model.Add(final_spd <= max_spd_tick).OnlyEnforceIf(vb)
 
@@ -539,7 +539,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         for bb in builds_by_uid[uid]:
             cfg_min = int((getattr(bb, "min_stats", {}) or {}).get("SPD", 0) or 0)
             cfg_min_no_base = int((getattr(bb, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
-            tick_min = int(min_spd_for_tick(int(getattr(bb, "spd_tick", 0) or 0)) or 0)
+            tick_min = int(min_spd_for_tick(int(getattr(bb, "spd_tick", 0) or 0), req.mode) or 0)
             floor_spd_raw = max(floor_spd_raw, cfg_min)
             floor_spd_no_base = max(floor_spd_no_base, cfg_min_no_base)
             floor_tick_spd = max(floor_tick_spd, tick_min)

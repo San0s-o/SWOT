@@ -4,7 +4,7 @@ import weakref
 from pathlib import Path
 from typing import ClassVar, List, Dict, Optional, Tuple, Any
 
-from PySide6.QtCore import Qt, QSize, QRectF
+from PySide6.QtCore import Qt, QSize, QRectF, QEvent
 from PySide6.QtGui import QIcon, QPainter, QColor, QFont, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
@@ -50,6 +50,8 @@ _ELEMENT_COLOURS: Dict[str, str] = {
     "Light":  "#ecf0f1",
     "Dark":   "#8e44ad",
 }
+_RTA_GRID_MIN_COLUMNS = 4
+_RTA_GRID_MAX_COLUMNS = 6
 
 def _card_stat_label(key: str) -> str:
     return tr("card_stat." + key)
@@ -293,7 +295,7 @@ class RunePieChart(QWidget):
 # ============================================================
 class MonsterCard(QFrame):
     # 0 = Gesamt, 1 = Gesamt+LS, 2 = Detail (Base + Bonus)
-    _view_mode: ClassVar[int] = 0
+    _view_mode: ClassVar[int] = 2
     _all_instances: ClassVar[weakref.WeakSet["MonsterCard"]] = weakref.WeakSet()
 
     def __init__(
@@ -600,15 +602,47 @@ class SiegeDefCardsWidget(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
+        # ── speed-lead button bar (hidden by default, shown for RTA) ──
+        self._lead_bar = QHBoxLayout()
+        self._lead_bar.setSpacing(4)
+        self._lead_label = QLabel(tr("rta.spd_lead"))
+        self._lead_label.setTextFormat(Qt.RichText)
+        self._lead_bar.addWidget(self._lead_label)
+        self._lead_bar.addStretch()
+        self._lead_bar_widget = QWidget()
+        self._lead_bar_widget.setLayout(self._lead_bar)
+        self._lead_bar_widget.setVisible(False)
+        outer.addWidget(self._lead_bar_widget)
+        self._lead_buttons: List[QPushButton] = []
+        self._current_speed_lead_pct = 0
+
+        # ── state for RTA flat-grid re-rendering ──
+        self._rta_grid_params: Optional[Dict] = None
+        self._rta_grid_columns = _RTA_GRID_MIN_COLUMNS
+        self._rta_flat_grid_active = False
+
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.viewport().installEventFilter(self)
         outer.addWidget(self._scroll)
 
         self._container = QWidget()
         self._layout = QVBoxLayout(self._container)
         self._layout.setAlignment(Qt.AlignTop)
         self._scroll.setWidget(self._container)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._scroll.viewport() and event.type() == QEvent.Wheel:
+            if self._rta_flat_grid_active and bool(event.modifiers() & Qt.ControlModifier):
+                delta_y = int(event.angleDelta().y())
+                if delta_y > 0:
+                    self._set_rta_grid_columns(self._rta_grid_columns + 1)
+                elif delta_y < 0:
+                    self._set_rta_grid_columns(self._rta_grid_columns - 1)
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
 
     # ── public API ───────────────────────────────────────────
     def _clear(self):
@@ -617,6 +651,14 @@ class SiegeDefCardsWidget(QWidget):
             w = item.widget()
             if w:
                 w.deleteLater()
+        self._lead_bar_widget.setVisible(False)
+        for btn in self._lead_buttons:
+            self._lead_bar.removeWidget(btn)
+            btn.deleteLater()
+        self._lead_buttons.clear()
+        self._rta_grid_params = None
+        self._rta_flat_grid_active = False
+        self._current_speed_lead_pct = 0
 
     def render(self, account: AccountData, monster_db: MonsterDB, assets_dir: Path,
                rune_mode: str = "siege"):
@@ -668,21 +710,33 @@ class SiegeDefCardsWidget(QWidget):
                     arts.append(art)
             if arts:
                 artifact_overrides[res.unit_id] = arts
-        self._render_teams(
-            opt.teams,
-            account,
-            monster_db,
-            assets_dir,
-            rune_mode,
-            rune_overrides,
-            artifact_overrides,
-        )
+        if rune_mode == "rta":
+            self._render_flat_grid(
+                opt.teams,
+                account,
+                monster_db,
+                assets_dir,
+                rune_mode,
+                rune_overrides,
+                artifact_overrides,
+            )
+        else:
+            self._render_teams(
+                opt.teams,
+                account,
+                monster_db,
+                assets_dir,
+                rune_mode,
+                rune_overrides,
+                artifact_overrides,
+            )
 
     def _render_teams(self, teams: List[List[int]], account: AccountData,
                       monster_db: MonsterDB, assets_dir: Path, rune_mode: str,
                       rune_overrides: Optional[Dict[int, List[Rune]]] = None,
                       artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
                       team_label_prefix: str = ""):
+        self._rta_flat_grid_active = False
         for ti, team in enumerate(teams, start=1):
             team_leader = None
             if team:
@@ -738,6 +792,165 @@ class SiegeDefCardsWidget(QWidget):
                 title = f"{prefix} {ti}"
                 card = TeamCard(ti, unit_data, assets_dir, title=title)
                 self._layout.addWidget(card)
+
+    def _render_flat_grid(self, teams: List[List[int]], account: AccountData,
+                          monster_db: MonsterDB, assets_dir: Path, rune_mode: str,
+                          rune_overrides: Optional[Dict[int, List[Rune]]] = None,
+                          artifact_overrides: Optional[Dict[int, List[Artifact]]] = None):
+        """Render all units from all teams in a flat RTA grid sorted by SPD."""
+        # Store params so we can re-render when the speed lead changes
+        self._rta_grid_params = dict(
+            teams=teams, account=account, monster_db=monster_db,
+            assets_dir=assets_dir, rune_mode=rune_mode,
+            rune_overrides=rune_overrides, artifact_overrides=artifact_overrides,
+        )
+        self._build_speed_lead_buttons(teams, account, monster_db)
+        self._lead_bar_widget.setVisible(True)
+        self._rta_flat_grid_active = True
+        self._rebuild_flat_grid()
+
+    def _rebuild_flat_grid(self) -> None:
+        """(Re)build the flat card grid using stored params and current speed lead."""
+        # Clear existing grid content only
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        p = self._rta_grid_params
+        if not p:
+            return
+
+        teams = p["teams"]
+        account = p["account"]
+        monster_db = p["monster_db"]
+        assets_dir = p["assets_dir"]
+        rune_mode = p["rune_mode"]
+        rune_overrides = p["rune_overrides"]
+        artifact_overrides = p["artifact_overrides"]
+        speed_lead_pct = self._current_speed_lead_pct
+
+        all_units: List[Tuple[Unit, str, str, QIcon, List[Rune], List[Artifact], Dict[str, Dict[str, int]], int]] = []
+        for team in teams:
+            for uid in team:
+                u = account.units_by_id.get(uid)
+                if not u:
+                    continue
+                name = monster_db.name_for(u.unit_master_id)
+                element = monster_db.element_for(u.unit_master_id)
+                icon = _icon_for(monster_db, u.unit_master_id, assets_dir)
+                if rune_overrides and uid in rune_overrides:
+                    equipped = rune_overrides[uid]
+                else:
+                    equipped = account.equipped_runes_for(uid, rune_mode)
+                if artifact_overrides and uid in artifact_overrides:
+                    equipped_artifacts = artifact_overrides[uid]
+                else:
+                    equipped_artifacts = self._equipped_artifacts_for(account, uid, rune_mode)
+                stats = compute_unit_stats(
+                    u,
+                    equipped,
+                    speed_lead_pct,
+                    int(account.sky_tribe_totem_spd_pct or 0),
+                )
+                leader_bonus: Dict[str, int] = {}
+                if speed_lead_pct > 0:
+                    leader_bonus["SPD"] = int(int(u.base_spd or 0) * speed_lead_pct / 100)
+                stat_breakdown = _build_stat_breakdown(
+                    unit=u,
+                    artifacts=equipped_artifacts,
+                    total_with_tower_and_leader=stats,
+                    leader_bonus=leader_bonus,
+                    sky_tribe_totem_spd_pct=int(account.sky_tribe_totem_spd_pct or 0),
+                )
+                all_units.append((u, name, element, icon, equipped, equipped_artifacts, stat_breakdown, int(stats.get("SPD", 0))))
+
+        all_units.sort(key=lambda e: e[7], reverse=True)
+
+        grid = QGridLayout()
+        grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        grid.setSpacing(6)
+        for idx, (unit, name, element, icon, runes, artifacts, stats, _spd) in enumerate(all_units):
+            row, col = divmod(idx, int(self._rta_grid_columns))
+            card = MonsterCard(
+                unit, name, element, icon, runes, stats, assets_dir,
+                equipped_artifacts=artifacts,
+            )
+            grid.addWidget(card, row, col)
+        container = QWidget()
+        container.setLayout(grid)
+        self._layout.addWidget(container)
+
+    def _set_rta_grid_columns(self, columns: int) -> None:
+        new_columns = max(_RTA_GRID_MIN_COLUMNS, min(_RTA_GRID_MAX_COLUMNS, int(columns)))
+        if new_columns == int(self._rta_grid_columns):
+            return
+        self._rta_grid_columns = int(new_columns)
+        if self._rta_flat_grid_active:
+            self._rebuild_flat_grid()
+
+    # ── speed-lead buttons (RTA flat grid) ────────────────────
+    def _build_speed_lead_buttons(self, teams: List[List[int]],
+                                   account: AccountData, monster_db: MonsterDB) -> None:
+        for btn in self._lead_buttons:
+            self._lead_bar.removeWidget(btn)
+            btn.deleteLater()
+        self._lead_buttons.clear()
+        self._current_speed_lead_pct = 0
+
+        # Collect unique speed leads from the optimization's units
+        all_uids = [uid for team in teams for uid in team]
+        leads: Dict[int, List[str]] = {}
+        for uid in all_uids:
+            unit = account.units_by_id.get(uid)
+            if not unit:
+                continue
+            pct = monster_db.rta_speed_lead_percent_for(unit.unit_master_id)
+            if pct > 0:
+                name = monster_db.name_for(unit.unit_master_id)
+                leads.setdefault(pct, []).append(name)
+
+        btn_none = QPushButton(tr("rta.no_lead"))
+        btn_none.setCheckable(True)
+        btn_none.setChecked(True)
+        btn_none.setStyleSheet(self._lead_btn_style(checked=True))
+        btn_none.clicked.connect(lambda: self._on_lead_clicked(0, btn_none))
+        self._lead_bar.insertWidget(self._lead_bar.count() - 1, btn_none)
+        self._lead_buttons.append(btn_none)
+
+        for pct in sorted(leads.keys(), reverse=True):
+            names = leads[pct]
+            label = ", ".join(sorted(set(names)))
+            if len(label) > 30:
+                label = label[:27] + "..."
+            btn = QPushButton(f"{label} ({pct}%)")
+            btn.setCheckable(True)
+            btn.setStyleSheet(self._lead_btn_style(checked=False))
+            btn.clicked.connect(lambda checked, p=pct, b=btn: self._on_lead_clicked(p, b))
+            self._lead_bar.insertWidget(self._lead_bar.count() - 1, btn)
+            self._lead_buttons.append(btn)
+
+    def _on_lead_clicked(self, pct: int, clicked_btn: QPushButton) -> None:
+        self._current_speed_lead_pct = pct
+        for btn in self._lead_buttons:
+            is_active = btn is clicked_btn
+            btn.setChecked(is_active)
+            btn.setStyleSheet(self._lead_btn_style(checked=is_active))
+        self._rebuild_flat_grid()
+
+    @staticmethod
+    def _lead_btn_style(checked: bool) -> str:
+        if checked:
+            return (
+                "QPushButton { background: #2980b9; color: #fff; border: 1px solid #3498db;"
+                " border-radius: 3px; padding: 4px 10px; font-weight: bold; }"
+            )
+        return (
+            "QPushButton { background: #3a3a3a; color: #ccc; border: 1px solid #666;"
+            " border-radius: 3px; padding: 4px 10px; }"
+            " QPushButton:hover { background: #505050; border-color: #888; }"
+        )
 
     def _equipped_artifacts_for(self, account: AccountData, unit_id: int, rune_mode: str) -> List[Artifact]:
         by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in (account.artifacts or [])}

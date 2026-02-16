@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.domain.speed_ticks import allowed_spd_ticks
+
 
 # ============================================================
 # Sets
@@ -109,6 +111,7 @@ MIN_STAT_KEYS: set[str] = {
     "RES",
     "ACC",
 }
+VALID_SPD_TICKS: set[int] = {0, *allowed_spd_ticks("normal"), *allowed_spd_ticks("rta")}
 
 # Übliche Slot-Whitelist (UI-Defaults)
 SLOT2_DEFAULT = ["SPD", "HP%", "ATK%", "DEF%"]
@@ -323,7 +326,7 @@ def _parse_build(raw: Any) -> Optional[Build]:
         spd_tick = int(raw.get("spd_tick") or 0)
     except Exception:
         spd_tick = 0
-    if spd_tick not in (0, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+    if spd_tick not in VALID_SPD_TICKS:
         spd_tick = 0
 
     set_options_raw = raw.get("set_options") or []

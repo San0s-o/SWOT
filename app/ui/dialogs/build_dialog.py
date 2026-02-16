@@ -182,8 +182,8 @@ class BuildDialog(QDialog):
                     tick_cmb = _NoScrollComboBox()
                     tick_cmb.setMinimumWidth(72)
                     tick_cmb.addItem("-", 0)
-                    for tick in allowed_spd_ticks():
-                        req_spd = int(min_spd_for_tick(tick))
+                    for tick in allowed_spd_ticks(self.mode):
+                        req_spd = int(min_spd_for_tick(tick, self.mode))
                         tick_cmb.addItem(f"{tick} (>= {req_spd})", int(tick))
                     idx = tick_cmb.findData(int(spd_tick))
                     tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)

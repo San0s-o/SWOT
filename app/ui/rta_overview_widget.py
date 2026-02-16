@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -16,14 +16,16 @@ from app.ui.siege_cards_widget import MonsterCard, _icon_for, _build_stat_breakd
 from app.i18n import tr
 
 
-COLUMNS = 4
+MIN_COLUMNS = 4
+MAX_COLUMNS = 6
 
 
 class RtaOverviewWidget(QWidget):
-    """Shows all fully-equipped RTA monsters in a 4-column grid sorted by SPD.
+    """Shows all fully-equipped RTA monsters in a sortable RTA grid by SPD.
 
     A row of speed-lead buttons at the top lets the user toggle different
     speed leads and see how the turn order changes.
+    Grid columns can be adjusted with Ctrl + mouse wheel (4..6).
     """
 
     def __init__(self, parent: QWidget | None = None):
@@ -32,6 +34,7 @@ class RtaOverviewWidget(QWidget):
         self._monster_db: Optional[MonsterDB] = None
         self._assets_dir: Optional[Path] = None
         self._current_speed_lead_pct = 0
+        self._columns = MIN_COLUMNS
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(4, 4, 4, 4)
@@ -50,6 +53,7 @@ class RtaOverviewWidget(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.viewport().installEventFilter(self)
         outer.addWidget(self._scroll, 1)
 
         self._container = QWidget()
@@ -59,6 +63,18 @@ class RtaOverviewWidget(QWidget):
         self._scroll.setWidget(self._container)
 
         self._lead_buttons: List[QPushButton] = []
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._scroll.viewport() and event.type() == QEvent.Wheel:
+            if bool(event.modifiers() & Qt.ControlModifier):
+                delta_y = int(event.angleDelta().y())
+                if delta_y > 0:
+                    self._set_columns(self._columns + 1)
+                elif delta_y < 0:
+                    self._set_columns(self._columns - 1)
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
 
     # ── public API ───────────────────────────────────────────
     def set_context(self, account: AccountData, monster_db: MonsterDB, assets_dir: Path) -> None:
@@ -187,9 +203,9 @@ class RtaOverviewWidget(QWidget):
         # Sort by SPD descending (turn order: fastest first)
         entries.sort(key=lambda e: int(e[7]), reverse=True)
 
-        # Place into 4-column grid
+        # Place into adjustable grid
         for idx, (unit, name, element, icon, runes, artifacts, stats, _spd) in enumerate(entries):
-            row, col = divmod(idx, COLUMNS)
+            row, col = divmod(idx, int(self._columns))
             card = MonsterCard(
                 unit,
                 name,
@@ -201,6 +217,13 @@ class RtaOverviewWidget(QWidget):
                 equipped_artifacts=artifacts,
             )
             self._grid.addWidget(card, row, col)
+
+    def _set_columns(self, columns: int) -> None:
+        new_columns = max(MIN_COLUMNS, min(MAX_COLUMNS, int(columns)))
+        if new_columns == int(self._columns):
+            return
+        self._columns = int(new_columns)
+        self._render_grid()
 
     def _equipped_artifacts_for(self, unit_id: int) -> List[Artifact]:
         if not self._account:

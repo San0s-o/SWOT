@@ -856,7 +856,7 @@ def _solve_single_unit_best(
         spd_tick = int(getattr(b, "spd_tick", 0) or 0)
         min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
         min_spd_no_base_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
-        min_spd_tick = int(min_spd_for_tick(spd_tick) or 0)
+        min_spd_tick = int(min_spd_for_tick(spd_tick, req.mode) or 0)
         if min_spd_cfg > 0:
             model.Add(final_speed_raw_expr >= min_spd_cfg).OnlyEnforceIf(vb)
         if min_spd_no_base_cfg > 0:
@@ -864,7 +864,7 @@ def _solve_single_unit_best(
         if min_spd_tick > 0:
             model.Add(final_speed_expr >= min_spd_tick).OnlyEnforceIf(vb)
         if spd_tick > 0:
-            max_spd_tick = int(max_spd_for_tick(spd_tick) or 0)
+            max_spd_tick = int(max_spd_for_tick(spd_tick, req.mode) or 0)
             if max_spd_tick > 0:
                 model.Add(final_speed_expr <= max_spd_tick).OnlyEnforceIf(vb)
 

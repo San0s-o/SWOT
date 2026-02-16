@@ -416,8 +416,8 @@ class OverviewWidget(QWidget):
 
         controls_row = QHBoxLayout()
         controls_row.setSpacing(8)
-        lbl_top_n = QLabel(tr("overview.chart_top_label"))
-        lbl_top_n.setStyleSheet(f"color: {_TEXT_DIM};")
+        self._lbl_top_n = QLabel(tr("overview.chart_top_label"))
+        self._lbl_top_n.setStyleSheet(f"color: {_TEXT_DIM};")
         self._top_n_combo = QComboBox()
         self._top_n_combo.setStyleSheet(
             f"color: {_TEXT}; background: {_CARD_BG}; border: 1px solid {_CARD_BORDER};"
@@ -426,8 +426,17 @@ class OverviewWidget(QWidget):
             self._top_n_combo.addItem(str(n), int(n))
         self._top_n_combo.setCurrentIndex(max(0, self._top_n_combo.findData(400)))
         self._top_n_combo.currentIndexChanged.connect(self._on_top_n_changed)
-        controls_row.addWidget(lbl_top_n)
+        self._lbl_rune_set_filter = QLabel(tr("overview.rune_set_filter_label"))
+        self._lbl_rune_set_filter.setStyleSheet(f"color: {_TEXT_DIM};")
+        self._rune_set_filter_combo = QComboBox()
+        self._rune_set_filter_combo.setStyleSheet(
+            f"color: {_TEXT}; background: {_CARD_BG}; border: 1px solid {_CARD_BORDER};"
+        )
+        self._rune_set_filter_combo.currentIndexChanged.connect(self._on_rune_set_filter_changed)
+        controls_row.addWidget(self._lbl_top_n)
         controls_row.addWidget(self._top_n_combo)
+        controls_row.addWidget(self._lbl_rune_set_filter)
+        controls_row.addWidget(self._rune_set_filter_combo)
         controls_row.addStretch(1)
         outer.addLayout(controls_row)
 
@@ -447,11 +456,11 @@ class OverviewWidget(QWidget):
         self._rune_eff_view: QChartView | None = None
         self._rune_set_view: QChartView | None = None
         self._art_eff_view: QChartView | None = None
-        self._set_eff_view: QChartView | None = None
 
     # -- public API ------------------------------------
     def set_data(self, account: AccountData) -> None:
         self._account = account
+        self._refresh_rune_set_filter_options()
         self._update_cards(account)
         self._build_charts(account)
 
@@ -463,6 +472,9 @@ class OverviewWidget(QWidget):
         self._card_art_avg_t1.update_title(tr("overview.attr_art_eff"))
         self._card_art_avg_t2.update_title(tr("overview.type_art_eff"))
         self._card_rune_best.update_title(tr("overview.best_rune"))
+        self._lbl_top_n.setText(tr("overview.chart_top_label"))
+        self._lbl_rune_set_filter.setText(tr("overview.rune_set_filter_label"))
+        self._refresh_rune_set_filter_options()
         for sid, card in self._set_eff_cards.items():
             name = SET_NAMES.get(sid, f"Set {sid}")
             card.update_title(tr("overview.set_eff", name=name))
@@ -539,18 +551,42 @@ class OverviewWidget(QWidget):
         self._rune_eff_view = self._build_rune_eff_chart(rune_items)
         self._rune_set_view = self._build_rune_set_chart(filtered_runes)
         self._art_eff_view = self._build_art_eff_chart(art_items)
-        self._set_eff_view = self._build_important_set_eff_chart(rune_items)
 
         self._rune_set_view.setMinimumHeight(300)
         self._rune_set_host_layout.addWidget(self._rune_set_view, 1)
 
         self._grid.addWidget(self._rune_eff_view, 0, 0, 1, 2)
         self._grid.addWidget(self._art_eff_view, 1, 0, 1, 2)
-        self._grid.addWidget(self._set_eff_view, 2, 0, 1, 2)
 
     def _on_top_n_changed(self, _value: int) -> None:
         if self._account is not None:
             self._build_charts(self._account)
+
+    def _on_rune_set_filter_changed(self, _value: int) -> None:
+        if self._account is not None:
+            self._build_charts(self._account)
+
+    def _selected_rune_set_id(self) -> int:
+        return int(self._rune_set_filter_combo.currentData() or 0)
+
+    def _refresh_rune_set_filter_options(self) -> None:
+        selected = self._selected_rune_set_id()
+        self._rune_set_filter_combo.blockSignals(True)
+        self._rune_set_filter_combo.clear()
+        self._rune_set_filter_combo.addItem(tr("overview.filter_all_sets"), 0)
+
+        if self._account is not None:
+            filtered_runes = [r for r in self._account.runes if int(r.upgrade_curr or 0) >= 12]
+            set_ids = sorted(
+                {int(r.set_id or 0) for r in filtered_runes if int(r.set_id or 0) > 0},
+                key=lambda sid: SET_NAMES.get(sid, f"Set {sid}"),
+            )
+            for sid in set_ids:
+                self._rune_set_filter_combo.addItem(SET_NAMES.get(sid, f"Set {sid}"), sid)
+
+        idx = self._rune_set_filter_combo.findData(selected)
+        self._rune_set_filter_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._rune_set_filter_combo.blockSignals(False)
 
     def _change_top_n(self, delta: int) -> None:
         cur_idx = int(self._top_n_combo.currentIndex())
@@ -566,6 +602,10 @@ class OverviewWidget(QWidget):
             self._top_n_combo.setCurrentIndex(nxt_idx)
 
     def _build_rune_eff_chart(self, items: List[Tuple[float, Rune]]) -> QChartView:
+        selected_set_id = self._selected_rune_set_id()
+        if selected_set_id > 0:
+            items = [(eff, rune) for eff, rune in items if int(rune.set_id or 0) == selected_set_id]
+
         top_n = int(self._top_n_combo.currentData() or 400)
         ranked_base = sorted(items, key=lambda x: x[0], reverse=True)[:top_n]
         ranked_payload: List[Tuple[Rune, float, float, float]] = []
@@ -602,7 +642,10 @@ class OverviewWidget(QWidget):
         for idx, (eff, _) in enumerate(legend_items, start=1):
             series_legend.append(float(idx), float(eff))
 
-        chart = _make_chart(tr("overview.rune_eff_chart", n=top_n))
+        chart_title = tr("overview.rune_eff_chart", n=top_n)
+        if selected_set_id > 0:
+            chart_title = f"{chart_title} - {SET_NAMES.get(selected_set_id, f'Set {selected_set_id}')}"
+        chart = _make_chart(chart_title)
         chart.addSeries(series_current)
         chart.addSeries(series_hero)
         chart.addSeries(series_legend)
@@ -676,68 +719,6 @@ class OverviewWidget(QWidget):
         chart.legend().setVisible(False)
 
         return _make_chart_view(chart)
-
-    def _build_important_set_eff_chart(self, items: List[Tuple[float, Rune]]) -> QChartView:
-        top_n = int(self._top_n_combo.currentData() or 400)
-        chart = _make_chart(tr("overview.set_eff_chart", n=top_n))
-        chart.legend().setVisible(True)
-
-        set_colors = {
-            13: "#9b59b6",  # Violent
-            15: "#95a5a6",  # Will
-            3: "#3498db",   # Swift
-            10: "#f39c12",  # Despair
-            18: "#e74c3c",  # Destroy
-            14: "#1abc9c",  # Nemesis
-        }
-
-        entries: List[Tuple[str, QLineSeries, List[Tuple[float, Any]], Callable[[Tuple[float, Any], int, str], str]]] = []
-        max_len = 0
-        all_vals: List[float] = []
-        for sid in _IMPORTANT_SET_IDS:
-            set_name = SET_NAMES.get(sid, f"Set {sid}")
-            set_items = [(eff, r) for eff, r in items if int(r.set_id or 0) == sid]
-            ranked = sorted(set_items, key=lambda x: x[0], reverse=True)[:top_n]
-            if not ranked:
-                continue
-            s = QLineSeries()
-            s.setName(set_name)
-            s.setColor(QColor(set_colors.get(sid, "#bbbbbb")))
-            wrapped: List[Tuple[float, Any]] = []
-            for idx, (eff, rune) in enumerate(ranked, start=1):
-                payload = (rune, eff, rune_efficiency_max(rune, "hero"), rune_efficiency_max(rune, "legend"))
-                wrapped.append((eff, payload))
-                s.append(float(idx), float(eff))
-                all_vals.append(float(eff))
-            chart.addSeries(s)
-            entries.append((set_name, s, wrapped, _rune_curve_tooltip))
-            max_len = max(max_len, len(ranked))
-
-        ax_x = QValueAxis()
-        ax_x.setLabelFormat("%d")
-        ax_x.setRange(1, max(max_len, 1))
-        ax_x.setTitleText(tr("overview.axis_count"))
-        _style_bar_axis(ax_x)
-        chart.addAxis(ax_x, Qt.AlignBottom)
-        for _, s, _, _ in entries:
-            s.attachAxis(ax_x)
-
-        ax_y = QValueAxis()
-        if all_vals:
-            min_eff = min(all_vals)
-            max_eff = max(all_vals)
-            pad = max(6.0, (max_eff - min_eff) * 0.12)
-            ax_y.setRange(max(0.0, min_eff - pad), max_eff + pad)
-        else:
-            ax_y.setRange(0, 100)
-        ax_y.setLabelFormat("%.1f")
-        ax_y.setTitleText(tr("overview.axis_eff"))
-        _style_bar_axis(ax_y)
-        chart.addAxis(ax_y, Qt.AlignLeft)
-        for _, s, _, _ in entries:
-            s.attachAxis(ax_y)
-
-        return _IndexedLineChartView(chart, entries, zoom_callback=self._change_top_n)
 
     def _build_art_eff_chart(self, items: List[Tuple[float, Artifact]]) -> QChartView:
         top_n = int(self._top_n_combo.currentData() or 400)

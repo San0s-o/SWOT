@@ -186,9 +186,9 @@ STRINGS: dict[str, str] = {
 
     # -- Optimization result display -----------------------------
     "result.title_team": "Team Optimierung: {name}",
-    "result.title_siege": "Greedy Optimierung",
-    "result.title_wgb": "WGB Greedy Optimierung",
-    "result.title_rta": "RTA Greedy Optimierung",
+    "result.title_siege": "Optimizer",
+    "result.title_wgb": "WGB Optimizer",
+    "result.title_rta": "RTA Optimizer",
     "result.opt_running": "{mode} Optimierung läuft",
     "result.team_opt_running": "Team '{name}' Optimierung läuft",
     "result.avg_rune_eff": "Ø Rune-Effizienz: <b>{eff}%</b>",
@@ -399,6 +399,8 @@ STRINGS: dict[str, str] = {
     "overview.best_rune": "Beste Rune",
     "overview.set_eff": "{name} Eff. (%)",
     "overview.chart_top_label": "Runen-Chart Top:",
+    "overview.rune_set_filter_label": "Set-Filter:",
+    "overview.filter_all_sets": "Alle Sets",
     "overview.rune_eff_chart": "Runen-Effizienz (Top {n})",
     "overview.set_dist_chart": "Runen-Set-Verteilung",
     "overview.set_eff_chart": "Wichtige Sets Effizienz (Top {n})",
