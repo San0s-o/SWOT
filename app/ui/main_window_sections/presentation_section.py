@@ -1,0 +1,171 @@
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QScrollArea, QVBoxLayout
+
+from app.i18n import tr
+from app.ui.widgets.selection_combos import _UnitSearchComboBox
+
+
+def apply_tab_style(window) -> None:
+    window.tabs.setStyleSheet(
+        """
+        QTabWidget {
+            border: none;
+            background: transparent;
+        }
+        QTabWidget::pane {
+            border: 1px solid #35383d;
+            border-top: none;
+            background: #1f2126;
+            top: -1px;
+        }
+        QTabBar {
+            qproperty-drawBase: 0;
+            background: transparent;
+        }
+        QTabBar::tab {
+            background: #262a30;
+            color: #9aa4b2;
+            border: 1px solid #35383d;
+            border-bottom: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            min-width: 120px;
+            padding: 7px 16px;
+            margin-right: 2px;
+        }
+        QTabBar::tab:selected {
+            background: #1f2126;
+            color: #f0f3f7;
+            border-color: #4a90e2;
+            margin-bottom: -1px;
+        }
+        QTabBar::tab:hover:!selected {
+            background: #2f353d;
+            color: #e1e6ec;
+        }
+        """
+    )
+
+
+def show_help_dialog(window) -> None:
+    dlg = QDialog(window)
+    dlg.setWindowTitle(tr("help.title"))
+    dlg.resize(620, 520)
+    layout = QVBoxLayout(dlg)
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setStyleSheet("QScrollArea { border: none; }")
+    layout.addWidget(scroll)
+
+    content = QLabel()
+    content.setTextFormat(Qt.RichText)
+    content.setWordWrap(True)
+    content.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+    content.setContentsMargins(16, 12, 16, 12)
+    content.setStyleSheet("font-size: 10pt; line-height: 1.5;")
+    content.setText(tr("help.content"))
+    scroll.setWidget(content)
+
+    btn_close = QPushButton(tr("btn.close"))
+    btn_close.clicked.connect(dlg.accept)
+    layout.addWidget(btn_close, 0, Qt.AlignRight)
+    dlg.exec()
+
+
+def on_language_changed(window, index: int) -> None:
+    import app.i18n as i18n
+
+    code = window.lang_combo.itemData(index)
+    if code and code != i18n.get_language():
+        i18n.set_language(code)
+        window._retranslate_ui()
+
+
+def retranslate_ui(window) -> None:
+    window.setWindowTitle(tr("main.title"))
+    window.btn_import.setText(tr("main.import_btn"))
+    if not window.account:
+        window.lbl_status.setText(tr("main.no_import"))
+    window.tabs.setTabText(0, tr("tab.overview"))
+    window.tabs.setTabText(1, tr("tab.siege_current"))
+    window.tabs.setTabText(2, tr("tab.rta_current"))
+    window.tabs.setTabText(3, tr("tab.siege_builder"))
+    window.tabs.setTabText(4, tr("tab.siege_saved"))
+    window.tabs.setTabText(5, tr("tab.wgb_builder"))
+    window.tabs.setTabText(6, tr("tab.wgb_saved"))
+    window.tabs.setTabText(7, tr("tab.rta_builder"))
+    window.tabs.setTabText(8, tr("tab.rta_saved"))
+
+    window.lbl_saved_siege.setText(tr("label.saved_opt"))
+    window.lbl_saved_wgb.setText(tr("label.saved_opt"))
+    window.lbl_saved_rta.setText(tr("label.saved_opt"))
+    window.btn_delete_saved_siege.setText(tr("btn.delete"))
+    window.btn_delete_saved_wgb.setText(tr("btn.delete"))
+    window.btn_delete_saved_rta.setText(tr("btn.delete"))
+
+    window.box_siege_select.setTitle(tr("group.siege_select"))
+    for idx, lbl in enumerate(window.lbl_siege_defense, start=1):
+        lbl.setText(tr("label.defense", n=idx))
+    window.btn_take_current_siege.setText(tr("btn.take_siege"))
+    window.btn_validate_siege.setText(tr("btn.validate_pools"))
+    window.btn_edit_presets_siege.setText(tr("btn.builds"))
+    window.btn_optimize_siege.setText(tr("btn.optimize"))
+    window.lbl_siege_passes.setText(tr("label.passes"))
+    window.lbl_siege_workers.setText(tr("label.workers"))
+    window.lbl_siege_profile.setText("Profil")
+    window.spin_multi_pass_siege.setToolTip(tr("tooltip.passes"))
+    window.combo_workers_siege.setToolTip(tr("tooltip.workers"))
+
+    window.box_wgb_select.setTitle(tr("group.wgb_select"))
+    for idx, lbl in enumerate(window.lbl_wgb_defense, start=1):
+        lbl.setText(tr("label.defense", n=idx))
+    window.btn_validate_wgb.setText(tr("btn.validate_pools"))
+    window.btn_edit_presets_wgb.setText(tr("btn.builds"))
+    window.btn_optimize_wgb.setText(tr("btn.optimize"))
+    window.lbl_wgb_passes.setText(tr("label.passes"))
+    window.lbl_wgb_workers.setText(tr("label.workers"))
+    window.lbl_wgb_profile.setText("Profil")
+    window.spin_multi_pass_wgb.setToolTip(tr("tooltip.passes"))
+    window.combo_workers_wgb.setToolTip(tr("tooltip.workers"))
+
+    window.box_rta_select.setTitle(tr("group.rta_select"))
+    window.btn_rta_add.setText(tr("btn.add"))
+    window.btn_rta_remove.setText(tr("btn.remove"))
+    window.btn_take_current_rta.setText(tr("btn.take_rta"))
+    window.btn_validate_rta.setText(tr("btn.validate"))
+    window.btn_edit_presets_rta.setText(tr("btn.builds"))
+    window.btn_optimize_rta.setText(tr("btn.optimize"))
+    window.lbl_rta_passes.setText(tr("label.passes"))
+    window.lbl_rta_workers.setText(tr("label.workers"))
+    window.lbl_rta_profile.setText("Profil")
+    window.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
+    window.combo_workers_rta.setToolTip(tr("tooltip.workers"))
+
+    window.lbl_team.setText(tr("label.team"))
+    window.btn_new_team.setText(tr("btn.new_team"))
+    window.btn_edit_team.setText(tr("btn.edit_team"))
+    window.btn_remove_team.setText(tr("btn.delete_team"))
+    window.btn_optimize_team.setText(tr("btn.optimize_team"))
+    window.lbl_team_passes.setText(tr("label.passes"))
+    window.lbl_team_workers.setText(tr("label.workers"))
+    window.lbl_team_profile.setText("Profil")
+    window.spin_multi_pass_team.setToolTip(tr("tooltip.passes"))
+    window.combo_workers_team.setToolTip(tr("tooltip.workers"))
+    window._refresh_team_combo()
+
+    for cmb in window.findChildren(_UnitSearchComboBox):
+        le = cmb.lineEdit()
+        if le is not None:
+            le.setPlaceholderText(tr("main.search_placeholder"))
+
+    window.overview_widget.retranslate()
+    window.rta_overview.retranslate()
+    if window.account:
+        window._render_siege_raw()
+        window._render_wgb_preview()
+        window._on_saved_opt_changed("siege")
+        window._on_saved_opt_changed("wgb")
+        window._on_saved_opt_changed("rta")
