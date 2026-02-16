@@ -4,3 +4,4 @@ ortools>=9.10
 
 requests>=2.31
 tqdm>=4.66
+pytest>=8.0

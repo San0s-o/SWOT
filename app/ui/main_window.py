@@ -2413,6 +2413,15 @@ class MainWindow(QMainWindow):
     # ============================================================
     # Custom Builders UI
     # ============================================================
+    def _new_unit_search_combo(self, min_width: int = 300) -> _UnitSearchComboBox:
+        """Create a standardized monster-search combo used across builder tabs."""
+        if not hasattr(self, "_all_unit_combos"):
+            self._all_unit_combos = []
+        cmb = _UnitSearchComboBox()
+        cmb.setMinimumWidth(int(min_width))
+        self._all_unit_combos.append(cmb)
+        return cmb
+
     def _init_siege_builder_ui(self):
         v = QVBoxLayout(self.tab_siege_builder)
 
@@ -2436,9 +2445,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(lbl, t, 0)
             row: List[QComboBox] = []
             for s in range(3):
-                cmb = _UnitSearchComboBox()
-                cmb.setMinimumWidth(300)
-                self._all_unit_combos.append(cmb)
+                cmb = self._new_unit_search_combo(min_width=300)
                 grid.addWidget(cmb, t, 1 + s)
                 row.append(cmb)
             self.siege_team_combos.append(row)
@@ -2515,9 +2522,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(lbl, t, 0)
             row: List[QComboBox] = []
             for s in range(3):
-                cmb = _UnitSearchComboBox()
-                cmb.setMinimumWidth(300)
-                self._all_unit_combos.append(cmb)
+                cmb = self._new_unit_search_combo(min_width=300)
                 grid.addWidget(cmb, t, 1 + s)
                 row.append(cmb)
             self.wgb_team_combos.append(row)
@@ -2587,9 +2592,7 @@ class MainWindow(QMainWindow):
 
         # Top row: combo selector + add/remove + load current
         top_row = QHBoxLayout()
-        self.rta_add_combo = _UnitSearchComboBox()
-        self.rta_add_combo.setMinimumWidth(350)
-        self._all_unit_combos.append(self.rta_add_combo)
+        self.rta_add_combo = self._new_unit_search_combo(min_width=350)
         top_row.addWidget(self.rta_add_combo, 1)
 
         self.btn_rta_add = QPushButton(tr("btn.add"))
@@ -3870,6 +3873,10 @@ class MainWindow(QMainWindow):
 
 def _apply_dark_palette(app: QApplication) -> None:
     """Force a dark colour palette so the app looks correct on any OS theme."""
+    # Use Fusion style – it fully respects QPalette on every platform,
+    # unlike the native Windows style which ignores palette colours.
+    app.setStyle("Fusion")
+
     p = QPalette()
     p.setColor(QPalette.Window, QColor("#1e1e1e"))
     p.setColor(QPalette.WindowText, QColor("#dddddd"))
@@ -3887,7 +3894,94 @@ def _apply_dark_palette(app: QApplication) -> None:
     p.setColor(QPalette.Disabled, QPalette.Text, QColor("#666666"))
     p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#666666"))
     app.setPalette(p)
-    app.setStyleSheet("QToolTip { color: #e6edf3; background: #1f242a; border: 1px solid #3a3f46; }")
+
+    # Global stylesheet – ensures every widget type picks up the dark theme,
+    # even native dialogs and widgets that sometimes ignore QPalette.
+    app.setStyleSheet("""
+        QToolTip {
+            color: #e6edf3; background: #1f242a; border: 1px solid #3a3f46;
+        }
+        QPushButton {
+            background-color: #2b2b2b; color: #dddddd;
+            border: 1px solid #3a3a3a; border-radius: 4px;
+            padding: 4px 14px;
+        }
+        QPushButton:hover { background-color: #3a3a3a; }
+        QPushButton:pressed { background-color: #1a1a1a; }
+        QPushButton:disabled { color: #666666; }
+        QLineEdit, QSpinBox, QComboBox {
+            background-color: #2b2b2b; color: #dddddd;
+            border: 1px solid #3a3a3a; border-radius: 3px;
+            padding: 3px 6px;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #2b2b2b; color: #dddddd;
+            selection-background-color: #3498db;
+        }
+        QComboBox::drop-down { border: none; }
+        QDialog { background-color: #1e1e1e; color: #dddddd; }
+        QMessageBox { background-color: #1e1e1e; color: #dddddd; }
+        QLabel { color: #dddddd; }
+        QGroupBox {
+            color: #dddddd; border: 1px solid #3a3a3a;
+            border-radius: 4px; margin-top: 6px; padding-top: 14px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin; left: 10px; padding: 0 4px;
+        }
+        QTabWidget::pane { border: 1px solid #3a3a3a; }
+        QTabBar::tab {
+            background-color: #2b2b2b; color: #999999;
+            border: 1px solid #3a3a3a; padding: 6px 16px;
+        }
+        QTabBar::tab:selected { background-color: #1e1e1e; color: #dddddd; }
+        QTabBar::tab:hover { color: #dddddd; }
+        QTableWidget, QTableView, QHeaderView {
+            background-color: #2b2b2b; color: #dddddd;
+            gridline-color: #3a3a3a;
+        }
+        QHeaderView::section {
+            background-color: #333333; color: #dddddd;
+            border: 1px solid #3a3a3a; padding: 4px;
+        }
+        QScrollBar:vertical {
+            background: #1e1e1e; width: 12px;
+        }
+        QScrollBar::handle:vertical {
+            background: #3a3a3a; border-radius: 4px; min-height: 20px;
+        }
+        QScrollBar::handle:vertical:hover { background: #555555; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        QScrollBar:horizontal {
+            background: #1e1e1e; height: 12px;
+        }
+        QScrollBar::handle:horizontal {
+            background: #3a3a3a; border-radius: 4px; min-width: 20px;
+        }
+        QScrollBar::handle:horizontal:hover { background: #555555; }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+        QProgressDialog { background-color: #1e1e1e; color: #dddddd; }
+        QProgressBar {
+            background-color: #2b2b2b; color: #dddddd;
+            border: 1px solid #3a3a3a; border-radius: 3px; text-align: center;
+        }
+        QProgressBar::chunk { background-color: #3498db; border-radius: 3px; }
+        QListWidget, QListView {
+            background-color: #2b2b2b; color: #dddddd;
+            border: 1px solid #3a3a3a;
+        }
+        QScrollArea { background-color: #1e1e1e; border: none; }
+        QMenu {
+            background-color: #2b2b2b; color: #dddddd;
+            border: 1px solid #3a3a3a;
+        }
+        QMenu::item:selected { background-color: #3498db; }
+        QStatusBar { background-color: #1e1e1e; color: #dddddd; }
+        QMenuBar {
+            background-color: #1e1e1e; color: #dddddd;
+        }
+        QMenuBar::item:selected { background-color: #3498db; }
+    """)
 
 
 def _show_update_dialog(window: QMainWindow, result: UpdateCheckResult) -> None:
