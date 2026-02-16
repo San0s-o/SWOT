@@ -76,17 +76,11 @@ def show_help_dialog(window) -> None:
 
 
 def on_language_changed(window, index: int) -> None:
-    import app.i18n as i18n
-
-    code = window.lang_combo.itemData(index)
-    if code and code != i18n.get_language():
-        i18n.set_language(code)
-        window._retranslate_ui()
+    pass
 
 
 def retranslate_ui(window) -> None:
     window.setWindowTitle(tr("main.title"))
-    window.btn_import.setText(tr("main.import_btn"))
     if not window.account:
         window.lbl_status.setText(tr("main.no_import"))
     window.tabs.setTabText(0, tr("tab.overview"))
@@ -98,6 +92,7 @@ def retranslate_ui(window) -> None:
     window.tabs.setTabText(6, tr("tab.wgb_saved"))
     window.tabs.setTabText(7, tr("tab.rta_builder"))
     window.tabs.setTabText(8, tr("tab.rta_saved"))
+    window.tabs.setTabText(9, tr("tab.settings"))
 
     window.lbl_saved_siege.setText(tr("label.saved_opt"))
     window.lbl_saved_wgb.setText(tr("label.saved_opt"))
@@ -169,3 +164,6 @@ def retranslate_ui(window) -> None:
         window._on_saved_opt_changed("siege")
         window._on_saved_opt_changed("wgb")
         window._on_saved_opt_changed("rta")
+
+    from app.ui.main_window_sections.settings_section import retranslate_settings
+    retranslate_settings(window)

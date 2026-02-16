@@ -390,4 +390,51 @@ STRINGS: dict[str, str] = {
     "rta.no_monsters": "RTA: Keine Monster ausgewählt.",
     "rta.duplicate": "RTA: '{name}' ist doppelt ausgewählt.",
     "rta.ok": "RTA: OK ({count} Monster).",
+
+    # -- Tabs (Einstellungen) ------------------------------------
+    "tab.settings": "Einstellungen",
+
+    # -- Settings tab --------------------------------------------
+    "settings.group_account": "Account / JSON Import",
+    "settings.group_license": "Lizenzverwaltung",
+    "settings.group_language": "Sprache",
+    "settings.group_data": "Datenverwaltung",
+    "settings.group_updates": "Updates",
+    "settings.group_about": "Über",
+
+    "settings.btn_import": "JSON importieren...",
+    "settings.btn_clear_snapshot": "Snapshot löschen",
+    "settings.label_import_status": "Aktuell: {source}",
+    "settings.label_import_date": "Importiert: {date}",
+    "settings.label_no_import": "Kein Import geladen.",
+
+    "settings.label_license_type": "Lizenz: {type}",
+    "settings.label_license_type_trial": "Trial ({remaining} verbleibend)",
+    "settings.label_license_type_full": "Voll",
+    "settings.label_license_key": "Key: {license_key}",
+    "settings.label_no_license": "Keine Lizenz aktiv.",
+    "settings.license_activated": "Lizenz erfolgreich aktiviert.",
+    "settings.license_activation_failed": "Aktivierung fehlgeschlagen: {message}",
+
+    "settings.label_language": "Sprache:",
+
+    "settings.btn_reset_presets": "Build-Presets zurücksetzen",
+    "settings.btn_clear_optimizations": "Gespeicherte Optimierungen löschen",
+    "settings.btn_clear_teams": "Teams löschen",
+    "settings.confirm_reset_presets": "Wirklich alle Build-Presets auf Standard zurücksetzen?",
+    "settings.confirm_clear_optimizations": "Wirklich alle gespeicherten Optimierungen löschen?",
+    "settings.confirm_clear_teams": "Wirklich alle Teams löschen?",
+    "settings.confirm_clear_snapshot": "Wirklich den importierten Account-Snapshot löschen?",
+    "settings.confirm_title": "Bestätigen",
+    "settings.data_cleared": "{name} gelöscht.",
+
+    "settings.btn_check_update": "Nach Updates suchen",
+    "settings.label_version": "Version: {version}",
+    "settings.update_checking": "Suche nach Updates...",
+    "settings.update_no_update": "Du verwendest die neueste Version ({version}).",
+    "settings.update_error": "Update-Prüfung fehlgeschlagen.",
+
+    "settings.about_version": "App-Version: {version}",
+    "settings.about_license": "Lizenz: {type}",
+    "settings.about_data_dir": "Datenverzeichnis: {path}",
 }

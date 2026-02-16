@@ -390,6 +390,51 @@ STRINGS: dict[str, str] = {
     "rta.no_monsters": "RTA: No monsters selected.",
     "rta.duplicate": "RTA: '{name}' is selected twice.",
     "rta.ok": "RTA: OK ({count} monsters).",
+
+    # -- Tabs (Settings) -----------------------------------------
+    "tab.settings": "Settings",
+
+    # -- Settings tab --------------------------------------------
+    "settings.group_account": "Account / JSON Import",
+    "settings.group_license": "License Management",
+    "settings.group_language": "Language",
+    "settings.group_data": "Data Management",
+    "settings.group_updates": "Updates",
+    "settings.group_about": "About",
+
+    "settings.btn_import": "Import JSON...",
+    "settings.btn_clear_snapshot": "Clear Snapshot",
+    "settings.label_import_status": "Current: {source}",
+    "settings.label_import_date": "Imported: {date}",
+    "settings.label_no_import": "No import loaded.",
+
+    "settings.label_license_type": "License: {type}",
+    "settings.label_license_type_trial": "Trial ({remaining} remaining)",
+    "settings.label_license_type_full": "Full",
+    "settings.label_license_key": "Key: {license_key}",
+    "settings.label_no_license": "No license active.",
+    "settings.license_activated": "License activated successfully.",
+    "settings.license_activation_failed": "Activation failed: {message}",
+
+    "settings.label_language": "Language:",
+
+    "settings.btn_reset_presets": "Reset Build Presets",
+    "settings.btn_clear_optimizations": "Clear Saved Optimizations",
+    "settings.btn_clear_teams": "Clear Teams",
+    "settings.confirm_reset_presets": "Really reset all build presets to defaults?",
+    "settings.confirm_clear_optimizations": "Really delete all saved optimizations?",
+    "settings.confirm_clear_teams": "Really delete all teams?",
+    "settings.confirm_clear_snapshot": "Really delete the imported account snapshot?",
+    "settings.confirm_title": "Confirm",
+    "settings.data_cleared": "{name} cleared.",
+
+    "settings.btn_check_update": "Check for Updates",
+    "settings.label_version": "Version: {version}",
+    "settings.update_checking": "Checking for updates...",
+    "settings.update_no_update": "You are on the latest version ({version}).",
+    "settings.update_error": "Update check failed.",
+
+    "settings.about_version": "App Version: {version}",
+    "settings.about_license": "License: {type}",
+    "settings.about_data_dir": "Data Directory: {path}",
 }
-
-

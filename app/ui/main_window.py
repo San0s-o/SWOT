@@ -109,8 +109,21 @@ from app.ui.main_window_sections.account_units_section import (
 from app.ui.main_window_sections.presentation_section import (
     apply_tab_style as _sec_apply_tab_style,
     show_help_dialog as _sec_show_help_dialog,
-    on_language_changed as _sec_on_language_changed,
     retranslate_ui as _sec_retranslate_ui,
+)
+from app.ui.main_window_sections.settings_section import (
+    init_settings_ui as _sec_init_settings_ui,
+    refresh_settings_import_status as _sec_refresh_settings_import_status,
+    refresh_settings_license_status as _sec_refresh_settings_license_status,
+    on_settings_import_json as _sec_on_settings_import_json,
+    on_settings_clear_snapshot as _sec_on_settings_clear_snapshot,
+    on_settings_activate_license as _sec_on_settings_activate_license,
+    on_settings_reset_presets as _sec_on_settings_reset_presets,
+    on_settings_clear_optimizations as _sec_on_settings_clear_optimizations,
+    on_settings_clear_teams as _sec_on_settings_clear_teams,
+    on_settings_check_update as _sec_on_settings_check_update,
+    on_settings_language_changed as _sec_on_settings_language_changed,
+    retranslate_settings as _sec_retranslate_settings,
 )
 from app.ui.theme import apply_dark_palette as _apply_dark_palette_impl
 from app.ui.update_flow import _start_update_check
@@ -213,28 +226,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
 
+        self.lbl_status = QLabel("")
+
         top = QHBoxLayout()
-        layout.addLayout(top)
-
-        self.btn_import = QPushButton(tr("main.import_btn"))
-        self.btn_import.clicked.connect(self.on_import)
-        top.addWidget(self.btn_import)
-
-        self.lbl_status = QLabel(tr("main.no_import"))
-        self.lbl_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        top.addWidget(self.lbl_status, 1)
-
-        import app.i18n as i18n
-        self.lang_combo = QComboBox()
-        self.lang_combo.setFixedWidth(100)
-        for code, name in i18n.available_languages().items():
-            self.lang_combo.addItem(name, code)
-        idx = self.lang_combo.findData(i18n.get_language())
-        if idx >= 0:
-            self.lang_combo.setCurrentIndex(idx)
-        self.lang_combo.currentIndexChanged.connect(self._on_language_changed)
-        top.addWidget(self.lang_combo)
-
+        top.addStretch(1)
         btn_help = QPushButton("?")
         btn_help.setFixedSize(32, 32)
         btn_help.setStyleSheet(
@@ -244,6 +239,7 @@ class MainWindow(QMainWindow):
         )
         btn_help.clicked.connect(self._show_help_dialog)
         top.addWidget(btn_help)
+        layout.addLayout(top)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -307,6 +303,12 @@ class MainWindow(QMainWindow):
         # Team Manager (fixed + custom teams)
         self.tab_team_builder = QWidget()
         self._init_team_tab_ui()
+
+        # Settings
+        self.tab_settings = QWidget()
+        self.tabs.addTab(self.tab_settings, tr("tab.settings"))
+        self._init_settings_ui()
+
         self._unit_dropdowns_populated = False
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -738,11 +740,44 @@ class MainWindow(QMainWindow):
     def on_optimize_rta(self):
         return _sec_on_optimize_rta(self)
 
-    def _on_language_changed(self, index: int) -> None:
-        return _sec_on_language_changed(self, index)
-
     def _retranslate_ui(self) -> None:
         return _sec_retranslate_ui(self)
+
+    # ============================================================
+    # Settings tab
+    # ============================================================
+    def _init_settings_ui(self):
+        return _sec_init_settings_ui(self)
+
+    def _refresh_settings_import_status(self):
+        return _sec_refresh_settings_import_status(self)
+
+    def _refresh_settings_license_status(self):
+        return _sec_refresh_settings_license_status(self)
+
+    def _on_settings_import_json(self):
+        return _sec_on_settings_import_json(self)
+
+    def _on_settings_clear_snapshot(self):
+        return _sec_on_settings_clear_snapshot(self)
+
+    def _on_settings_activate_license(self):
+        return _sec_on_settings_activate_license(self)
+
+    def _on_settings_reset_presets(self):
+        return _sec_on_settings_reset_presets(self)
+
+    def _on_settings_clear_optimizations(self):
+        return _sec_on_settings_clear_optimizations(self)
+
+    def _on_settings_clear_teams(self):
+        return _sec_on_settings_clear_teams(self)
+
+    def _on_settings_check_update(self):
+        return _sec_on_settings_check_update(self)
+
+    def _on_settings_language_changed(self, index: int):
+        return _sec_on_settings_language_changed(self, index)
 
 
 def _apply_dark_palette(app: QApplication) -> None:
