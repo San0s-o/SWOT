@@ -27,6 +27,7 @@ def init_settings_ui(window) -> None:
     scroll.setFrameShape(QScrollArea.NoFrame)
 
     container = QWidget()
+    container.setMaximumWidth(900)
     main_layout = QVBoxLayout(container)
     main_layout.setContentsMargins(16, 12, 16, 12)
     main_layout.setSpacing(16)

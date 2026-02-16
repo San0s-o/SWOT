@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -127,11 +128,28 @@ from app.ui.main_window_sections.settings_section import (
 )
 from app.ui.theme import apply_dark_palette as _apply_dark_palette_impl
 from app.ui.update_flow import _start_update_check
+from app.ui.widgets.reorderable_tab_bar import ReorderableTabBar
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.overview_widget import OverviewWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
+from app.ui.rune_optimization_widget import RuneOptimizationWidget
 from app.i18n import tr
+
+
+DEFAULT_TAB_ORDER = [
+    "tab_overview",
+    "tab_siege_raw",
+    "tab_rta_overview",
+    "tab_rune_optimization",
+    "tab_siege_builder",
+    "tab_saved_siege",
+    "tab_wgb_builder",
+    "tab_saved_wgb",
+    "tab_rta_builder",
+    "tab_saved_rta",
+    "tab_settings",
+]
 
 
 @dataclass
@@ -193,8 +211,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(tr("main.title"))
-        self.resize(1600, 980)
         self.setMinimumSize(1360, 820)
+        self.showMaximized()
 
         self.account: Optional[AccountData] = None
         self._icon_cache: Dict[int, QIcon] = {}
@@ -242,6 +260,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(top)
 
         self.tabs = QTabWidget()
+        self.tabs.setTabBar(ReorderableTabBar(self.tabs))
         self.tabs.setDocumentMode(True)
         self.tabs.setUsesScrollButtons(True)
         self.tabs.setElideMode(Qt.ElideRight)
@@ -269,6 +288,14 @@ class MainWindow(QMainWindow):
         rv = QVBoxLayout(self.tab_rta_overview)
         self.rta_overview = RtaOverviewWidget()
         rv.addWidget(self.rta_overview)
+
+        # Rune optimization overview
+        self.tab_rune_optimization = QWidget()
+        self.tabs.addTab(self.tab_rune_optimization, tr("tab.rune_optimization"))
+        rov = QVBoxLayout(self.tab_rune_optimization)
+        rov.setContentsMargins(0, 0, 0, 0)
+        self.rune_optimization_widget = RuneOptimizationWidget(rune_set_icon_fn=self._rune_set_icon)
+        rov.addWidget(self.rune_optimization_widget)
 
         # Siege Builder
         self.tab_siege_builder = QWidget()
@@ -310,12 +337,88 @@ class MainWindow(QMainWindow):
         self._init_settings_ui()
 
         self._unit_dropdowns_populated = False
+        self._restore_tab_order()
         self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.tabs.tabBar().tabMoved.connect(self._on_tab_moved)
 
         self._try_restore_snapshot()
 
     def _apply_tab_style(self) -> None:
         return _sec_apply_tab_style(self)
+
+    # ============================================================
+    # Tab reordering
+    # ============================================================
+    _tab_move_guard = False
+
+    def _on_tab_moved(self, from_index: int, to_index: int) -> None:
+        if self._tab_move_guard:
+            return
+        overview_idx = self.tabs.indexOf(self.tab_overview)
+        if overview_idx != 0:
+            self._tab_move_guard = True
+            self.tabs.tabBar().moveTab(overview_idx, 0)
+            self._tab_move_guard = False
+        self._save_tab_order()
+
+    def _save_tab_order(self) -> None:
+        order = []
+        for i in range(self.tabs.count()):
+            widget = self.tabs.widget(i)
+            for attr_name in DEFAULT_TAB_ORDER:
+                if getattr(self, attr_name, None) is widget:
+                    order.append(attr_name)
+                    break
+        settings_path = self.config_dir / "app_settings.json"
+        data: dict = {}
+        if settings_path.exists():
+            try:
+                data = json.loads(settings_path.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data["tab_order"] = order
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    def _restore_tab_order(self) -> None:
+        settings_path = self.config_dir / "app_settings.json"
+        if not settings_path.exists():
+            return
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        saved_order = data.get("tab_order")
+        if not saved_order or not isinstance(saved_order, list):
+            return
+        if saved_order[0] != "tab_overview":
+            return
+
+        known: Dict[str, QWidget] = {}
+        for attr_name in DEFAULT_TAB_ORDER:
+            widget = getattr(self, attr_name, None)
+            if widget is not None:
+                known[attr_name] = widget
+
+        valid_order: List[str] = []
+        seen: Set[str] = set()
+        for name in saved_order:
+            if name in known and name not in seen:
+                valid_order.append(name)
+                seen.add(name)
+        for name in DEFAULT_TAB_ORDER:
+            if name not in seen and name in known:
+                valid_order.append(name)
+
+        self._tab_move_guard = True
+        for target_index, attr_name in enumerate(valid_order):
+            widget = known[attr_name]
+            current_index = self.tabs.indexOf(widget)
+            if current_index != target_index and current_index >= 0:
+                self.tabs.tabBar().moveTab(current_index, target_index)
+        self._tab_move_guard = False
 
     # ============================================================
     # Help dialog
@@ -508,6 +611,9 @@ class MainWindow(QMainWindow):
         if not self.account:
             return
         self.siege_cards.render(self.account, self.monster_db, self.assets_dir)
+
+    def _refresh_rune_optimization(self) -> None:
+        self.rune_optimization_widget.set_account(self.account)
 
     # ============================================================
     # Custom Builders UI
@@ -787,6 +893,10 @@ def _apply_dark_palette(app: QApplication) -> None:
 def run_app():
     app = QApplication(sys.argv)
     _apply_dark_palette(app)
+    # Set application icon
+    icon_path = Path(__file__).resolve().parents[1] / "assets" / "app_icon.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     import app.i18n as i18n
     config_dir = Path(__file__).resolve().parents[1] / "config"
     i18n.init(config_dir)
@@ -798,8 +908,6 @@ def run_app():
     w.show()
     QTimer.singleShot(1200, lambda: _start_update_check(w))
     sys.exit(app.exec())
-
-
 
 
 

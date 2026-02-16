@@ -1,3 +1,16 @@
 {
-  "language": "de"
+  "language": "de",
+  "tab_order": [
+    "tab_overview",
+    "tab_siege_raw",
+    "tab_rta_overview",
+    "tab_rune_optimization",
+    "tab_siege_builder",
+    "tab_saved_siege",
+    "tab_wgb_builder",
+    "tab_saved_wgb",
+    "tab_rta_builder",
+    "tab_saved_rta",
+    "tab_settings"
+  ]
 }

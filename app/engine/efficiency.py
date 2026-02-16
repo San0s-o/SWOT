@@ -17,6 +17,7 @@ from app.domain.models import Rune, Artifact
 # Returns percentage, e.g. 85.3  (max ~137.5 for perfect Legend with innate).
 
 _GRINDABLE_EFF_IDS = {1, 2, 3, 4, 5, 6, 8}
+_ANCIENT_RUNE_CLASSES = {11, 12, 13, 14, 15, 16}
 
 _GEM_MAX: Dict[Literal["hero", "legend"], Dict[int, float]] = {
     "hero": {
@@ -31,6 +32,29 @@ _GRIND_MAX: Dict[Literal["hero", "legend"], Dict[int, float]] = {
     "hero": {1: 430, 2: 7, 3: 22, 4: 7, 5: 22, 6: 7, 8: 4},
     "legend": {1: 550, 2: 10, 3: 30, 4: 10, 5: 30, 6: 10, 8: 5},
 }
+
+# Ancient rune caps (community-verified values, e.g. SWOP/SWRT references):
+# https://www.reddit.com/r/summonerswar/comments/sf5f79/ancient_grindsgems_table/
+_GEM_MAX_ANCIENT: Dict[Literal["hero", "legend"], Dict[int, float]] = {
+    "hero": {
+        1: 480, 2: 13, 3: 34, 4: 13, 5: 34, 6: 13, 8: 9, 9: 8, 10: 10, 11: 11, 12: 11,
+    },
+    "legend": {
+        1: 640, 2: 15, 3: 44, 4: 15, 5: 44, 6: 15, 8: 11, 9: 10, 10: 12, 11: 13, 12: 13,
+    },
+}
+
+_GRIND_MAX_ANCIENT: Dict[Literal["hero", "legend"], Dict[int, float]] = {
+    "hero": {1: 510, 2: 9, 3: 26, 4: 9, 5: 26, 6: 9, 8: 5},
+    "legend": {1: 610, 2: 12, 3: 34, 4: 12, 5: 34, 6: 12, 8: 6},
+}
+
+
+def _is_ancient_rune(rune: Rune) -> bool:
+    cls = int(getattr(rune, "origin_class", 0) or 0)
+    if cls <= 0:
+        cls = int(rune.rune_class or 0)
+    return cls in _ANCIENT_RUNE_CLASSES
 
 
 def _rune_efficiency_internal(rune: Rune, max_tier: Literal["hero", "legend"] | None = None) -> float:
@@ -85,11 +109,14 @@ def _rune_efficiency_internal(rune: Rune, max_tier: Literal["hero", "legend"] | 
             continue
 
     if max_tier in ("hero", "legend"):
+        grind_caps = _GRIND_MAX_ANCIENT if _is_ancient_rune(rune) else _GRIND_MAX
+        gem_caps = _GEM_MAX_ANCIENT if _is_ancient_rune(rune) else _GEM_MAX
+
         # 1) Max grinds on existing grindable substats
         totals: List[float] = []
         for eff_id, val, _enchanted, grind in subs:
             if eff_id in _GRINDABLE_EFF_IDS:
-                grind_cap = float(_GRIND_MAX[max_tier].get(eff_id, 0.0))
+                grind_cap = float(grind_caps[max_tier].get(eff_id, 0.0))
                 totals.append(val + max(grind, grind_cap))
             else:
                 totals.append(val)
@@ -101,21 +128,21 @@ def _rune_efficiency_internal(rune: Rune, max_tier: Literal["hero", "legend"] | 
             best_idx = -1
             best_delta = 0.0
             for i, (eff_id, val, _enchanted, _grind) in enumerate(subs):
-                gem_cap = float(_GEM_MAX[max_tier].get(eff_id, val))
+                gem_cap = float(gem_caps[max_tier].get(eff_id, val))
                 if gem_cap <= val:
                     continue
                 target = gem_cap
                 if eff_id in _GRINDABLE_EFF_IDS:
-                    target += float(_GRIND_MAX[max_tier].get(eff_id, 0.0))
+                    target += float(grind_caps[max_tier].get(eff_id, 0.0))
                 delta = target - totals[i]
                 if delta > best_delta:
                     best_delta = delta
                     best_idx = i
             if best_idx >= 0 and best_delta > 0:
                 eff_id, val, _enchanted, _grind = subs[best_idx]
-                target = float(_GEM_MAX[max_tier].get(eff_id, val))
+                target = float(gem_caps[max_tier].get(eff_id, val))
                 if eff_id in _GRINDABLE_EFF_IDS:
-                    target += float(_GRIND_MAX[max_tier].get(eff_id, 0.0))
+                    target += float(grind_caps[max_tier].get(eff_id, 0.0))
                 totals[best_idx] = target
 
         for (eff_id, _val, _enchanted, _grind), total in zip(subs, totals):

@@ -48,6 +48,7 @@ def apply_saved_account(window, account, source_label: str) -> None:
 
     window._render_siege_raw()
     window.rta_overview.set_context(account, window.monster_db, window.assets_dir)
+    window._refresh_rune_optimization()
     window._on_tab_changed(window.tabs.currentIndex())
 
     window.btn_take_current_siege.setEnabled(True)

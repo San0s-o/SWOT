@@ -83,16 +83,26 @@ def retranslate_ui(window) -> None:
     window.setWindowTitle(tr("main.title"))
     if not window.account:
         window.lbl_status.setText(tr("main.no_import"))
-    window.tabs.setTabText(0, tr("tab.overview"))
-    window.tabs.setTabText(1, tr("tab.siege_current"))
-    window.tabs.setTabText(2, tr("tab.rta_current"))
-    window.tabs.setTabText(3, tr("tab.siege_builder"))
-    window.tabs.setTabText(4, tr("tab.siege_saved"))
-    window.tabs.setTabText(5, tr("tab.wgb_builder"))
-    window.tabs.setTabText(6, tr("tab.wgb_saved"))
-    window.tabs.setTabText(7, tr("tab.rta_builder"))
-    window.tabs.setTabText(8, tr("tab.rta_saved"))
-    window.tabs.setTabText(9, tr("tab.settings"))
+
+    def _set_tab_text(tab_attr: str, key: str) -> None:
+        tab = getattr(window, tab_attr, None)
+        if tab is None:
+            return
+        idx = window.tabs.indexOf(tab)
+        if idx >= 0:
+            window.tabs.setTabText(idx, tr(key))
+
+    _set_tab_text("tab_overview", "tab.overview")
+    _set_tab_text("tab_siege_raw", "tab.siege_current")
+    _set_tab_text("tab_rta_overview", "tab.rta_current")
+    _set_tab_text("tab_rune_optimization", "tab.rune_optimization")
+    _set_tab_text("tab_siege_builder", "tab.siege_builder")
+    _set_tab_text("tab_saved_siege", "tab.siege_saved")
+    _set_tab_text("tab_wgb_builder", "tab.wgb_builder")
+    _set_tab_text("tab_saved_wgb", "tab.wgb_saved")
+    _set_tab_text("tab_rta_builder", "tab.rta_builder")
+    _set_tab_text("tab_saved_rta", "tab.rta_saved")
+    _set_tab_text("tab_settings", "tab.settings")
 
     window.lbl_saved_siege.setText(tr("label.saved_opt"))
     window.lbl_saved_wgb.setText(tr("label.saved_opt"))
@@ -158,8 +168,10 @@ def retranslate_ui(window) -> None:
 
     window.overview_widget.retranslate()
     window.rta_overview.retranslate()
+    window.rune_optimization_widget.retranslate()
     if window.account:
         window._render_siege_raw()
+        window._refresh_rune_optimization()
         window._render_wgb_preview()
         window._on_saved_opt_changed("siege")
         window._on_saved_opt_changed("wgb")

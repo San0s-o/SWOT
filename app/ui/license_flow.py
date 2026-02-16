@@ -28,6 +28,7 @@ def _apply_license_title(window: QMainWindow, result: LicenseValidation) -> None
     base_title = "SW Team Optimizer"
     license_type = (result.license_type or "").strip().lower()
     if "trial" not in license_type:
+        window.setWindowTitle(base_title)
         return
     if result.expires_at:
         remaining = _format_trial_remaining(result.expires_at)
