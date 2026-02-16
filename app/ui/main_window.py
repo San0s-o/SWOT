@@ -890,7 +890,45 @@ def _apply_dark_palette(app: QApplication) -> None:
     return _apply_dark_palette_impl(app)
 
 
+def _acquire_single_instance():
+    """Ensure only one instance of the application is running.
+
+    Uses a Windows named mutex.  Falls back to a lock-file approach on
+    other platforms.  Returns a handle that must be kept alive for the
+    lifetime of the process (preventing GC / early release).
+    """
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        mutex_name = "Global\\SWOT_SingleInstance_Mutex"
+        handle = kernel32.CreateMutexW(None, True, mutex_name)
+        ERROR_ALREADY_EXISTS = 183
+        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+            return None  # another instance is running
+        return handle  # keep alive
+    else:
+        import fcntl
+        lock_path = Path.home() / ".swot.lock"
+        lock_file = open(lock_path, "w")
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return None
+        return lock_file  # keep alive
+
+
 def run_app():
+    instance_lock = _acquire_single_instance()
+    if instance_lock is None:
+        # Show a message and exit – no QApplication yet, use a temporary one
+        _tmp = QApplication(sys.argv)
+        QMessageBox.warning(
+            None,
+            "SWOT",
+            "Die Anwendung läuft bereits.",
+        )
+        sys.exit(0)
+
     app = QApplication(sys.argv)
     _apply_dark_palette(app)
     # Set application icon
