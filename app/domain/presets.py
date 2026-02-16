@@ -95,6 +95,20 @@ EFFECT_ID_TO_MAINSTAT_KEY: dict[int, str] = {
 
 MAINSTAT_KEYS: list[str] = ["HP", "ATK", "DEF", "SPD", "CR", "CD", "RES", "ACC", "HP%", "ATK%", "DEF%"]
 ARTIFACT_MAIN_KEYS: list[str] = ["HP", "ATK", "DEF"]
+MIN_STAT_KEYS: set[str] = {
+    "SPD",
+    "SPD_NO_BASE",
+    "HP",
+    "HP_NO_BASE",
+    "ATK",
+    "ATK_NO_BASE",
+    "DEF",
+    "DEF_NO_BASE",
+    "CR",
+    "CD",
+    "RES",
+    "ACC",
+}
 
 # Übliche Slot-Whitelist (UI-Defaults)
 SLOT2_DEFAULT = ["SPD", "HP%", "ATK%", "DEF%"]
@@ -341,7 +355,7 @@ def _parse_build(raw: Any) -> Optional[Build]:
     if isinstance(min_stats_raw, dict):
         for k, v in min_stats_raw.items():
             key = str(k).strip().upper()
-            if key not in ("SPD", "CR", "CD", "RES", "ACC"):
+            if key not in MIN_STAT_KEYS:
                 continue
             try:
                 val = int(v)

@@ -70,6 +70,9 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
     # per-unit constraints
     for uid in unit_ids:
         unit = account.units_by_id.get(uid)
+        base_hp = int((unit.base_con or 0) * 15) if unit else 0
+        base_atk = int(unit.base_atk or 0) if unit else 0
+        base_def = int(unit.base_def or 0) if unit else 0
         base_spd = int(unit.base_spd or 0) if unit else 0
         totem_spd_bonus_flat = int(base_spd * int(account.sky_tribe_totem_spd_pct or 0) / 100)
         leader_spd_bonus_flat = int((req.unit_spd_leader_bonus_flat or {}).get(int(uid), 0) or 0)
@@ -181,14 +184,19 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         # - min SPD is raw SPD (without tower/leader)
         # - tick floor is combat SPD (with tower/leader)
         unit_min_spd_floor_raw = 0
+        unit_min_spd_floor_no_base = 0
         unit_min_tick_floor = 0
         for bb in builds:
             cfg_min = int((getattr(bb, "min_stats", {}) or {}).get("SPD", 0) or 0)
+            cfg_min_no_base = int((getattr(bb, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
             tick_min = int(min_spd_for_tick(int(getattr(bb, "spd_tick", 0) or 0)) or 0)
             unit_min_spd_floor_raw = max(unit_min_spd_floor_raw, cfg_min)
+            unit_min_spd_floor_no_base = max(unit_min_spd_floor_no_base, cfg_min_no_base)
             unit_min_tick_floor = max(unit_min_tick_floor, tick_min)
         if unit_min_spd_floor_raw > 0:
             model.Add(final_spd_raw >= int(unit_min_spd_floor_raw))
+        if unit_min_spd_floor_no_base > 0:
+            model.Add(final_spd_raw - int(base_spd or 0) >= int(unit_min_spd_floor_no_base))
         if unit_min_tick_floor > 0:
             model.Add(final_spd >= int(unit_min_tick_floor))
 
@@ -263,6 +271,12 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                 cd_terms: List[cp_model.LinearExpr] = []
                 res_terms: List[cp_model.LinearExpr] = []
                 acc_terms: List[cp_model.LinearExpr] = []
+                hp_flat_terms: List[cp_model.LinearExpr] = []
+                hp_pct_terms: List[cp_model.LinearExpr] = []
+                atk_flat_terms: List[cp_model.LinearExpr] = []
+                atk_pct_terms: List[cp_model.LinearExpr] = []
+                def_flat_terms: List[cp_model.LinearExpr] = []
+                def_pct_terms: List[cp_model.LinearExpr] = []
                 for slot in range(1, 7):
                     for r in rune_candidates_by_slot[slot]:
                         xv = x[(uid, slot, int(r.rune_id))]
@@ -272,6 +286,12 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                         cd = _rune_stat_total(r, 10)
                         rs = _rune_stat_total(r, 11)
                         ac = _rune_stat_total(r, 12)
+                        hp_flat = _rune_stat_total(r, 1)
+                        hp_pct = _rune_stat_total(r, 2)
+                        atk_flat = _rune_stat_total(r, 3)
+                        atk_pct = _rune_stat_total(r, 4)
+                        def_flat = _rune_stat_total(r, 5)
+                        def_pct = _rune_stat_total(r, 6)
                         if cr:
                             cr_terms.append(cr * xv)
                         if cd:
@@ -280,6 +300,18 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                             res_terms.append(rs * xv)
                         if ac:
                             acc_terms.append(ac * xv)
+                        if hp_flat:
+                            hp_flat_terms.append(hp_flat * xv)
+                        if hp_pct:
+                            hp_pct_terms.append(hp_pct * xv)
+                        if atk_flat:
+                            atk_flat_terms.append(atk_flat * xv)
+                        if atk_pct:
+                            atk_pct_terms.append(atk_pct * xv)
+                        if def_flat:
+                            def_flat_terms.append(def_flat * xv)
+                        if def_pct:
+                            def_pct_terms.append(def_pct * xv)
                 if int(min_stats.get("CR", 0) or 0) > 0:
                     model.Add(base_cr + sum(cr_terms) >= int(min_stats["CR"])).OnlyEnforceIf(vb)
                 if int(min_stats.get("CD", 0) or 0) > 0:
@@ -289,11 +321,47 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                 if int(min_stats.get("ACC", 0) or 0) > 0:
                     model.Add(base_acc + sum(acc_terms) >= int(min_stats["ACC"])).OnlyEnforceIf(vb)
 
+                def _add_primary_min_constraints(
+                    stat_key: str,
+                    stat_no_base_key: str,
+                    base_value: int,
+                    flat_terms: List[cp_model.LinearExpr],
+                    pct_terms: List[cp_model.LinearExpr],
+                ) -> None:
+                    min_with_base = int(min_stats.get(stat_key, 0) or 0)
+                    min_without_base = int(min_stats.get(stat_no_base_key, 0) or 0)
+                    if min_with_base <= 0 and min_without_base <= 0:
+                        return
+                    flat_total_expr = sum(flat_terms) if flat_terms else 0
+                    pct_total_expr = sum(pct_terms) if pct_terms else 0
+                    pct_bonus_expr: cp_model.LinearExpr = 0
+                    if int(base_value) > 0 and pct_terms:
+                        pct_total_var = model.NewIntVar(0, 3000, f"mns_{stat_key}_pct_u{uid}_b{b_idx}")
+                        model.Add(pct_total_var == pct_total_expr)
+                        pct_scaled_var = model.NewIntVar(0, int(base_value) * 3000, f"mns_{stat_key}_pct_scaled_u{uid}_b{b_idx}")
+                        model.Add(pct_scaled_var == int(base_value) * pct_total_var)
+                        pct_bonus_var = model.NewIntVar(0, int(base_value) * 30, f"mns_{stat_key}_pct_bonus_u{uid}_b{b_idx}")
+                        model.AddDivisionEquality(pct_bonus_var, pct_scaled_var, 100)
+                        pct_bonus_expr = pct_bonus_var
+                    final_with_base_expr = int(base_value) + flat_total_expr + pct_bonus_expr
+                    final_without_base_expr = flat_total_expr + pct_bonus_expr
+                    if min_with_base > 0:
+                        model.Add(final_with_base_expr >= min_with_base).OnlyEnforceIf(vb)
+                    if min_without_base > 0:
+                        model.Add(final_without_base_expr >= min_without_base).OnlyEnforceIf(vb)
+
+                _add_primary_min_constraints("HP", "HP_NO_BASE", int(base_hp or 0), hp_flat_terms, hp_pct_terms)
+                _add_primary_min_constraints("ATK", "ATK_NO_BASE", int(base_atk or 0), atk_flat_terms, atk_pct_terms)
+                _add_primary_min_constraints("DEF", "DEF_NO_BASE", int(base_def or 0), def_flat_terms, def_pct_terms)
+
             spd_tick = int(getattr(b, "spd_tick", 0) or 0)
             min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
+            min_spd_no_base_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
             min_spd_tick = int(min_spd_for_tick(spd_tick) or 0)
             if min_spd_cfg > 0:
                 model.Add(final_spd_raw >= min_spd_cfg).OnlyEnforceIf(vb)
+            if min_spd_no_base_cfg > 0:
+                model.Add(final_spd_raw - int(base_spd or 0) >= min_spd_no_base_cfg).OnlyEnforceIf(vb)
             if min_spd_tick > 0:
                 model.Add(final_spd >= min_spd_tick).OnlyEnforceIf(vb)
             if spd_tick > 0:
@@ -466,20 +534,35 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
 
         # Post-check SPD guard (defensive; should already be guaranteed by constraints).
         floor_spd_raw = 0
+        floor_spd_no_base = 0
         floor_tick_spd = 0
         for bb in builds_by_uid[uid]:
             cfg_min = int((getattr(bb, "min_stats", {}) or {}).get("SPD", 0) or 0)
+            cfg_min_no_base = int((getattr(bb, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
             tick_min = int(min_spd_for_tick(int(getattr(bb, "spd_tick", 0) or 0)) or 0)
             floor_spd_raw = max(floor_spd_raw, cfg_min)
+            floor_spd_no_base = max(floor_spd_no_base, cfg_min_no_base)
             floor_tick_spd = max(floor_tick_spd, tick_min)
         solved_spd = int(solver.Value(final_speed_expr[uid]))
         solved_spd_raw = int(solver.Value(final_speed_raw_expr[uid]))
+        unit = account.units_by_id.get(int(uid))
+        solved_spd_no_base = solved_spd_raw - int(unit.base_spd or 0) if unit else solved_spd_raw
         if floor_spd_raw > 0 and solved_spd_raw < floor_spd_raw:
             results.append(
                 GreedyUnitResult(
                     unit_id=uid,
                     ok=False,
                     message=f"Global raw SPD floor violated ({solved_spd_raw} < {floor_spd_raw})",
+                    runes_by_slot={},
+                )
+            )
+            continue
+        if floor_spd_no_base > 0 and solved_spd_no_base < floor_spd_no_base:
+            results.append(
+                GreedyUnitResult(
+                    unit_id=uid,
+                    ok=False,
+                    message=f"Global bonus SPD floor violated ({solved_spd_no_base} < {floor_spd_no_base})",
                     runes_by_slot={},
                 )
             )

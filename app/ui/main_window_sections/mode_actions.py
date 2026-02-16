@@ -389,6 +389,9 @@ def on_rta_add_monster(window) -> None:
     item.setData(Qt.UserRole, uid)
     item.setIcon(window._unit_icon_for_unit_id(uid))
     window.rta_selected_list.addItem(item)
+    window.rta_add_combo.setCurrentIndex(0)
+    if hasattr(window.rta_add_combo, "_reset_search_field"):
+        window.rta_add_combo._reset_search_field()
 
 
 def on_rta_remove_monster(window) -> None:

@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QMargins, QPointF
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
-    QGridLayout, QSpinBox,
+    QGridLayout, QComboBox,
 )
 from PySide6.QtCharts import (
     QChart, QChartView, QBarCategoryAxis,
@@ -418,16 +418,16 @@ class OverviewWidget(QWidget):
         controls_row.setSpacing(8)
         lbl_top_n = QLabel(tr("overview.chart_top_label"))
         lbl_top_n.setStyleSheet(f"color: {_TEXT_DIM};")
-        self._top_n_spin = QSpinBox()
-        self._top_n_spin.setRange(100, 1000)
-        self._top_n_spin.setSingleStep(50)
-        self._top_n_spin.setValue(400)
-        self._top_n_spin.setStyleSheet(
+        self._top_n_combo = QComboBox()
+        self._top_n_combo.setStyleSheet(
             f"color: {_TEXT}; background: {_CARD_BG}; border: 1px solid {_CARD_BORDER};"
         )
-        self._top_n_spin.valueChanged.connect(self._on_top_n_changed)
+        for n in (100, 400, 800, 1000):
+            self._top_n_combo.addItem(str(n), int(n))
+        self._top_n_combo.setCurrentIndex(max(0, self._top_n_combo.findData(400)))
+        self._top_n_combo.currentIndexChanged.connect(self._on_top_n_changed)
         controls_row.addWidget(lbl_top_n)
-        controls_row.addWidget(self._top_n_spin)
+        controls_row.addWidget(self._top_n_combo)
         controls_row.addStretch(1)
         outer.addLayout(controls_row)
 
@@ -553,13 +553,20 @@ class OverviewWidget(QWidget):
             self._build_charts(self._account)
 
     def _change_top_n(self, delta: int) -> None:
-        cur = int(self._top_n_spin.value())
-        nxt = max(100, min(1000, cur + int(delta)))
-        if nxt != cur:
-            self._top_n_spin.setValue(nxt)
+        cur_idx = int(self._top_n_combo.currentIndex())
+        if cur_idx < 0:
+            return
+        if int(delta) < 0:
+            nxt_idx = max(0, cur_idx - 1)
+        elif int(delta) > 0:
+            nxt_idx = min(self._top_n_combo.count() - 1, cur_idx + 1)
+        else:
+            return
+        if nxt_idx != cur_idx:
+            self._top_n_combo.setCurrentIndex(nxt_idx)
 
     def _build_rune_eff_chart(self, items: List[Tuple[float, Rune]]) -> QChartView:
-        top_n = int(self._top_n_spin.value())
+        top_n = int(self._top_n_combo.currentData() or 400)
         ranked_base = sorted(items, key=lambda x: x[0], reverse=True)[:top_n]
         ranked_payload: List[Tuple[Rune, float, float, float]] = []
         for curr_eff, rune in ranked_base:
@@ -671,7 +678,7 @@ class OverviewWidget(QWidget):
         return _make_chart_view(chart)
 
     def _build_important_set_eff_chart(self, items: List[Tuple[float, Rune]]) -> QChartView:
-        top_n = int(self._top_n_spin.value())
+        top_n = int(self._top_n_combo.currentData() or 400)
         chart = _make_chart(tr("overview.set_eff_chart", n=top_n))
         chart.legend().setVisible(True)
 
@@ -733,7 +740,7 @@ class OverviewWidget(QWidget):
         return _IndexedLineChartView(chart, entries, zoom_callback=self._change_top_n)
 
     def _build_art_eff_chart(self, items: List[Tuple[float, Artifact]]) -> QChartView:
-        top_n = int(self._top_n_spin.value())
+        top_n = int(self._top_n_combo.currentData() or 400)
         by_type: dict[int, List[Tuple[float, Artifact]]] = {1: [], 2: []}
         for eff, art in items:
             t = int(art.type_ or 0)

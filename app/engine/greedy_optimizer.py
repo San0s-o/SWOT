@@ -390,7 +390,7 @@ def _force_swift_speed_priority(req: GreedyRequest, uid: int, builds: List[Build
             val = int(v or 0)
             if val <= 0:
                 continue
-            if key != "SPD":
+            if key not in ("SPD", "SPD_NO_BASE"):
                 return False
     return True
 
@@ -540,6 +540,9 @@ def _solve_single_unit_best(
     builds: List[Build],
     time_limit_s: float,
     workers: int,
+    base_hp: int,
+    base_atk: int,
+    base_def: int,
     base_spd: int,
     base_spd_bonus_flat: int,
     base_cr: int,
@@ -734,6 +737,12 @@ def _solve_single_unit_best(
             cd_terms = []
             res_terms = []
             acc_terms = []
+            hp_flat_terms = []
+            hp_pct_terms = []
+            atk_flat_terms = []
+            atk_pct_terms = []
+            def_flat_terms = []
+            def_pct_terms = []
             for slot in range(1, 7):
                 for r in runes_by_slot[slot]:
                     xv = x[(slot, r.rune_id)]
@@ -741,6 +750,12 @@ def _solve_single_unit_best(
                     cd = _rune_stat_total(r, 10)
                     res = _rune_stat_total(r, 11)
                     acc = _rune_stat_total(r, 12)
+                    hp_flat = _rune_stat_total(r, 1)
+                    hp_pct = _rune_stat_total(r, 2)
+                    atk_flat = _rune_stat_total(r, 3)
+                    atk_pct = _rune_stat_total(r, 4)
+                    def_flat = _rune_stat_total(r, 5)
+                    def_pct = _rune_stat_total(r, 6)
                     if cr:
                         cr_terms.append(cr * xv)
                     if cd:
@@ -749,6 +764,18 @@ def _solve_single_unit_best(
                         res_terms.append(res * xv)
                     if acc:
                         acc_terms.append(acc * xv)
+                    if hp_flat:
+                        hp_flat_terms.append(hp_flat * xv)
+                    if hp_pct:
+                        hp_pct_terms.append(hp_pct * xv)
+                    if atk_flat:
+                        atk_flat_terms.append(atk_flat * xv)
+                    if atk_pct:
+                        atk_pct_terms.append(atk_pct * xv)
+                    if def_flat:
+                        def_flat_terms.append(def_flat * xv)
+                    if def_pct:
+                        def_pct_terms.append(def_pct * xv)
 
             if int(min_stats.get("CR", 0) or 0) > 0:
                 model.Add(base_cr + sum(cr_terms) >= int(min_stats["CR"])).OnlyEnforceIf(vb)
@@ -758,6 +785,39 @@ def _solve_single_unit_best(
                 model.Add(base_res + sum(res_terms) >= int(min_stats["RES"])).OnlyEnforceIf(vb)
             if int(min_stats.get("ACC", 0) or 0) > 0:
                 model.Add(base_acc + sum(acc_terms) >= int(min_stats["ACC"])).OnlyEnforceIf(vb)
+
+            def _add_primary_min_constraints(
+                stat_key: str,
+                stat_no_base_key: str,
+                base_value: int,
+                flat_terms: List[cp_model.LinearExpr],
+                pct_terms: List[cp_model.LinearExpr],
+            ) -> None:
+                min_with_base = int(min_stats.get(stat_key, 0) or 0)
+                min_without_base = int(min_stats.get(stat_no_base_key, 0) or 0)
+                if min_with_base <= 0 and min_without_base <= 0:
+                    return
+                flat_total_expr = sum(flat_terms) if flat_terms else 0
+                pct_total_expr = sum(pct_terms) if pct_terms else 0
+                pct_bonus_expr: cp_model.LinearExpr = 0
+                if int(base_value) > 0 and pct_terms:
+                    pct_total_var = model.NewIntVar(0, 3000, f"mns_{stat_key}_pct_u{uid}_b{b_idx}")
+                    model.Add(pct_total_var == pct_total_expr)
+                    pct_scaled_var = model.NewIntVar(0, int(base_value) * 3000, f"mns_{stat_key}_pct_scaled_u{uid}_b{b_idx}")
+                    model.Add(pct_scaled_var == int(base_value) * pct_total_var)
+                    pct_bonus_var = model.NewIntVar(0, int(base_value) * 30, f"mns_{stat_key}_pct_bonus_u{uid}_b{b_idx}")
+                    model.AddDivisionEquality(pct_bonus_var, pct_scaled_var, 100)
+                    pct_bonus_expr = pct_bonus_var
+                final_with_base_expr = int(base_value) + flat_total_expr + pct_bonus_expr
+                final_without_base_expr = flat_total_expr + pct_bonus_expr
+                if min_with_base > 0:
+                    model.Add(final_with_base_expr >= min_with_base).OnlyEnforceIf(vb)
+                if min_without_base > 0:
+                    model.Add(final_without_base_expr >= min_without_base).OnlyEnforceIf(vb)
+
+            _add_primary_min_constraints("HP", "HP_NO_BASE", int(base_hp or 0), hp_flat_terms, hp_pct_terms)
+            _add_primary_min_constraints("ATK", "ATK_NO_BASE", int(base_atk or 0), atk_flat_terms, atk_pct_terms)
+            _add_primary_min_constraints("DEF", "DEF_NO_BASE", int(base_def or 0), def_flat_terms, def_pct_terms)
 
     # speed expression (for SPD-first)
     speed_terms = []
@@ -795,9 +855,12 @@ def _solve_single_unit_best(
         vb = use_build[b_idx]
         spd_tick = int(getattr(b, "spd_tick", 0) or 0)
         min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
+        min_spd_no_base_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
         min_spd_tick = int(min_spd_for_tick(spd_tick) or 0)
         if min_spd_cfg > 0:
             model.Add(final_speed_raw_expr >= min_spd_cfg).OnlyEnforceIf(vb)
+        if min_spd_no_base_cfg > 0:
+            model.Add(final_speed_raw_expr - int(base_spd or 0) >= min_spd_no_base_cfg).OnlyEnforceIf(vb)
         if min_spd_tick > 0:
             model.Add(final_speed_expr >= min_spd_tick).OnlyEnforceIf(vb)
         if spd_tick > 0:
@@ -1158,6 +1221,9 @@ def _run_pass_with_profile(
         cur_pool = [r for r in pool if r.rune_id not in blocked]
         cur_art_pool = [a for a in artifact_pool if int(a.artifact_id or 0) not in blocked_artifacts]
         unit = account.units_by_id.get(uid)
+        base_hp = int((unit.base_con or 0) * 15) if unit else 0
+        base_atk = int(unit.base_atk or 0) if unit else 0
+        base_def = int(unit.base_def or 0) if unit else 0
         base_spd = int(unit.base_spd or 0) if unit else 0
         totem_spd_bonus_flat = int(base_spd * int(account.sky_tribe_totem_spd_pct or 0) / 100)
         leader_spd_bonus_flat = int((req.unit_spd_leader_bonus_flat or {}).get(int(uid), 0) or 0)
@@ -1207,6 +1273,9 @@ def _run_pass_with_profile(
             builds=builds,
             time_limit_s=float(time_limit_per_unit_s),
             workers=req.workers,
+            base_hp=base_hp,
+            base_atk=base_atk,
+            base_def=base_def,
             base_spd=base_spd,
             base_spd_bonus_flat=base_spd_bonus_flat,
             base_cr=base_cr,

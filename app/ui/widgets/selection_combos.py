@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Set
 
-from PySide6.QtCore import Qt, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
+from PySide6.QtCore import Qt, QModelIndex, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QWidget, QComboBox, QCompleter
 
@@ -33,6 +33,8 @@ class _UnitSearchComboBox(_NoScrollComboBox):
         self._completer.setFilterMode(Qt.MatchContains)
         self._completer.setCompletionMode(QCompleter.PopupCompletion)
         self._completer.activated.connect(self._on_completer_activated)
+        self._completer.popup().pressed.connect(self._on_completer_popup_clicked)
+        self._completer.popup().clicked.connect(self._on_completer_popup_clicked)
         self.setCompleter(self._completer)
         line_edit = self.lineEdit()
         if line_edit is not None:
@@ -55,7 +57,8 @@ class _UnitSearchComboBox(_NoScrollComboBox):
 
     def hidePopup(self) -> None:
         super().hidePopup()
-        self._reset_search_field()
+        self._clear_filter()
+        self._sync_line_edit_to_current()
 
     def _on_filter_text_edited(self, text: str) -> None:
         if self._suspend_filter:
@@ -71,12 +74,25 @@ class _UnitSearchComboBox(_NoScrollComboBox):
         )
         self._completer.complete()
 
+    def _clear_filter(self) -> None:
+        self._proxy_model.setFilterRegularExpression(QRegularExpression())
+        self._completer.popup().hide()
+
     def _focus_search_field(self) -> None:
         line_edit = self.lineEdit()
         if line_edit is None:
             return
         line_edit.setFocus(Qt.PopupFocusReason)
         line_edit.selectAll()
+
+    def _sync_line_edit_to_current(self) -> None:
+        line_edit = self.lineEdit()
+        if line_edit is None:
+            return
+        current_text = self.currentText()
+        line_edit.blockSignals(True)
+        line_edit.setText(current_text)
+        line_edit.blockSignals(False)
 
     def _reset_search_field(self, *_args) -> None:
         if self._suspend_filter:
@@ -87,19 +103,49 @@ class _UnitSearchComboBox(_NoScrollComboBox):
         line_edit.blockSignals(True)
         line_edit.clear()
         line_edit.blockSignals(False)
+        self._clear_filter()
 
     def _on_item_activated(self, _index: int) -> None:
-        self._reset_search_field()
+        self._clear_filter()
+        self._sync_line_edit_to_current()
 
     def _on_completer_activated(self, _text: str) -> None:
         idx = self._completer.currentIndex()
         if not idx.isValid():
             return
-        src_idx = self._proxy_model.mapToSource(idx)
-        if not src_idx.isValid():
+        self._apply_completion_index(idx)
+
+    def _on_completer_popup_clicked(self, index: QModelIndex) -> None:
+        if not index.isValid():
             return
-        self.setCurrentIndex(src_idx.row())
-        self._reset_search_field()
+        self._apply_completion_index(index)
+
+    def _apply_completion_index(self, completion_index: QModelIndex) -> None:
+        # Prefer stable UID lookup because completer indices are not guaranteed to be
+        # direct indices of our filter proxy model.
+        uid = int(completion_index.data(Qt.UserRole) or 0)
+        if uid > 0:
+            row = self.findData(uid, role=Qt.UserRole)
+            if row >= 0:
+                self.setCurrentIndex(row)
+                self._clear_filter()
+                self._sync_line_edit_to_current()
+                return
+
+        src_idx = self._proxy_model.mapToSource(completion_index)
+        if src_idx.isValid():
+            self.setCurrentIndex(src_idx.row())
+            self._clear_filter()
+            self._sync_line_edit_to_current()
+            return
+
+        text = str(completion_index.data(Qt.DisplayRole) or "").strip()
+        if text:
+            row = self.findText(text, flags=Qt.MatchFixedString)
+            if row >= 0:
+                self.setCurrentIndex(row)
+                self._clear_filter()
+                self._sync_line_edit_to_current()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         line_edit = self.lineEdit()
