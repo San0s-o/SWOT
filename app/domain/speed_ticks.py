@@ -16,6 +16,7 @@ SPD_TICK_MIN_SPD_NORMAL: Dict[int, int] = {
     4: 358,
     3: 477,
 }
+LEO_LOW_SPD_TICK = -11
 
 _RTA_ATB_GAIN_PER_TICK_PCT = 1.5
 _RTA_TICK_MIN = 16
@@ -44,13 +45,25 @@ def _tick_table_for_mode(mode: str | None) -> Dict[int, int]:
 
 
 def allowed_spd_ticks(mode: str | None = None) -> List[int]:
-    return sorted(_tick_table_for_mode(mode).keys(), reverse=True)
+    ticks = sorted(_tick_table_for_mode(mode).keys(), reverse=True)
+    if str(mode or "").strip().lower() == "rta":
+        return ticks
+    out: List[int] = []
+    for tick in ticks:
+        out.append(int(tick))
+        if int(tick) == 11:
+            # Leo-style low-speed bucket: below the normal Tick-11 breakpoint.
+            out.append(int(LEO_LOW_SPD_TICK))
+    return out
 
 
 def min_spd_for_tick(tick: int, mode: str | None = None) -> int:
     try:
         t = int(tick or 0)
     except Exception:
+        return 0
+    mode_key = str(mode or "").strip().lower()
+    if mode_key != "rta" and t == int(LEO_LOW_SPD_TICK):
         return 0
     return int(_tick_table_for_mode(mode).get(t, 0))
 
@@ -66,6 +79,11 @@ def max_spd_for_tick(tick: int, mode: str | None = None) -> int:
     except Exception:
         return 0
     table = _tick_table_for_mode(mode)
+    mode_key = str(mode or "").strip().lower()
+    if mode_key != "rta" and t == int(LEO_LOW_SPD_TICK):
+        # Below normal Tick-11 (130 SPD): <=129.
+        normal_tick_11_min = int(table.get(11, 0) or 0)
+        return int(normal_tick_11_min - 1) if normal_tick_11_min > 0 else 0
     if t not in table:
         return 0
 

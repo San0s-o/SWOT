@@ -10,6 +10,7 @@ from app.engine.arena_rush_optimizer import (
 from app.engine.arena_rush_timing import OpeningTurnEffect, opening_order_penalty, simulate_opening_order
 from app.engine.arena_rush_timing import min_speed_floor_by_unit_from_effects
 from app.engine.greedy_optimizer import GreedyRequest, GreedyResult, GreedyUnitResult
+from app.domain.speed_ticks import LEO_LOW_SPD_TICK, allowed_spd_ticks, max_spd_for_tick, min_spd_for_tick
 
 
 def _slots(base: int) -> dict[int, int]:
@@ -258,3 +259,16 @@ def test_turn_effect_capability_ignores_single_target_atb() -> None:
 
     assert out["has_atb_boost"] is False
     assert int(out["max_atb_boost_pct"]) == 0
+
+
+def test_low_leo_tick_is_available_in_normal_mode() -> None:
+    ticks = allowed_spd_ticks("normal")
+    assert int(LEO_LOW_SPD_TICK) in ticks
+    idx_high = ticks.index(11)
+    idx_low = ticks.index(int(LEO_LOW_SPD_TICK))
+    assert idx_low == idx_high + 1
+
+
+def test_low_leo_tick_enforces_only_upper_bound() -> None:
+    assert int(min_spd_for_tick(int(LEO_LOW_SPD_TICK), "normal") or 0) == 0
+    assert int(max_spd_for_tick(int(LEO_LOW_SPD_TICK), "normal") or 0) == 129

@@ -455,7 +455,7 @@ def _force_swift_speed_priority(req: GreedyRequest, uid: int, builds: List[Build
     has_swift = any(_build_allows_swift(b) for b in builds)
     if not has_swift:
         return False
-    if any(int(getattr(b, "spd_tick", 0) or 0) > 0 for b in builds):
+    if any(int(getattr(b, "spd_tick", 0) or 0) != 0 for b in builds):
         return False
     for b in builds:
         mins = dict(getattr(b, "min_stats", {}) or {})
@@ -981,7 +981,7 @@ def _solve_single_unit_best(
             model.Add(final_speed_raw_expr - int(base_spd or 0) >= min_spd_no_base_cfg).OnlyEnforceIf(vb)
         if min_spd_tick > 0:
             model.Add(final_speed_expr >= min_spd_tick).OnlyEnforceIf(vb)
-        if apply_native_spd_tick and spd_tick > 0:
+        if apply_native_spd_tick and spd_tick != 0:
             max_spd_tick = int(max_spd_for_tick(spd_tick, mode) or 0)
             if max_spd_tick > 0:
                 model.Add(final_speed_expr <= max_spd_tick).OnlyEnforceIf(vb)

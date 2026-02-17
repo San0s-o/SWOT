@@ -395,7 +395,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                 model.Add(final_spd_raw - int(base_spd or 0) >= min_spd_no_base_cfg).OnlyEnforceIf(vb)
             if min_spd_tick > 0:
                 model.Add(final_spd >= min_spd_tick).OnlyEnforceIf(vb)
-            if spd_tick > 0:
+            if spd_tick != 0:
                 max_spd_tick = int(max_spd_for_tick(spd_tick, req.mode) or 0)
                 if max_spd_tick > 0:
                     model.Add(final_spd <= max_spd_tick).OnlyEnforceIf(vb)

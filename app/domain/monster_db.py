@@ -22,7 +22,7 @@ class MonsterInfo:
     archetype: str          # Attack/Defense/HP/Support/Unknown
     icon: str               # relative path like "icons/13403.png" or ""
     leader_skill: Optional[LeaderSkill] = None
-    turn_effect_capabilities: Dict[str, int | bool] | None = None
+    turn_effect_capabilities: Dict[str, int | bool | str] | None = None
 
 
 class MonsterDB:
@@ -95,15 +95,23 @@ class MonsterDB:
         info = self.get(com2us_id)
         return info.leader_skill if info else None
 
-    def turn_effect_capability_for(self, com2us_id: int) -> Dict[str, int | bool]:
+    def turn_effect_capability_for(self, com2us_id: int) -> Dict[str, int | bool | str]:
         info = self.get(com2us_id)
         if not info:
-            return {"has_spd_buff": False, "has_atb_boost": False, "max_atb_boost_pct": 0}
+            return {
+                "has_spd_buff": False,
+                "has_atb_boost": False,
+                "max_atb_boost_pct": 0,
+                "spd_buff_skill_icon": "",
+                "atb_boost_skill_icon": "",
+            }
         raw = dict(info.turn_effect_capabilities or {})
         return {
             "has_spd_buff": bool(raw.get("has_spd_buff", False)),
             "has_atb_boost": bool(raw.get("has_atb_boost", False)),
             "max_atb_boost_pct": int(raw.get("max_atb_boost_pct", 0) or 0),
+            "spd_buff_skill_icon": str(raw.get("spd_buff_skill_icon", "") or ""),
+            "atb_boost_skill_icon": str(raw.get("atb_boost_skill_icon", "") or ""),
         }
 
     def speed_lead_percent_for(self, com2us_id: int) -> int:
@@ -152,7 +160,7 @@ class MonsterDB:
         return LeaderSkill(stat=stat, amount=amount, area=area, element=element)
 
     @staticmethod
-    def _parse_turn_effect_capabilities(raw: Dict[str, Any]) -> Dict[str, int | bool]:
+    def _parse_turn_effect_capabilities(raw: Dict[str, Any]) -> Dict[str, int | bool | str]:
         data = raw.get("turn_effect_capabilities")
         if not isinstance(data, dict):
             data = raw.get("turn_effects")
@@ -167,4 +175,6 @@ class MonsterDB:
             "has_spd_buff": has_spd_buff,
             "has_atb_boost": has_atb_boost,
             "max_atb_boost_pct": max(0, int(max_atb)),
+            "spd_buff_skill_icon": str(data.get("spd_buff_skill_icon", "") or ""),
+            "atb_boost_skill_icon": str(data.get("atb_boost_skill_icon", "") or ""),
         }

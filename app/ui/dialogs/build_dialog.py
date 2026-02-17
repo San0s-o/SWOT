@@ -42,7 +42,7 @@ from app.domain.presets import (
     SLOT4_DEFAULT,
     SLOT6_DEFAULT,
 )
-from app.domain.speed_ticks import allowed_spd_ticks, min_spd_for_tick
+from app.domain.speed_ticks import LEO_LOW_SPD_TICK, allowed_spd_ticks, max_spd_for_tick, min_spd_for_tick
 from app.domain.artifact_effects import (
     ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE,
     artifact_effect_label,
@@ -226,19 +226,23 @@ class BuildDialog(QDialog):
                     row_layout.addWidget(spd_lbl)
 
                     tick_lbl = QLabel(tr("label.spd_tick_short"))
-                    row_layout.addWidget(tick_lbl)
 
                     tick_cmb = _NoScrollComboBox()
                     tick_cmb.setMinimumWidth(80)
                     tick_cmb.setMaximumWidth(100)
                     tick_cmb.addItem("-", 0)
                     for tick in allowed_spd_ticks(self.mode):
-                        spd_bp = min_spd_for_tick(tick, self.mode)
-                        tick_cmb.addItem(f"{tick} (>={spd_bp})", int(tick))
+                        tick_i = int(tick)
+                        if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
+                            low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
+                            threshold = int(low_max + 1) if low_max > 0 else 130
+                            tick_cmb.addItem(f"11 (<{threshold})", tick_i)
+                            continue
+                        spd_bp = min_spd_for_tick(tick_i, self.mode)
+                        tick_cmb.addItem(f"{tick_i} (>={spd_bp})", tick_i)
                     idx = tick_cmb.findData(int(spd_tick))
                     tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)
                     tick_cmb.setToolTip(tr("tooltip.spd_tick"))
-                    row_layout.addWidget(tick_cmb)
                     tick_cmb.currentIndexChanged.connect(
                         lambda _i, _uid=int(uid), _cmb=tick_cmb: self._on_team_spd_tick_changed(_uid, _cmb)
                     )
@@ -296,6 +300,10 @@ class BuildDialog(QDialog):
                             atb_boost_spin.setVisible(False)
 
                         self._team_effect_controls[(int(t), int(uid))] = (spd_buff_chk, atb_boost_chk, atb_boost_spin)
+
+                    # Keep tick controls at the far right for consistent alignment.
+                    row_layout.addWidget(tick_lbl)
+                    row_layout.addWidget(tick_cmb)
 
                     self._team_spd_tick_combo_by_unit.setdefault(int(uid), []).append(tick_cmb)
                     it.setSizeHint(row_widget.sizeHint())

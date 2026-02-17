@@ -405,30 +405,42 @@ def _arena_effect_capabilities_by_unit(
         mid = int(unit.unit_master_id or 0)
         if mid > 0:
             uid_to_mid[int(uid)] = mid
-    cache_path = window.project_root / "app" / "config" / "monster_turn_effect_capabilities.json"
-    com2us_ids = sorted(set(uid_to_mid.values()))
-    caps_by_cid = resolve_turn_effect_capabilities(
-        com2us_ids,
-        cache_path=cache_path,
-        fetch_missing=bool(fetch_missing),
-    )
-    if bool(ensure_icons_for_dialog):
-        skill_icons_dir = window.assets_dir / "skills"
-        ensure_skill_icons(caps_by_cid, skill_icons_dir)
+    caps_by_cid: Dict[int, Dict[str, object]] = {}
+    if bool(fetch_missing):
+        cache_path = window.project_root / "app" / "config" / "monster_turn_effect_capabilities.json"
+        com2us_ids = sorted(set(uid_to_mid.values()))
+        caps_by_cid = resolve_turn_effect_capabilities(
+            com2us_ids,
+            cache_path=cache_path,
+            fetch_missing=True,
+        )
+        if bool(ensure_icons_for_dialog):
+            skill_icons_dir = window.assets_dir / "skills"
+            ensure_skill_icons(caps_by_cid, skill_icons_dir)
     out: Dict[int, Dict[str, object]] = {}
     for uid, mid in uid_to_mid.items():
+        base = dict(window.monster_db.turn_effect_capability_for(mid) or {})
         cap = dict(caps_by_cid.get(mid) or {})
-        has_spd_buff = bool(cap.get("has_spd_buff", False))
-        has_atb_boost = bool(cap.get("has_atb_boost", False))
-        max_atb_boost_pct = int(cap.get("max_atb_boost_pct", 0) or 0)
+        if bool(fetch_missing):
+            has_spd_buff = bool(cap.get("has_spd_buff", base.get("has_spd_buff", False)))
+            has_atb_boost = bool(cap.get("has_atb_boost", base.get("has_atb_boost", False)))
+            max_atb_boost_pct = int(cap.get("max_atb_boost_pct", base.get("max_atb_boost_pct", 0)) or 0)
+            spd_icon = str(cap.get("spd_buff_skill_icon", base.get("spd_buff_skill_icon", "")) or "")
+            atb_icon = str(cap.get("atb_boost_skill_icon", base.get("atb_boost_skill_icon", "")) or "")
+        else:
+            has_spd_buff = bool(base.get("has_spd_buff", False))
+            has_atb_boost = bool(base.get("has_atb_boost", False))
+            max_atb_boost_pct = int(base.get("max_atb_boost_pct", 0) or 0)
+            spd_icon = str(base.get("spd_buff_skill_icon", "") or "")
+            atb_icon = str(base.get("atb_boost_skill_icon", "") or "")
         if has_atb_boost and max_atb_boost_pct <= 0:
             max_atb_boost_pct = 100
         out[int(uid)] = {
             "has_spd_buff": has_spd_buff,
             "has_atb_boost": has_atb_boost,
             "max_atb_boost_pct": int(max_atb_boost_pct),
-            "spd_buff_skill_icon": str(cap.get("spd_buff_skill_icon", "") or ""),
-            "atb_boost_skill_icon": str(cap.get("atb_boost_skill_icon", "") or ""),
+            "spd_buff_skill_icon": str(spd_icon),
+            "atb_boost_skill_icon": str(atb_icon),
         }
     return out
 
@@ -556,7 +568,7 @@ def on_edit_presets_arena_rush(window) -> None:
     for sel in offense_teams:
         order_speed_leaders.append(int(off_speed_state.get(int(sel.team_index), 0) or 0))
         order_speed_lead_pct_by_team.append(int(off_speed_pct_state.get(int(sel.team_index), 0) or 0))
-    # Keep dialog opening fast: use cached capabilities only, no blocking web fetches.
+    # Keep dialog opening fast: strictly local capability data, no web fetches.
     effect_caps_by_uid = _arena_effect_capabilities_by_unit(
         window,
         all_ids,
