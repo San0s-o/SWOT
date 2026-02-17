@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
@@ -7,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QListWidgetItem, QMessageBox
 
 from app.domain.presets import Build
+from app.domain.optimization_store import SavedUnitResult
 from app.engine.greedy_optimizer import GreedyRequest, optimize_greedy
 from app.engine.arena_rush_optimizer import (
     ArenaRushOffenseTeam,
@@ -15,6 +17,7 @@ from app.engine.arena_rush_optimizer import (
 )
 from app.engine.arena_rush_timing import OpeningTurnEffect
 from app.i18n import tr
+from app.services.monster_turn_effects_service import ensure_skill_icons, resolve_turn_effect_capabilities
 from app.ui.dialogs.build_dialog import BuildDialog
 
 
@@ -655,15 +658,28 @@ def _validate_arena_rush(window) -> Tuple[bool, str, List[int], List[TeamSelecti
 def _arena_effect_capabilities_by_unit(window, unit_ids: List[int]) -> Dict[int, Dict[str, object]]:
     if not window.account:
         return {}
-    out: Dict[int, Dict[str, object]] = {}
+    uid_to_mid: Dict[int, int] = {}
     for uid in [int(x) for x in (unit_ids or []) if int(x) > 0]:
         unit = window.account.units_by_id.get(int(uid))
         if unit is None:
             continue
         mid = int(unit.unit_master_id or 0)
-        if mid <= 0:
-            continue
-        out[int(uid)] = dict(window.monster_db.turn_effect_capability_for(int(mid)) or {})
+        if mid > 0:
+            uid_to_mid[int(uid)] = mid
+    cache_path = window.project_root / "app" / "config" / "monster_turn_effect_capabilities.json"
+    com2us_ids = sorted(set(uid_to_mid.values()))
+    caps_by_cid = resolve_turn_effect_capabilities(
+        com2us_ids, cache_path=cache_path, fetch_missing=False,
+    )
+    skill_icons_dir = window.assets_dir / "skills"
+    ensure_skill_icons(caps_by_cid, skill_icons_dir)
+    out: Dict[int, Dict[str, object]] = {}
+    for uid, mid in uid_to_mid.items():
+        cap = dict(caps_by_cid.get(mid) or {})
+        base = dict(window.monster_db.turn_effect_capability_for(mid) or {})
+        base["spd_buff_skill_icon"] = str(cap.get("spd_buff_skill_icon", "") or "")
+        base["atb_boost_skill_icon"] = str(cap.get("atb_boost_skill_icon", "") or "")
+        out[int(uid)] = base
     return out
 
 
@@ -737,7 +753,8 @@ def on_edit_presets_arena_rush(window) -> None:
         order_turn_effects=order_turn_effects,
         show_turn_effect_controls=True,
         order_turn_effect_capabilities=effect_caps_by_uid,
-        persist_order_fields=False,
+        persist_order_fields=True,
+        skill_icons_dir=str(window.assets_dir / "skills"),
     )
     if dlg.exec() == QDialog.Accepted:
         ordered_teams = dlg.team_order_by_lists()
@@ -862,52 +879,95 @@ def on_optimize_arena_rush(window) -> None:
             )
         )
 
+    def _run_arena_rush(
+        is_cancelled,
+        register_solver,
+        progress_cb,
+    ):
+        arena_req = ArenaRushRequest(
+            mode="siege",
+            defense_unit_ids=list(defense_ids),
+            defense_unit_team_turn_order=defense_turn_order,
+            defense_unit_spd_leader_bonus_flat=defense_leader_bonus,
+            offense_teams=offense_payload,
+            workers=workers,
+            time_limit_per_unit_s=5.0,
+            defense_pass_count=1,
+            offense_pass_count=max(1, int(pass_count)),
+            defense_quality_profile="max_quality",
+            offense_quality_profile=quality_profile,
+            progress_callback=progress_cb,
+            is_cancelled=is_cancelled,
+            register_solver=register_solver,
+        )
+        return optimize_arena_rush(window.account, window.presets, arena_req)
+
     res = window._run_with_busy_progress(
         running_text,
-        lambda is_cancelled, register_solver, progress_cb: optimize_arena_rush(
-            window.account,
-            window.presets,
-            ArenaRushRequest(
-                mode="siege",
-                defense_unit_ids=list(defense_ids),
-                defense_unit_team_turn_order=defense_turn_order,
-                defense_unit_spd_leader_bonus_flat=defense_leader_bonus,
-                offense_teams=offense_payload,
-                workers=workers,
-                time_limit_per_unit_s=5.0,
-                defense_pass_count=1,
-                offense_pass_count=max(1, int(pass_count)),
-                defense_quality_profile="max_quality",
-                offense_quality_profile=quality_profile,
-                progress_callback=progress_cb,
-                is_cancelled=is_cancelled,
-                register_solver=register_solver,
-            ),
-        ),
+        _run_arena_rush,
     )
 
     window.lbl_arena_rush_validate.setText(res.message)
     window.statusBar().showMessage(res.message, 7000)
 
-    # Show defense first, then each offense team.
-    window._show_optimize_results(
-        tr("result.title_arena_def"),
-        res.defense.message,
-        res.defense.results,
-        unit_team_index={int(uid): 0 for uid in defense_ids},
-        unit_display_order={int(uid): idx for idx, uid in enumerate(defense_ids)},
-        mode="siege",
-        teams=[list(defense_ids)],
-    )
+    # Build rune/artifact overrides from optimization results and render card view.
+    runes_by_id = {r.rune_id: r for r in window.account.runes}
+    artifacts_by_id = {int(a.artifact_id): a for a in window.account.artifacts}
+    rune_overrides = {}
+    artifact_overrides = {}
+    all_results = list(res.defense.results)
     for off in res.offenses:
-        off_ids = list(off.team_unit_ids or [])
-        summary = f"{off.optimization.message} | opening penalty: {int(off.opening_penalty)}"
-        window._show_optimize_results(
-            tr("result.title_arena_off", n=int(off.team_index) + 1),
-            summary,
-            off.optimization.results,
-            unit_team_index={int(uid): 0 for uid in off_ids},
-            unit_display_order={int(uid): idx for idx, uid in enumerate(off_ids)},
-            mode="siege",
-            teams=[off_ids],
+        all_results.extend(off.optimization.results)
+    for ur in all_results:
+        runes = []
+        for slot in sorted((ur.runes_by_slot or {}).keys()):
+            rid = (ur.runes_by_slot or {})[slot]
+            r = runes_by_id.get(rid)
+            if r:
+                runes.append(r)
+        if runes:
+            rune_overrides[int(ur.unit_id)] = runes
+        arts = []
+        for art_type in (1, 2):
+            aid = int((ur.artifacts_by_type or {}).get(art_type, 0) or 0)
+            a = artifacts_by_id.get(aid)
+            if a:
+                arts.append(a)
+        if arts:
+            artifact_overrides[int(ur.unit_id)] = arts
+    teams_for_cards = [list(defense_ids)]
+    team_titles = [tr("result.title_arena_def")]
+    for off in res.offenses:
+        teams_for_cards.append(list(off.team_unit_ids or []))
+        team_titles.append(tr("result.title_arena_off", n=int(off.team_index) + 1))
+    window.arena_rush_result_cards.render_from_selections(
+        teams_for_cards,
+        window.account,
+        window.monster_db,
+        window.assets_dir,
+        rune_mode="siege",
+        rune_overrides=rune_overrides,
+        artifact_overrides=artifact_overrides,
+        team_titles=team_titles,
+    )
+
+    saved_results: List[SavedUnitResult] = []
+    for unit_res in all_results:
+        if not bool(unit_res.ok):
+            continue
+        if not (unit_res.runes_by_slot or {}):
+            continue
+        saved_results.append(
+            SavedUnitResult(
+                unit_id=int(unit_res.unit_id),
+                runes_by_slot=dict(unit_res.runes_by_slot or {}),
+                artifacts_by_type=dict(unit_res.artifacts_by_type or {}),
+                final_speed=int(unit_res.final_speed or 0),
+            )
         )
+    if saved_results:
+        ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+        name = tr("result.opt_name", mode=tr("arena_rush.mode"), ts=ts)
+        window.opt_store.upsert("arena_rush", name, teams_for_cards, saved_results)
+        window.opt_store.save(window.opt_store_path)
+        window._refresh_saved_opt_combo("arena_rush")

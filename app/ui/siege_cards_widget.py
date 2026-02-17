@@ -674,7 +674,8 @@ class SiegeDefCardsWidget(QWidget):
                                assets_dir: Path, rune_mode: str = "siege",
                                rune_overrides: Optional[Dict[int, List[Rune]]] = None,
                                artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
-                               team_label_prefix: str = ""):
+                               team_label_prefix: str = "",
+                               team_titles: Optional[List[str]] = None):
         """Render manually selected teams (e.g. WGB builder).
 
         *teams* is a list of unit-id lists, e.g. [[uid1, uid2, uid3], ...].
@@ -683,7 +684,8 @@ class SiegeDefCardsWidget(QWidget):
         if not account or not teams:
             return
         self._render_teams(teams, account, monster_db, assets_dir, rune_mode,
-                           rune_overrides, artifact_overrides, team_label_prefix)
+                           rune_overrides, artifact_overrides, team_label_prefix,
+                           team_titles=team_titles)
 
     def render_saved_optimization(self, opt: SavedOptimization,
                                   account: AccountData, monster_db: MonsterDB,
@@ -735,7 +737,8 @@ class SiegeDefCardsWidget(QWidget):
                       monster_db: MonsterDB, assets_dir: Path, rune_mode: str,
                       rune_overrides: Optional[Dict[int, List[Rune]]] = None,
                       artifact_overrides: Optional[Dict[int, List[Artifact]]] = None,
-                      team_label_prefix: str = ""):
+                      team_label_prefix: str = "",
+                      team_titles: Optional[List[str]] = None):
         self._rta_flat_grid_active = False
         for ti, team in enumerate(teams, start=1):
             team_leader = None
@@ -788,8 +791,11 @@ class SiegeDefCardsWidget(QWidget):
                 )
                 unit_data.append((u, name, element, icon, equipped, equipped_artifacts, stat_breakdown))
             if unit_data:
-                prefix = team_label_prefix or tr("card.defense", n="").strip()
-                title = f"{prefix} {ti}"
+                if team_titles and (ti - 1) < len(team_titles):
+                    title = team_titles[ti - 1]
+                else:
+                    prefix = team_label_prefix or tr("card.defense", n="").strip()
+                    title = f"{prefix} {ti}"
                 card = TeamCard(ti, unit_data, assets_dir, title=title)
                 self._layout.addWidget(card)
 

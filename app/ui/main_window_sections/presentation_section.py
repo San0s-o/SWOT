@@ -103,14 +103,17 @@ def retranslate_ui(window) -> None:
     _set_tab_text("tab_rta_builder", "tab.rta_builder")
     _set_tab_text("tab_saved_rta", "tab.rta_saved")
     _set_tab_text("tab_arena_rush_builder", "tab.arena_rush_builder")
+    _set_tab_text("tab_saved_arena_rush", "tab.arena_rush_saved")
     _set_tab_text("tab_settings", "tab.settings")
 
     window.lbl_saved_siege.setText(tr("label.saved_opt"))
     window.lbl_saved_wgb.setText(tr("label.saved_opt"))
     window.lbl_saved_rta.setText(tr("label.saved_opt"))
+    window.lbl_saved_arena_rush.setText(tr("label.saved_opt"))
     window.btn_delete_saved_siege.setText(tr("btn.delete"))
     window.btn_delete_saved_wgb.setText(tr("btn.delete"))
     window.btn_delete_saved_rta.setText(tr("btn.delete"))
+    window.btn_delete_saved_arena_rush.setText(tr("btn.delete"))
 
     window.box_siege_select.setTitle(tr("group.siege_select"))
     for idx, lbl in enumerate(window.lbl_siege_defense, start=1):
@@ -195,6 +198,7 @@ def retranslate_ui(window) -> None:
         window._on_saved_opt_changed("siege")
         window._on_saved_opt_changed("wgb")
         window._on_saved_opt_changed("rta")
+        window._on_saved_opt_changed("arena_rush")
 
     from app.ui.main_window_sections.settings_section import retranslate_settings
     retranslate_settings(window)

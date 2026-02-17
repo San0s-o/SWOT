@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import List, Set
 
-from PySide6.QtCore import Qt, QModelIndex, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
-from PySide6.QtGui import QKeyEvent, QStandardItem, QStandardItemModel
+from PySide6.QtCore import Qt, QEvent, QModelIndex, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QWidget, QComboBox, QCompleter
 
 from app.domain.presets import SET_NAMES, SET_SIZES
@@ -191,6 +191,7 @@ class _SetMultiCombo(_NoScrollComboBox):
         if le is not None:
             le.setReadOnly(True)
             le.setPlaceholderText("-")
+            le.installEventFilter(self)
         model = QStandardItemModel(self)
         self.setModel(model)
         for sid in sorted(SET_NAMES.keys()):
@@ -205,8 +206,16 @@ class _SetMultiCombo(_NoScrollComboBox):
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
         self.view().pressed.connect(self._on_item_pressed)
+        self.currentIndexChanged.connect(lambda _: self._refresh_text())
         self._apply_size_constraints()
         self._refresh_text()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
+            if isinstance(event, QMouseEvent) and event.button() == Qt.LeftButton:
+                self.showPopup()
+                return True
+        return super().eventFilter(obj, event)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -233,6 +242,7 @@ class _SetMultiCombo(_NoScrollComboBox):
             self._block_hide_once = False
             return
         super().hidePopup()
+        self._refresh_text()
 
     def checked_ids(self) -> List[int]:
         out: List[int] = []
@@ -336,6 +346,7 @@ class _MainstatMultiCombo(_NoScrollComboBox):
         if le is not None:
             le.setReadOnly(True)
             le.setPlaceholderText("Any")
+            le.installEventFilter(self)
         model = QStandardItemModel(self)
         self.setModel(model)
         for key in options:
@@ -345,7 +356,15 @@ class _MainstatMultiCombo(_NoScrollComboBox):
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
         self.view().pressed.connect(self._on_item_pressed)
+        self.currentIndexChanged.connect(lambda _: self._refresh_text())
         self._refresh_text()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
+            if isinstance(event, QMouseEvent) and event.button() == Qt.LeftButton:
+                self.showPopup()
+                return True
+        return super().eventFilter(obj, event)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -370,6 +389,7 @@ class _MainstatMultiCombo(_NoScrollComboBox):
             self._block_hide_once = False
             return
         super().hidePopup()
+        self._refresh_text()
 
     def checked_values(self) -> List[str]:
         out: List[str] = []

@@ -84,6 +84,10 @@ def apply_saved_account(window, account, source_label: str) -> None:
     window._ensure_siege_team_defaults()
     window._refresh_team_combo()
     window._set_team_controls_enabled(True)
+    window._on_saved_opt_changed("siege")
+    window._on_saved_opt_changed("wgb")
+    window._on_saved_opt_changed("rta")
+    window._on_saved_opt_changed("arena_rush")
 
     if hasattr(window, "lbl_settings_import_status"):
         from app.ui.main_window_sections.settings_section import refresh_settings_import_status

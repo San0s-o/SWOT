@@ -9,6 +9,9 @@ import requests
 
 _SWARFARM_MONSTERS_URL = "https://swarfarm.com/api/v2/monsters/"
 _SWARFARM_SKILL_URL_TMPL = "https://swarfarm.com/api/v2/skills/{sid}/"
+_SWARFARM_SKILL_ICON_BASES = [
+    "https://swarfarm.com/static/herders/images/skills/",
+]
 _EFFECT_ID_SPEED_BUFF = 5
 _EFFECT_ID_INCREASE_ATB = 17
 
@@ -20,28 +23,36 @@ def _to_int(value, default: int = 0) -> int:
         return int(default)
 
 
-def _default_capability() -> Dict[str, int | bool]:
+def _default_capability() -> Dict[str, int | bool | str]:
     return {
         "has_spd_buff": False,
         "has_atb_boost": False,
         "max_atb_boost_pct": 0,
+        "spd_buff_skill_icon": "",
+        "atb_boost_skill_icon": "",
     }
 
 
+_CACHE_VERSION = 2
+
+
 def _load_cache(path: Path) -> Dict:
+    empty = {"version": _CACHE_VERSION, "by_com2us_id": {}, "by_skill_id": {}}
     try:
         if not path.exists():
-            return {"version": 1, "by_com2us_id": {}, "by_skill_id": {}}
+            return empty
         raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
         if not isinstance(raw, dict):
             raise ValueError("invalid cache")
+        if int(raw.get("version", 0) or 0) < _CACHE_VERSION:
+            return empty
         return {
-            "version": 1,
+            "version": _CACHE_VERSION,
             "by_com2us_id": dict(raw.get("by_com2us_id") or {}),
             "by_skill_id": dict(raw.get("by_skill_id") or {}),
         }
     except Exception:
-        return {"version": 1, "by_com2us_id": {}, "by_skill_id": {}}
+        return empty
 
 
 def _save_cache(path: Path, payload: Dict) -> None:
@@ -49,8 +60,9 @@ def _save_cache(path: Path, payload: Dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _capability_from_skill_payload(skill_payload: Dict) -> Dict[str, int | bool]:
+def _capability_from_skill_payload(skill_payload: Dict) -> Dict[str, int | bool | str]:
     out = _default_capability()
+    icon_filename = str(skill_payload.get("icon_filename") or "")
     effects = list(skill_payload.get("effects") or [])
     for eff in effects:
         if not isinstance(eff, dict):
@@ -60,10 +72,14 @@ def _capability_from_skill_payload(skill_payload: Dict) -> Dict[str, int | bool]
         qty = max(0, _to_int(eff.get("quantity"), 0))
         if effect_id == _EFFECT_ID_SPEED_BUFF:
             out["has_spd_buff"] = True
+            if icon_filename:
+                out["spd_buff_skill_icon"] = icon_filename
         if effect_id == _EFFECT_ID_INCREASE_ATB:
             out["has_atb_boost"] = True
             if qty > int(out.get("max_atb_boost_pct", 0) or 0):
                 out["max_atb_boost_pct"] = int(qty)
+            if icon_filename:
+                out["atb_boost_skill_icon"] = icon_filename
     if bool(out.get("has_atb_boost")) and int(out.get("max_atb_boost_pct", 0) or 0) <= 0:
         out["max_atb_boost_pct"] = 100
     return out
@@ -85,11 +101,46 @@ def _fetch_monster_skill_ids(com2us_id: int, timeout_s: float) -> list[int]:
     return [_to_int(x, 0) for x in (first.get("skills") or []) if _to_int(x, 0) > 0]
 
 
-def _fetch_skill_capability(skill_id: int, timeout_s: float) -> Dict[str, int | bool]:
+def _fetch_skill_capability(skill_id: int, timeout_s: float) -> Dict[str, int | bool | str]:
     resp = requests.get(_SWARFARM_SKILL_URL_TMPL.format(sid=int(skill_id)), timeout=float(timeout_s))
     if int(resp.status_code) != 200:
         return _default_capability()
     return _capability_from_skill_payload(dict(resp.json() or {}))
+
+
+def _download_skill_icon(icon_filename: str, icons_dir: Path, timeout_s: float = 10.0) -> Path | None:
+    """Download a skill icon from Swarfarm if not already cached locally."""
+    if not icon_filename:
+        return None
+    local_path = icons_dir / icon_filename
+    if local_path.exists():
+        return local_path
+    icons_dir.mkdir(parents=True, exist_ok=True)
+    for base in _SWARFARM_SKILL_ICON_BASES:
+        url = base + icon_filename
+        try:
+            resp = requests.get(url, timeout=float(timeout_s))
+            if resp.status_code == 200 and len(resp.content) > 100:
+                local_path.write_bytes(resp.content)
+                return local_path
+        except Exception:
+            continue
+    return None
+
+
+def ensure_skill_icons(
+    capabilities: Dict[int, Dict],
+    icons_dir: Path,
+    timeout_s: float = 10.0,
+) -> None:
+    """Download any missing skill icons for the given capabilities."""
+    seen: set[str] = set()
+    for cfg in capabilities.values():
+        for key in ("spd_buff_skill_icon", "atb_boost_skill_icon"):
+            fname = str(cfg.get(key) or "")
+            if fname and fname not in seen:
+                seen.add(fname)
+                _download_skill_icon(fname, icons_dir, timeout_s=timeout_s)
 
 
 def resolve_turn_effect_capabilities(
@@ -114,6 +165,8 @@ def resolve_turn_effect_capabilities(
                 "has_spd_buff": bool(cfg.get("has_spd_buff", False)),
                 "has_atb_boost": bool(cfg.get("has_atb_boost", False)),
                 "max_atb_boost_pct": int(cfg.get("max_atb_boost_pct", 0) or 0),
+                "spd_buff_skill_icon": str(cfg.get("spd_buff_skill_icon", "") or ""),
+                "atb_boost_skill_icon": str(cfg.get("atb_boost_skill_icon", "") or ""),
             }
         return out_cached
 
@@ -140,6 +193,10 @@ def resolve_turn_effect_capabilities(
                     by_skill_id[s_key] = _fetch_skill_capability(int(sid), timeout_s=float(timeout_s))
                     changed = True
                 s_cap = dict(by_skill_id.get(s_key) or {})
+                if bool(s_cap.get("has_spd_buff", False)) and not bool(capability.get("has_spd_buff", False)):
+                    capability["spd_buff_skill_icon"] = str(s_cap.get("spd_buff_skill_icon", "") or "")
+                if bool(s_cap.get("has_atb_boost", False)) and not bool(capability.get("has_atb_boost", False)):
+                    capability["atb_boost_skill_icon"] = str(s_cap.get("atb_boost_skill_icon", "") or "")
                 capability["has_spd_buff"] = bool(capability["has_spd_buff"] or s_cap.get("has_spd_buff", False))
                 capability["has_atb_boost"] = bool(capability["has_atb_boost"] or s_cap.get("has_atb_boost", False))
                 capability["max_atb_boost_pct"] = max(
@@ -157,7 +214,7 @@ def resolve_turn_effect_capabilities(
         _save_cache(
             Path(cache_path),
             {
-                "version": 1,
+                "version": _CACHE_VERSION,
                 "by_com2us_id": by_com2us_id,
                 "by_skill_id": by_skill_id,
             },
@@ -170,6 +227,8 @@ def resolve_turn_effect_capabilities(
             "has_spd_buff": bool(cfg.get("has_spd_buff", False)),
             "has_atb_boost": bool(cfg.get("has_atb_boost", False)),
             "max_atb_boost_pct": int(cfg.get("max_atb_boost_pct", 0) or 0),
+            "spd_buff_skill_icon": str(cfg.get("spd_buff_skill_icon", "") or ""),
+            "atb_boost_skill_icon": str(cfg.get("atb_boost_skill_icon", "") or ""),
         }
     return out
 

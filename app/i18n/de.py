@@ -28,6 +28,7 @@ STRINGS: dict[str, str] = {
     "tab.rta_builder": "RTA Builder (Custom)",
     "tab.rta_saved": "RTA Optimierungen (gespeichert)",
     "tab.arena_rush_builder": "Arena Rush Builder",
+    "tab.arena_rush_saved": "Arena Rush Optimierungen (gespeichert)",
 
     # -- Buttons -------------------------------------------------
     "btn.add": "Hinzufügen",
@@ -53,6 +54,7 @@ STRINGS: dict[str, str] = {
     "btn.take_rta": "Aktuelle RTA Monster übernehmen",
     "btn.take_arena_def": "Aktuelle Arena-Def übernehmen",
     "btn.take_arena_off": "Arena-Offense Decks übernehmen",
+    "btn.load_current_runes": "Aktuelle Runen übernehmen",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Durchläufe",
@@ -79,6 +81,7 @@ STRINGS: dict[str, str] = {
     "label.min_base_values": "Basiswerte: SPD {spd} | HP {hp} | ATK {atk} | DEF {defense}",
 
     # -- Tooltips ------------------------------------------------
+    "tooltip.load_current_runes": "Übernimmt die aktuell angelegten Runen-Sets und Mainstats für alle Monster.",
     "tooltip.set_multi": "Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).",
     "tooltip.set3": "Nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind.",
     "tooltip.mainstat_multi": "Mehrfachauswahl möglich. Keine Auswahl = Any.",
@@ -232,6 +235,7 @@ STRINGS: dict[str, str] = {
     "saved.siege_opt": "SIEGE Optimierung",
     "saved.wgb_opt": "WGB Optimierung",
     "saved.rta_opt": "RTA Optimierung",
+    "saved.arena_rush_opt": "Arena Rush Optimierung",
 
     # -- Stat Labels ---------------------------------------------
     "stat.HP": "LP",

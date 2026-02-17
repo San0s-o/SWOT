@@ -82,6 +82,24 @@ def init_saved_rta_tab(window) -> None:
     window._refresh_saved_opt_combo("rta")
 
 
+def init_saved_arena_rush_tab(window) -> None:
+    v = QVBoxLayout(window.tab_saved_arena_rush)
+    top = QHBoxLayout()
+    window.lbl_saved_arena_rush = QLabel(tr("label.saved_opt"))
+    top.addWidget(window.lbl_saved_arena_rush)
+    window.saved_arena_rush_combo = QComboBox()
+    window.saved_arena_rush_combo.currentIndexChanged.connect(lambda: window._on_saved_opt_changed("arena_rush"))
+    window.saved_arena_rush_combo.activated.connect(lambda: window._on_saved_opt_changed("arena_rush"))
+    top.addWidget(window.saved_arena_rush_combo, 1)
+    window.btn_delete_saved_arena_rush = QPushButton(tr("btn.delete"))
+    window.btn_delete_saved_arena_rush.clicked.connect(lambda: window._on_delete_saved_opt("arena_rush"))
+    top.addWidget(window.btn_delete_saved_arena_rush)
+    v.addLayout(top)
+    window.saved_arena_rush_cards = SiegeDefCardsWidget()
+    v.addWidget(window.saved_arena_rush_cards, 1)
+    window._refresh_saved_opt_combo("arena_rush")
+
+
 def new_unit_search_combo(window, min_width: int = 300) -> _UnitSearchComboBox:
     """Create a standardized monster-search combo used across builder tabs."""
     if not hasattr(window, "_all_unit_combos"):
@@ -443,12 +461,17 @@ def init_arena_rush_builder_ui(window) -> None:
     window.lbl_arena_rush_validate = QLabel("—")
     v.addWidget(window.lbl_arena_rush_validate)
 
+    window.arena_rush_result_cards = SiegeDefCardsWidget()
+    v.addWidget(window.arena_rush_result_cards, 1)
+
 
 def saved_opt_widgets(window, mode: str):
     if mode == "siege":
         return window.saved_siege_combo, window.saved_siege_cards
     if mode == "rta":
         return window.saved_rta_combo, window.saved_rta_cards
+    if mode == "arena_rush":
+        return window.saved_arena_rush_combo, window.saved_arena_rush_cards
     return window.saved_wgb_combo, window.saved_wgb_cards
 
 
@@ -465,9 +488,12 @@ def refresh_saved_opt_combo(window, mode: str) -> None:
         display_name = display_name.replace("SIEGE Opt", tr("saved.siege_opt"))
         display_name = display_name.replace("WGB Opt", tr("saved.wgb_opt"))
         display_name = display_name.replace("RTA Opt", tr("saved.rta_opt"))
+        display_name = display_name.replace("ARENA_RUSH Opt", tr("saved.arena_rush_opt"))
         display_name = display_name.replace("SIEGE Optimizer", tr("saved.siege_opt"))
         display_name = display_name.replace("WGB Optimizer", tr("saved.wgb_opt"))
         display_name = display_name.replace("RTA Optimizer", tr("saved.rta_opt"))
+        display_name = display_name.replace("ARENA_RUSH Optimizer", tr("saved.arena_rush_opt"))
+        display_name = display_name.replace("ARENA_RUSH Optimization", tr("saved.arena_rush_opt"))
         combo.addItem(f"{display_name}  ({opt.timestamp})", opt.id)
     if current_id:
         idx = combo.findData(current_id)

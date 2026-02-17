@@ -341,6 +341,7 @@ def on_settings_clear_optimizations(window) -> None:
     window._refresh_saved_opt_combo("siege")
     window._refresh_saved_opt_combo("wgb")
     window._refresh_saved_opt_combo("rta")
+    window._refresh_saved_opt_combo("arena_rush")
     window.statusBar().showMessage(tr("settings.data_cleared", name="Saved Optimizations"), 5000)
 
 

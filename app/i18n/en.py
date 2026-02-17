@@ -28,6 +28,7 @@ STRINGS: dict[str, str] = {
     "tab.rta_builder": "RTA Builder (Custom)",
     "tab.rta_saved": "RTA Optimizations (saved)",
     "tab.arena_rush_builder": "Arena Rush Builder",
+    "tab.arena_rush_saved": "Arena Rush Optimizations (saved)",
 
     # -- Buttons -------------------------------------------------
     "btn.add": "Add",
@@ -53,6 +54,7 @@ STRINGS: dict[str, str] = {
     "btn.take_rta": "Load current RTA Monsters",
     "btn.take_arena_def": "Load current Arena Defense",
     "btn.take_arena_off": "Load Arena Offense Decks",
+    "btn.load_current_runes": "Load current runes",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Passes",
@@ -79,6 +81,7 @@ STRINGS: dict[str, str] = {
     "label.min_base_values": "Base stats: SPD {spd} | HP {hp} | ATK {atk} | DEF {defense}",
 
     # -- Tooltips ------------------------------------------------
+    "tooltip.load_current_runes": "Load currently equipped rune sets and mainstats for all monsters.",
     "tooltip.set_multi": "Multi-select. After first selection only same-size sets (2-piece/4-piece).",
     "tooltip.set3": "Only active when Set 1 and Set 2 are both 2-piece sets.",
     "tooltip.mainstat_multi": "Multi-select possible. No selection = Any.",
@@ -232,6 +235,7 @@ STRINGS: dict[str, str] = {
     "saved.siege_opt": "SIEGE Optimization",
     "saved.wgb_opt": "GWB Optimization",
     "saved.rta_opt": "RTA Optimization",
+    "saved.arena_rush_opt": "Arena Rush Optimization",
 
     # -- Stat Labels ---------------------------------------------
     "stat.HP": "HP",
