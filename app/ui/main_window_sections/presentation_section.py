@@ -170,6 +170,9 @@ def retranslate_ui(window) -> None:
     window.lbl_arena_rush_profile.setText("Profil")
     window.spin_multi_pass_arena_rush.setToolTip(tr("tooltip.passes"))
     window.combo_workers_arena_rush.setToolTip(tr("tooltip.workers"))
+    idx_arena_max = window.combo_quality_profile_arena_rush.findData("max_quality")
+    if idx_arena_max >= 0:
+        window.combo_quality_profile_arena_rush.setItemText(idx_arena_max, "Max Qualität")
 
     window.lbl_team.setText(tr("label.team"))
     window.btn_new_team.setText(tr("btn.new_team"))

@@ -33,7 +33,7 @@ def _default_capability() -> Dict[str, int | bool | str]:
     }
 
 
-_CACHE_VERSION = 2
+_CACHE_VERSION = 3
 
 
 def _load_cache(path: Path) -> Dict:
@@ -60,12 +60,23 @@ def _save_cache(path: Path, payload: Dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _is_active_teamwide_skill(skill_payload: Dict) -> bool:
+    # Opening turn controls should only include active team-wide skills.
+    if bool(skill_payload.get("passive", False)):
+        return False
+    return bool(skill_payload.get("aoe", False))
+
+
 def _capability_from_skill_payload(skill_payload: Dict) -> Dict[str, int | bool | str]:
     out = _default_capability()
+    if not _is_active_teamwide_skill(skill_payload):
+        return out
     icon_filename = str(skill_payload.get("icon_filename") or "")
     effects = list(skill_payload.get("effects") or [])
     for eff in effects:
         if not isinstance(eff, dict):
+            continue
+        if bool(eff.get("self_effect", False)):
             continue
         effect_obj = dict(eff.get("effect") or {})
         effect_id = _to_int(effect_obj.get("id"), 0)

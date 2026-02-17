@@ -59,6 +59,9 @@ DEFAULT_SPEED_SLACK_FOR_QUALITY = 1
 RUNE_EFFICIENCY_WEIGHT_SOLVER = 6
 ARTIFACT_EFFICIENCY_WEIGHT_SOLVER = 5
 PASS_EFFICIENCY_WEIGHT = 10
+ARENA_RUSH_ATK_EFFICIENCY_SCALE = 45
+ARENA_RUSH_ATK_RUNE_EFF_WEIGHT = 2
+ARENA_RUSH_ATK_ART_EFF_WEIGHT = 2
 
 # Artifact main focus mapping (HP/ATK/DEF).
 # Supports both rune-like stat IDs and commonly seen artifact main IDs.
@@ -78,6 +81,50 @@ _ARTIFACT_FOCUS_BY_EFFECT_ID: Dict[int, str] = {
 def _score_stat(eff_id: int, value: int) -> int:
     eff = int(eff_id or 0)
     return int(STAT_SCORE_WEIGHTS.get(eff, 0) * int(value or 0))
+
+
+def _is_attack_type_unit(base_hp: int, base_atk: int, base_def: int, archetype: str = "") -> bool:
+    # Prefer explicit archetype when available; fall back to base-stat heuristic.
+    arch = str(archetype or "").strip().lower()
+    if arch:
+        if arch in ("attack", "atk"):
+            return True
+        if arch in ("defense", "def", "hp", "support"):
+            return False
+    # Heuristic: ATK-type monsters usually have clearly higher base ATK than CON/DEF.
+    atk = int(base_atk or 0)
+    defense = int(base_def or 0)
+    con = int((int(base_hp or 0)) / 15) if int(base_hp or 0) > 0 else 0
+    if atk <= 0:
+        return False
+    return bool(atk >= defense + 60 and atk >= con + 40)
+
+
+def _rune_damage_score_proxy(r: Rune, base_atk: int) -> int:
+    atk_pct = int(_rune_stat_total(r, 4) or 0)
+    atk_flat = int(_rune_stat_total(r, 3) or 0)
+    cr = int(_rune_stat_total(r, 9) or 0)
+    cd = int(_rune_stat_total(r, 10) or 0)
+    spd = int(_rune_flat_spd(r) or 0)
+    flat_as_pct = int((atk_flat * 100) / max(1, int(base_atk or 1)))
+    return int((atk_pct * 18) + (flat_as_pct * 12) + (cr * 14) + (cd * 16) + (spd * 2))
+
+
+def _artifact_damage_score_proxy(art: Artifact) -> int:
+    score = 0
+    for sec in (art.sec_effects or []):
+        if not sec or len(sec) < 2:
+            continue
+        try:
+            eid = int(sec[0] or 0)
+            val = float(sec[1] or 0)
+        except Exception:
+            continue
+        if eid in (204, 226, 219):
+            score += int(round(val * 28.0))
+        elif eid in (210, 212, 222, 223, 224, 225, 400, 401, 402, 403, 410, 411):
+            score += int(round(val * 18.0))
+    return int(score)
 
 
 def _is_good_even_slot_mainstat(eff_id: int, slot_no: int) -> bool:
@@ -218,6 +265,8 @@ class GreedyRequest:
     excluded_artifact_ids: Set[int] | None = None
     unit_fixed_runes_by_slot: Dict[int, Dict[int, int]] | None = None
     unit_fixed_artifacts_by_type: Dict[int, Dict[int, int]] | None = None
+    unit_archetype_by_uid: Dict[int, str] | None = None
+    arena_rush_context: str = ""  # "", "defense", "offense"
 
 @dataclass
 class GreedyUnitResult:
@@ -592,6 +641,8 @@ def _solve_single_unit_best(
     speed_slack_for_quality: int = 0,
     objective_mode: str = "balanced",  # balanced | efficiency
     force_speed_priority: bool = False,
+    arena_rush_damage_bias: bool = False,
+    unit_archetype: str = "",
     is_cancelled: Optional[Callable[[], bool]] = None,
     register_solver: Optional[Callable[[object], None]] = None,
     mode: str = "normal",
@@ -936,33 +987,72 @@ def _solve_single_unit_best(
                 model.Add(final_speed_expr <= max_spd_tick).OnlyEnforceIf(vb)
 
     # quality objective (2nd phase after speed is pinned)
+    is_arena_rush_mode = str(mode or "").strip().lower() == "arena_rush"
+    favor_damage_for_atk_type = (
+        bool(arena_rush_damage_bias)
+        and is_arena_rush_mode
+        and _is_attack_type_unit(
+        base_hp=int(base_hp or 0),
+        base_atk=int(base_atk or 0),
+        base_def=int(base_def or 0),
+        archetype=str(unit_archetype or ""),
+    )
+    )
     quality_terms = []
     for slot in range(1, 7):
         for r in runes_by_slot[slot]:
             v = x[(slot, r.rune_id)]
             if str(objective_mode) == "efficiency":
-                eff_bonus = int(round(float(rune_efficiency(r)) * 100.0))
+                eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE if favor_damage_for_atk_type else 100)
+                eff_bonus = int(round(float(rune_efficiency(r)) * float(eff_scale)))
                 if eff_bonus:
                     quality_terms.append(eff_bonus * v)
+                if favor_damage_for_atk_type:
+                    dmg_bonus = _rune_damage_score_proxy(r, int(base_atk or 0))
+                    if dmg_bonus:
+                        quality_terms.append(dmg_bonus * v)
             else:
                 w = _rune_quality_score(r, uid, rta_rune_ids_for_unit)
                 quality_terms.append(w * v)
-                eff_bonus = int(round(float(rune_efficiency(r)) * float(RUNE_EFFICIENCY_WEIGHT_SOLVER)))
+                eff_weight = int(
+                    ARENA_RUSH_ATK_RUNE_EFF_WEIGHT
+                    if favor_damage_for_atk_type
+                    else RUNE_EFFICIENCY_WEIGHT_SOLVER
+                )
+                eff_bonus = int(round(float(rune_efficiency(r)) * float(eff_weight)))
                 if eff_bonus:
                     quality_terms.append(eff_bonus * v)
+                if favor_damage_for_atk_type:
+                    dmg_bonus = _rune_damage_score_proxy(r, int(base_atk or 0))
+                    if dmg_bonus:
+                        quality_terms.append(dmg_bonus * v)
     for art_type in (1, 2):
         for art in artifacts_by_type[art_type]:
             av = xa[(art_type, int(art.artifact_id))]
             if str(objective_mode) == "efficiency":
-                art_eff_bonus = int(round(float(artifact_efficiency(art)) * 100.0))
+                eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE if favor_damage_for_atk_type else 100)
+                art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(eff_scale)))
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
+                if favor_damage_for_atk_type:
+                    dmg_bonus = _artifact_damage_score_proxy(art)
+                    if dmg_bonus:
+                        quality_terms.append(dmg_bonus * av)
             else:
                 aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
                 quality_terms.append(aw * av)
-                art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(ARTIFACT_EFFICIENCY_WEIGHT_SOLVER)))
+                eff_weight = int(
+                    ARENA_RUSH_ATK_ART_EFF_WEIGHT
+                    if favor_damage_for_atk_type
+                    else ARTIFACT_EFFICIENCY_WEIGHT_SOLVER
+                )
+                art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(eff_weight)))
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
+                if favor_damage_for_atk_type:
+                    dmg_bonus = _artifact_damage_score_proxy(art)
+                    if dmg_bonus:
+                        quality_terms.append(dmg_bonus * av)
 
     # Build-aware artifact quality:
     # if artifact filters are selected, prefer higher rolls in those selected effects.
@@ -1412,6 +1502,10 @@ def _run_pass_with_profile(
             speed_slack_for_quality=int(speed_slack_for_quality),
             objective_mode=str(objective_mode),
             force_speed_priority=bool(force_speed_priority),
+            arena_rush_damage_bias=(
+                str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
+            ),
+            unit_archetype=str((req.unit_archetype_by_uid or {}).get(int(uid), "") or ""),
             is_cancelled=req.is_cancelled,
             register_solver=req.register_solver,
             mode=str(req.mode),

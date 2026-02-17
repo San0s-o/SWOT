@@ -9,6 +9,7 @@ from app.domain.presets import BuildStore, Build, EFFECT_ID_TO_MAINSTAT_KEY
 from app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
 from app.engine.efficiency import rune_efficiency, artifact_efficiency
 from app.engine.greedy_optimizer import (
+    ARENA_RUSH_ATK_EFFICIENCY_SCALE,
     INTANGIBLE_SET_ID,
     GreedyRequest,
     GreedyResult,
@@ -21,7 +22,10 @@ from app.engine.greedy_optimizer import (
     _rune_flat_spd,
     _rune_quality_score,
     _artifact_quality_score,
+    _artifact_damage_score_proxy,
     _force_swift_speed_priority,
+    _is_attack_type_unit,
+    _rune_damage_score_proxy,
     _run_greedy_pass,
 )
 from app.i18n import tr
@@ -58,6 +62,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
     final_speed_raw_expr: Dict[int, cp_model.LinearExpr] = {}
     force_speed_uids: Set[int] = set()
     swift_active_by_uid: Dict[int, cp_model.IntVar] = {}
+    favor_damage_by_uid: Dict[int, bool] = {}
 
     # Keep deterministic build order
     builds_by_uid: Dict[int, List[Build]] = {}
@@ -81,6 +86,16 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         base_cd = int(unit.crit_dmg or 50) if unit else 50
         base_res = int(unit.base_res or 15) if unit else 15
         base_acc = int(unit.base_acc or 0) if unit else 0
+        favor_damage_by_uid[int(uid)] = bool(
+            str(req.mode or "").strip().lower() == "arena_rush"
+            and str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
+            and _is_attack_type_unit(
+                base_hp=base_hp,
+                base_atk=base_atk,
+                base_def=base_def,
+                archetype=str((req.unit_archetype_by_uid or {}).get(int(uid), "") or ""),
+            )
+        )
         fixed_runes_by_slot = {
             int(slot): int(rid)
             for slot, rid in ((req.unit_fixed_runes_by_slot or {}).get(int(uid), {}) or {}).items()
@@ -422,14 +437,36 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             continue
         eff_score = int(round(float(rune_efficiency(r)) * 100.0))
         qual_score = int(_rune_quality_score(r, uid, None))
-        obj_terms.append((eff_score * 100 + qual_score) * vv)
+        if bool(favor_damage_by_uid.get(int(uid), False)):
+            unit = account.units_by_id.get(int(uid))
+            base_atk = int(unit.base_atk or 0) if unit else 0
+            dmg_score = int(_rune_damage_score_proxy(r, base_atk))
+            obj_terms.append(
+                (
+                    eff_score * int(ARENA_RUSH_ATK_EFFICIENCY_SCALE)
+                    + qual_score
+                    + (dmg_score * 140)
+                ) * vv
+            )
+        else:
+            obj_terms.append((eff_score * 100 + qual_score) * vv)
     for (uid, t, aid), vv in xa.items():
         a = next((aa for aa in artifacts_by_type_global[t] if int(aa.artifact_id) == int(aid)), None)
         if a is None:
             continue
         eff_score = int(round(float(artifact_efficiency(a)) * 100.0))
         qual_score = int(_artifact_quality_score(a, uid, None))
-        obj_terms.append((eff_score * 80 + qual_score) * vv)
+        if bool(favor_damage_by_uid.get(int(uid), False)):
+            dmg_score = int(_artifact_damage_score_proxy(a))
+            obj_terms.append(
+                (
+                    eff_score * int(max(1, int(ARENA_RUSH_ATK_EFFICIENCY_SCALE * 0.8)))
+                    + qual_score
+                    + (dmg_score * 120)
+                ) * vv
+            )
+        else:
+            obj_terms.append((eff_score * 80 + qual_score) * vv)
     for uid in unit_ids:
         obj_terms.append(final_speed_expr[uid])  # minor tie-break
 

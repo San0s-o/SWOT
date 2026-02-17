@@ -254,10 +254,13 @@ def on_settings_clear_snapshot(window) -> None:
     window.account_persistence.clear()
     window.account = None
     window._unit_dropdowns_populated = False
+    window._populated_unit_combo_ids = set()
     window._icon_cache = {}
     window._unit_combo_model = None
     window._unit_combo_index_by_uid = {}
     window._unit_text_cache_by_uid = {}
+    window._lazy_view_dirty = {}
+    window._arena_rush_state_restore_pending = False
     window.lbl_status.setText(tr("main.no_import"))
     refresh_settings_import_status(window)
     window.statusBar().showMessage(tr("settings.data_cleared", name="Account Snapshot"), 5000)

@@ -19,6 +19,7 @@ class MonsterInfo:
     com2us_id: int
     name: str
     element: str            # Fire/Wind/Water/Light/Dark/Unknown
+    archetype: str          # Attack/Defense/HP/Support/Unknown
     icon: str               # relative path like "icons/13403.png" or ""
     leader_skill: Optional[LeaderSkill] = None
     turn_effect_capabilities: Dict[str, int | bool] | None = None
@@ -62,6 +63,7 @@ class MonsterDB:
                     com2us_id=mid,
                     name=str(m.get("name") or "").strip() or f"#{mid}",
                     element=str(m.get("element") or "Unknown").strip() or "Unknown",
+                    archetype=str(m.get("archetype") or "Unknown").strip() or "Unknown",
                     icon=str(m.get("icon") or "").strip(),
                     leader_skill=ls,
                     turn_effect_capabilities=self._parse_turn_effect_capabilities(m),
@@ -84,6 +86,10 @@ class MonsterDB:
     def icon_path_for(self, com2us_id: int) -> str:
         info = self.get(com2us_id)
         return info.icon if info else ""
+
+    def archetype_for(self, com2us_id: int) -> str:
+        info = self.get(com2us_id)
+        return str(info.archetype or "Unknown") if info else "Unknown"
 
     def leader_skill_for(self, com2us_id: int) -> Optional[LeaderSkill]:
         info = self.get(com2us_id)

@@ -94,6 +94,22 @@ Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Ein
 - Windows 10/11
 - Summoners War JSON-Export (z.B. via SWEX)
 
+## Offline-Metadaten fuer EXE-Builds
+
+Damit die App im Arena-Rush-Bereich keine langen Online-Fetches beim Oeffnen von `Builds` benoetigt, koennen die Metadaten vor dem Release einmal lokal vorgezogen und mit der EXE ausgeliefert werden:
+
+```bash
+python -m app.tools.update_monster_db
+```
+
+Der Befehl aktualisiert:
+- `app/assets/monsters.json` (inkl. Leader Skill, Archetype, Turn-Effect-Caps)
+- `app/config/monster_turn_effect_capabilities.json`
+- `app/config/arena_speed_lead_cache.json`
+- `app/config/arena_archetype_cache.json`
+
+Standardmaessig ist Online-Nachladen zur Laufzeit deaktiviert (`app/config/app_settings.json` -> `allow_online_metadata_fetch: false`).
+
 ### GPU Search Voraussetzungen
 
 `GPU Search` wird nur angezeigt, wenn PyTorch mit CUDA in der aktiven Python-Umgebung verfügbar ist.

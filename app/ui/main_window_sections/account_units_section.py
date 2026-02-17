@@ -38,17 +38,25 @@ def apply_saved_account(window, account, source_label: str) -> None:
     window.account = account
     window.monster_db.load()
     window._unit_dropdowns_populated = False
+    window._populated_unit_combo_ids = set()
     window._icon_cache = {}
     window._unit_combo_model = None
     window._unit_combo_index_by_uid = {}
     window._unit_text_cache_by_uid = {}
+    window._lazy_view_dirty = {
+        "siege_raw": True,
+        "rta_overview": True,
+        "rune_optimization": True,
+        "saved_siege": True,
+        "saved_wgb": True,
+        "saved_rta": True,
+        "saved_arena_rush": True,
+    }
+    window._arena_rush_state_restore_pending = True
 
     window.lbl_status.setText(tr("main.import_label", source=source_label))
     window.overview_widget.set_data(account)
 
-    window._render_siege_raw()
-    window.rta_overview.set_context(account, window.monster_db, window.assets_dir)
-    window._refresh_rune_optimization()
     window._on_tab_changed(window.tabs.currentIndex())
 
     window.btn_take_current_siege.setEnabled(True)
@@ -81,20 +89,9 @@ def apply_saved_account(window, account, source_label: str) -> None:
     if hasattr(window, "lbl_arena_rush_validate"):
         window.lbl_arena_rush_validate.setText(tr("status.arena_rush_ready"))
 
-    if hasattr(window, "arena_def_combos") and hasattr(window, "arena_offense_team_combos"):
-        try:
-            from app.ui.main_window_sections.arena_rush_actions import restore_arena_rush_ui_state
-            restore_arena_rush_ui_state(window)
-        except Exception:
-            pass
-
     window._ensure_siege_team_defaults()
     window._refresh_team_combo()
     window._set_team_controls_enabled(True)
-    window._on_saved_opt_changed("siege")
-    window._on_saved_opt_changed("wgb")
-    window._on_saved_opt_changed("rta")
-    window._on_saved_opt_changed("arena_rush")
 
     if hasattr(window, "lbl_settings_import_status"):
         from app.ui.main_window_sections.settings_section import refresh_settings_import_status
@@ -253,6 +250,26 @@ def populate_all_dropdowns(window) -> None:
         window._populate_combo_with_units(cmb)
 
 
+def _unit_combo_tab_key(window, tab: QWidget | None) -> str:
+    if tab is window.tab_siege_builder:
+        return "siege"
+    if tab is window.tab_wgb_builder:
+        return "wgb"
+    if tab is window.tab_rta_builder:
+        return "rta"
+    if tab is getattr(window, "tab_arena_rush_builder", None):
+        return "arena_rush"
+    return ""
+
+
+def _combos_for_tab(window, tab: QWidget | None) -> List[QComboBox]:
+    key = _unit_combo_tab_key(window, tab)
+    by_tab = dict(getattr(window, "_unit_combos_by_tab", {}) or {})
+    if key and key in by_tab:
+        return list(by_tab.get(key) or [])
+    return []
+
+
 def tab_needs_unit_dropdowns(window, tab: QWidget | None) -> bool:
     return tab in (
         window.tab_siege_builder,
@@ -267,11 +284,57 @@ def on_tab_changed(window, index: int) -> None:
         return
     tab = window.tabs.widget(index)
     if window._tab_needs_unit_dropdowns(tab):
-        window._ensure_unit_dropdowns_populated()
+        window._ensure_unit_dropdowns_populated(tab=tab)
+    if tab is window.tab_siege_raw and bool(window._lazy_view_dirty.get("siege_raw", False)):
+        window._render_siege_raw()
+        window._lazy_view_dirty["siege_raw"] = False
+    elif tab is window.tab_rta_overview and bool(window._lazy_view_dirty.get("rta_overview", False)):
+        window.rta_overview.set_context(window.account, window.monster_db, window.assets_dir)
+        window._lazy_view_dirty["rta_overview"] = False
+    elif tab is window.tab_rune_optimization and bool(window._lazy_view_dirty.get("rune_optimization", False)):
+        window._refresh_rune_optimization()
+        window._lazy_view_dirty["rune_optimization"] = False
+    elif tab is window.tab_saved_siege and bool(window._lazy_view_dirty.get("saved_siege", False)):
+        window._on_saved_opt_changed("siege")
+        window._lazy_view_dirty["saved_siege"] = False
+    elif tab is window.tab_saved_wgb and bool(window._lazy_view_dirty.get("saved_wgb", False)):
+        window._on_saved_opt_changed("wgb")
+        window._lazy_view_dirty["saved_wgb"] = False
+    elif tab is window.tab_saved_rta and bool(window._lazy_view_dirty.get("saved_rta", False)):
+        window._on_saved_opt_changed("rta")
+        window._lazy_view_dirty["saved_rta"] = False
+    elif tab is window.tab_saved_arena_rush and bool(window._lazy_view_dirty.get("saved_arena_rush", False)):
+        window._on_saved_opt_changed("arena_rush")
+        window._lazy_view_dirty["saved_arena_rush"] = False
+    if tab is getattr(window, "tab_arena_rush_builder", None) and bool(getattr(window, "_arena_rush_state_restore_pending", False)):
+        try:
+            from app.ui.main_window_sections.arena_rush_actions import restore_arena_rush_ui_state
+            restore_arena_rush_ui_state(window)
+        except Exception:
+            pass
+        finally:
+            window._arena_rush_state_restore_pending = False
 
 
-def ensure_unit_dropdowns_populated(window) -> None:
-    if window._unit_dropdowns_populated or not window.account:
+def ensure_unit_dropdowns_populated(window, tab: QWidget | None = None) -> None:
+    if not window.account:
         return
-    window._populate_all_dropdowns()
-    window._unit_dropdowns_populated = True
+    target_tab = tab if tab is not None else window.tabs.currentWidget()
+    combos = _combos_for_tab(window, target_tab)
+    if not combos:
+        combos = list(getattr(window, "_all_unit_combos", []) or [])
+    if not combos:
+        window._unit_dropdowns_populated = True
+        return
+    populated_ids = set(getattr(window, "_populated_unit_combo_ids", set()) or set())
+    pending = [cmb for cmb in combos if id(cmb) not in populated_ids]
+    if not pending:
+        all_combos = list(getattr(window, "_all_unit_combos", []) or [])
+        window._unit_dropdowns_populated = bool(all_combos) and len(populated_ids) >= len(all_combos)
+        return
+    for cmb in pending:
+        window._populate_combo_with_units(cmb)
+        populated_ids.add(id(cmb))
+    window._populated_unit_combo_ids = populated_ids
+    all_combos = list(getattr(window, "_all_unit_combos", []) or [])
+    window._unit_dropdowns_populated = bool(all_combos) and len(populated_ids) >= len(all_combos)

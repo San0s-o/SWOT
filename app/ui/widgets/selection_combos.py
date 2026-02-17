@@ -206,6 +206,9 @@ class _SetMultiCombo(_NoScrollComboBox):
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
+        # We toggle checks ourselves in `_on_item_pressed`.
+        # Disable default view toggling to make clicks on the checkbox reliable.
+        self.view().setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.view().pressed.connect(self._on_item_pressed)
         self.currentIndexChanged.connect(lambda _: self._refresh_text())
         self._apply_size_constraints()
@@ -322,6 +325,7 @@ class _SetMultiCombo(_NoScrollComboBox):
             item.setEnabled(bool(allowed))
             if not allowed and item.checkState() == Qt.Checked:
                 item.setCheckState(Qt.Unchecked)
+            self.view().setRowHidden(row, not bool(allowed))
 
     def _refresh_text(self) -> None:
         ids = self.checked_ids()

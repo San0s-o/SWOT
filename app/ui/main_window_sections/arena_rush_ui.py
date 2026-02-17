@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Callable, List
 
@@ -127,7 +127,7 @@ def init_arena_rush_builder_ui(
     window.lbl_arena_rush_profile = QLabel("Profil")
     btn_row.addWidget(window.lbl_arena_rush_profile)
     window.combo_quality_profile_arena_rush = QComboBox()
-    window.combo_quality_profile_arena_rush.addItem("Max QualitÃ¤t", "max_quality")
+    window.combo_quality_profile_arena_rush.addItem("Max Qualität", "max_quality")
     window.combo_quality_profile_arena_rush.setCurrentIndex(0)
     window.combo_quality_profile_arena_rush.setEnabled(False)
     window.combo_quality_profile_arena_rush.currentIndexChanged.connect(window._sync_worker_controls)
@@ -136,9 +136,10 @@ def init_arena_rush_builder_ui(
 
     btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
-    window.lbl_arena_rush_validate = QLabel("â€”")
+    window.lbl_arena_rush_validate = QLabel("—")
     v.addWidget(window.lbl_arena_rush_validate)
 
     window.arena_rush_result_cards = SiegeDefCardsWidget()
     window.arena_rush_result_cards.setVisible(False)
     v.addWidget(window.arena_rush_result_cards, 1)
+

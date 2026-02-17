@@ -107,9 +107,14 @@ def new_unit_search_combo(window, min_width: int = 300) -> _UnitSearchComboBox:
     """Create a standardized monster-search combo used across builder tabs."""
     if not hasattr(window, "_all_unit_combos"):
         window._all_unit_combos = []
+    if not hasattr(window, "_unit_combos_by_tab"):
+        window._unit_combos_by_tab = {}
     cmb = _UnitSearchComboBox()
     cmb.setMinimumWidth(int(min_width))
     window._all_unit_combos.append(cmb)
+    tab_key = str(getattr(window, "_unit_combo_registration_tab", "") or "").strip().lower()
+    if tab_key:
+        window._unit_combos_by_tab.setdefault(tab_key, []).append(cmb)
     return cmb
 
 
@@ -127,19 +132,24 @@ def init_siege_builder_ui(window) -> None:
     siege_scroll.setWidget(siege_inner)
 
     window._all_unit_combos: List[QComboBox] = []
+    window._unit_combos_by_tab = {}
     window.lbl_siege_defense: List[QLabel] = []
 
     window.siege_team_combos: List[List[QComboBox]] = []
-    for t in range(10):
-        lbl = QLabel(tr("label.defense", n=t + 1))
-        window.lbl_siege_defense.append(lbl)
-        grid.addWidget(lbl, t, 0)
-        row: List[QComboBox] = []
-        for s in range(3):
-            cmb = new_unit_search_combo(window, min_width=300)
-            grid.addWidget(cmb, t, 1 + s)
-            row.append(cmb)
-        window.siege_team_combos.append(row)
+    window._unit_combo_registration_tab = "siege"
+    try:
+        for t in range(10):
+            lbl = QLabel(tr("label.defense", n=t + 1))
+            window.lbl_siege_defense.append(lbl)
+            grid.addWidget(lbl, t, 0)
+            row: List[QComboBox] = []
+            for s in range(3):
+                cmb = new_unit_search_combo(window, min_width=300)
+                grid.addWidget(cmb, t, 1 + s)
+                row.append(cmb)
+            window.siege_team_combos.append(row)
+    finally:
+        window._unit_combo_registration_tab = ""
 
     btn_row = QHBoxLayout()
     v.addLayout(btn_row)
@@ -207,16 +217,20 @@ def init_wgb_builder_ui(window) -> None:
 
     window.wgb_team_combos: List[List[QComboBox]] = []
     window.lbl_wgb_defense: List[QLabel] = []
-    for t in range(5):
-        lbl = QLabel(tr("label.defense", n=t + 1))
-        window.lbl_wgb_defense.append(lbl)
-        grid.addWidget(lbl, t, 0)
-        row: List[QComboBox] = []
-        for s in range(3):
-            cmb = new_unit_search_combo(window, min_width=300)
-            grid.addWidget(cmb, t, 1 + s)
-            row.append(cmb)
-        window.wgb_team_combos.append(row)
+    window._unit_combo_registration_tab = "wgb"
+    try:
+        for t in range(5):
+            lbl = QLabel(tr("label.defense", n=t + 1))
+            window.lbl_wgb_defense.append(lbl)
+            grid.addWidget(lbl, t, 0)
+            row: List[QComboBox] = []
+            for s in range(3):
+                cmb = new_unit_search_combo(window, min_width=300)
+                grid.addWidget(cmb, t, 1 + s)
+                row.append(cmb)
+            window.wgb_team_combos.append(row)
+    finally:
+        window._unit_combo_registration_tab = ""
 
     btn_row = QHBoxLayout()
     v.addLayout(btn_row)
@@ -281,7 +295,11 @@ def init_rta_builder_ui(window) -> None:
     box_layout = QVBoxLayout(window.box_rta_select)
 
     top_row = QHBoxLayout()
-    window.rta_add_combo = new_unit_search_combo(window, min_width=350)
+    window._unit_combo_registration_tab = "rta"
+    try:
+        window.rta_add_combo = new_unit_search_combo(window, min_width=350)
+    finally:
+        window._unit_combo_registration_tab = ""
     top_row.addWidget(window.rta_add_combo, 1)
 
     window.btn_rta_add = QPushButton(tr("btn.add"))
@@ -359,7 +377,11 @@ def init_rta_builder_ui(window) -> None:
 
 
 def init_arena_rush_builder_ui(window) -> None:
-    return _sec_init_arena_rush_builder_ui(window, new_unit_search_combo)
+    window._unit_combo_registration_tab = "arena_rush"
+    try:
+        return _sec_init_arena_rush_builder_ui(window, new_unit_search_combo)
+    finally:
+        window._unit_combo_registration_tab = ""
 
 
 def saved_opt_widgets(window, mode: str):

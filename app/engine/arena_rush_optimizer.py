@@ -33,6 +33,7 @@ class ArenaRushRequest:
     defense_unit_ids: List[int] = field(default_factory=list)
     defense_unit_team_turn_order: Dict[int, int] = field(default_factory=dict)
     defense_unit_spd_leader_bonus_flat: Dict[int, int] = field(default_factory=dict)
+    unit_archetype_by_uid: Dict[int, str] = field(default_factory=dict)
     offense_teams: List[ArenaRushOffenseTeam] = field(default_factory=list)
     workers: int = 8
     time_limit_per_unit_s: float = 5.0
@@ -278,7 +279,12 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
         presets,
         GreedyRequest(
             mode=str(req.mode),
+            arena_rush_context="defense",
             unit_ids_in_order=ordered_defense,
+            unit_archetype_by_uid={
+                int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
+                for uid in ordered_defense
+            },
             time_limit_per_unit_s=float(req.time_limit_per_unit_s),
             workers=int(req.workers),
             multi_pass_enabled=bool(int(req.defense_pass_count) > 1),
@@ -388,7 +394,12 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
         presets,
         GreedyRequest(
             mode=str(req.mode),
+            arena_rush_context="offense",
             unit_ids_in_order=list(all_offense_units_in_order),
+            unit_archetype_by_uid={
+                int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
+                for uid in all_offense_units_in_order
+            },
             time_limit_per_unit_s=float(req.time_limit_per_unit_s),
             workers=int(req.workers),
             multi_pass_enabled=bool(int(req.offense_pass_count) > 1),
@@ -448,7 +459,12 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
             presets,
             GreedyRequest(
                 mode=str(req.mode),
+                arena_rush_context="offense",
                 unit_ids_in_order=list(all_offense_units_in_order),
+                unit_archetype_by_uid={
+                    int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
+                    for uid in all_offense_units_in_order
+                },
                 time_limit_per_unit_s=float(req.time_limit_per_unit_s),
                 workers=int(req.workers),
                 multi_pass_enabled=bool(int(req.offense_pass_count) > 1),
@@ -526,7 +542,12 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
             )
             repair_kwargs = dict(
                 mode=str(req.mode),
+                arena_rush_context="offense",
                 unit_ids_in_order=list(expected_order),
+                unit_archetype_by_uid={
+                    int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
+                    for uid in expected_order
+                },
                 time_limit_per_unit_s=float(req.time_limit_per_unit_s),
                 workers=int(req.workers),
                 multi_pass_enabled=bool(int(req.offense_pass_count) > 1),

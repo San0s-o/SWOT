@@ -315,8 +315,14 @@ class BuildDialog(QDialog):
                 order_outer.addWidget(def_lw)
 
                 if len(teams) > 1:
+                    max_offense_cols = 5
                     off_grid = QGridLayout()
                     for t_off, team_units in enumerate(teams[1:], start=1):
+                        off_idx = int(t_off - 1)
+                        col = int(off_idx % max_offense_cols)
+                        row_block = int(off_idx // max_offense_cols)
+                        header_row = int(row_block * 2)
+                        list_row = int(header_row + 1)
                         team_title = (
                             self._order_team_titles[t_off]
                             if t_off < len(self._order_team_titles) and self._order_team_titles[t_off]
@@ -325,11 +331,11 @@ class BuildDialog(QDialog):
                         if self._show_speed_lead_controls:
                             hdr = QWidget()
                             hdr.setLayout(self._build_team_header_with_speed_lead(int(t_off), team_title, team_units))
-                            off_grid.addWidget(hdr, 0, t_off - 1)
+                            off_grid.addWidget(hdr, header_row, col)
                         else:
-                            off_grid.addWidget(QLabel(f"<b>{team_title}</b>"), 0, t_off - 1)
+                            off_grid.addWidget(QLabel(f"<b>{team_title}</b>"), header_row, col)
                         off_lw = _build_team_list(t_off, team_units)
-                        off_grid.addWidget(off_lw, 1, t_off - 1)
+                        off_grid.addWidget(off_lw, list_row, col)
                     order_outer.addLayout(off_grid)
             elif teams:
                 # Siege/WGB: all teams in a horizontal grid
@@ -341,14 +347,15 @@ class BuildDialog(QDialog):
                     teams_grid.addWidget(lw, 1, t)
                 order_outer.addLayout(teams_grid)
 
-            order_scroll = QScrollArea()
-            order_scroll.setWidgetResizable(True)
-            order_scroll.setWidget(order_box)
             if str(self.mode).strip().lower() == "arena_rush":
-                order_scroll.setMaximumHeight(430)
+                # In arena rush the content height is stable; avoid an extra inner scrollbar.
+                layout.addWidget(order_box)
             else:
+                order_scroll = QScrollArea()
+                order_scroll.setWidgetResizable(True)
+                order_scroll.setWidget(order_box)
                 order_scroll.setMaximumHeight(340)
-            layout.addWidget(order_scroll)
+                layout.addWidget(order_scroll)
 
         self._set1_combo: Dict[int, _SetMultiCombo] = {}
         self._set2_combo: Dict[int, _SetMultiCombo] = {}
@@ -847,7 +854,7 @@ class BuildDialog(QDialog):
             equipped = self._account.equipped_runes_for(int(unit_id), rune_mode)
             if not equipped:
                 continue
-            # Count complete sets
+            # Count complete set instances (e.g. 6x Shield => 3 complete Shield sets).
             set_counts: Dict[int, int] = {}
             for r in equipped:
                 sid = int(r.set_id or 0)
@@ -855,9 +862,14 @@ class BuildDialog(QDialog):
                     set_counts[sid] = set_counts.get(sid, 0) + 1
             active_sets: List[int] = []
             for sid, cnt in set_counts.items():
+                if sid not in SET_NAMES:
+                    continue
                 required = int(SET_SIZES.get(sid, 2))
-                if cnt >= required:
-                    active_sets.append(sid)
+                if required <= 0:
+                    continue
+                complete_count = int(cnt // required)
+                for _ in range(max(0, complete_count)):
+                    active_sets.append(int(sid))
             # Distribute into set slots by size: 4-sets first, then 2-sets
             active_sets.sort(key=lambda s: (-int(SET_SIZES.get(s, 2)), s))
             slot1_ids: List[int] = []

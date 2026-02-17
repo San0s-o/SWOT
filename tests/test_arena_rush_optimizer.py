@@ -202,3 +202,59 @@ def test_optimize_arena_rush_refines_with_effect_speed_floor(monkeypatch) -> Non
     assert len(calls) == 3
     assert len(result.offenses) == 1
     assert result.offenses[0].optimization.message == "off-refined"
+
+
+def test_turn_effect_capability_ignores_passive_self_atb() -> None:
+    from app.services.monster_turn_effects_service import _capability_from_skill_payload
+
+    payload = {
+        "passive": True,
+        "aoe": False,
+        "icon_filename": "skill_icon_0027_8_7.png",
+        "effects": [
+            {"effect": {"id": 17}, "quantity": 50, "self_effect": True},
+        ],
+    }
+
+    out = _capability_from_skill_payload(payload)
+
+    assert out["has_atb_boost"] is False
+    assert int(out["max_atb_boost_pct"]) == 0
+    assert str(out["atb_boost_skill_icon"]) == ""
+
+
+def test_turn_effect_capability_detects_active_teamwide_atb() -> None:
+    from app.services.monster_turn_effects_service import _capability_from_skill_payload
+
+    payload = {
+        "passive": False,
+        "aoe": True,
+        "icon_filename": "skill_icon_0000_9_6.png",
+        "effects": [
+            {"effect": {"id": 17}, "quantity": 30, "self_effect": False},
+        ],
+    }
+
+    out = _capability_from_skill_payload(payload)
+
+    assert out["has_atb_boost"] is True
+    assert int(out["max_atb_boost_pct"]) == 30
+    assert str(out["atb_boost_skill_icon"]) == "skill_icon_0000_9_6.png"
+
+
+def test_turn_effect_capability_ignores_single_target_atb() -> None:
+    from app.services.monster_turn_effects_service import _capability_from_skill_payload
+
+    payload = {
+        "passive": False,
+        "aoe": False,
+        "icon_filename": "skill_icon_0027_8_6.png",
+        "effects": [
+            {"effect": {"id": 17}, "quantity": 50, "self_effect": False},
+        ],
+    }
+
+    out = _capability_from_skill_payload(payload)
+
+    assert out["has_atb_boost"] is False
+    assert int(out["max_atb_boost_pct"]) == 0

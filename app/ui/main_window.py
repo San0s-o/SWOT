@@ -192,6 +192,11 @@ class MainWindow(QMainWindow):
         self._unit_combo_index_by_uid: Dict[int, int] = {}
         self._unit_text_cache_by_uid: Dict[int, str] = {}
         self._siege_optimization_running = False
+        self._lazy_view_dirty: Dict[str, bool] = {}
+        self._arena_rush_state_restore_pending = False
+        self._populated_unit_combo_ids: set[int] = set()
+        self._unit_combos_by_tab: Dict[str, List[QComboBox]] = {}
+        self._unit_combo_registration_tab = ""
 
         # paths
         self.project_root = Path(__file__).resolve().parents[2]
@@ -403,8 +408,8 @@ class MainWindow(QMainWindow):
     def _on_tab_changed(self, index: int) -> None:
         return _sec_on_tab_changed(self, index)
 
-    def _ensure_unit_dropdowns_populated(self) -> None:
-        return _sec_ensure_unit_dropdowns_populated(self)
+    def _ensure_unit_dropdowns_populated(self, tab: QWidget | None = None) -> None:
+        return _sec_ensure_unit_dropdowns_populated(self, tab)
 
     # ============================================================
     # Saved Optimization Tabs

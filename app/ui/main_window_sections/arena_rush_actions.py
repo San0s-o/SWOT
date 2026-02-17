@@ -34,6 +34,21 @@ def _arena_speed_lead_cache_path(window) -> Path:
     return Path(window.config_dir) / "arena_speed_lead_cache.json"
 
 
+def _arena_archetype_cache_path(window) -> Path:
+    return Path(window.config_dir) / "arena_archetype_cache.json"
+
+
+def _allow_online_metadata_fetch(window) -> bool:
+    settings_path = Path(window.config_dir) / "app_settings.json"
+    try:
+        if not settings_path.exists():
+            return False
+        raw = json.loads(settings_path.read_text(encoding="utf-8", errors="replace"))
+        return bool((raw or {}).get("allow_online_metadata_fetch", False))
+    except Exception:
+        return False
+
+
 def _load_arena_speed_lead_cache(path: Path) -> Dict[int, int]:
     try:
         if not path.exists():
@@ -86,6 +101,62 @@ def _fetch_arena_speed_lead_pct_for_com2us_id(com2us_id: int, timeout_s: float =
         return max(0, int(float(leader.get("amount") or 0)))
     except Exception:
         return 0
+
+
+def _load_arena_archetype_cache(path: Path) -> Dict[int, str]:
+    try:
+        if not path.exists():
+            return {}
+        raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        out: Dict[int, str] = {}
+        for k, v in dict(raw or {}).items():
+            try:
+                mid = int(k or 0)
+            except Exception:
+                continue
+            if mid <= 0:
+                continue
+            archetype = str(v or "").strip()
+            if archetype:
+                out[int(mid)] = archetype
+        return out
+    except Exception:
+        return {}
+
+
+def _save_arena_archetype_cache(path: Path, cache: Dict[int, str]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            str(int(mid)): str(arch)
+            for mid, arch in dict(cache or {}).items()
+            if int(mid) > 0 and str(arch or "").strip()
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        return
+
+
+def _fetch_archetype_for_com2us_id(com2us_id: int, timeout_s: float = 6.0) -> str:
+    cid = int(com2us_id or 0)
+    if cid <= 0:
+        return ""
+    try:
+        resp = requests.get(
+            "https://swarfarm.com/api/v2/monsters/",
+            params={"com2us_id": int(cid)},
+            timeout=float(timeout_s),
+        )
+        if int(resp.status_code) != 200:
+            return ""
+        payload = dict(resp.json() or {})
+        results = list(payload.get("results") or [])
+        if not results:
+            return ""
+        archetype = str((results[0] or {}).get("archetype") or "").strip()
+        return archetype
+    except Exception:
+        return ""
 
 
 def save_arena_rush_ui_state(window) -> None:
@@ -318,7 +389,12 @@ def _validate_arena_rush(window) -> Tuple[bool, str, List[int], List[TeamSelecti
     return True, tr("val.arena_ok", off_count=len(offense_teams)), defense_ids, offense_teams
 
 
-def _arena_effect_capabilities_by_unit(window, unit_ids: List[int]) -> Dict[int, Dict[str, object]]:
+def _arena_effect_capabilities_by_unit(
+    window,
+    unit_ids: List[int],
+    fetch_missing: bool = True,
+    ensure_icons_for_dialog: bool = True,
+) -> Dict[int, Dict[str, object]]:
     if not window.account:
         return {}
     uid_to_mid: Dict[int, int] = {}
@@ -332,21 +408,37 @@ def _arena_effect_capabilities_by_unit(window, unit_ids: List[int]) -> Dict[int,
     cache_path = window.project_root / "app" / "config" / "monster_turn_effect_capabilities.json"
     com2us_ids = sorted(set(uid_to_mid.values()))
     caps_by_cid = resolve_turn_effect_capabilities(
-        com2us_ids, cache_path=cache_path, fetch_missing=False,
+        com2us_ids,
+        cache_path=cache_path,
+        fetch_missing=bool(fetch_missing),
     )
-    skill_icons_dir = window.assets_dir / "skills"
-    ensure_skill_icons(caps_by_cid, skill_icons_dir)
+    if bool(ensure_icons_for_dialog):
+        skill_icons_dir = window.assets_dir / "skills"
+        ensure_skill_icons(caps_by_cid, skill_icons_dir)
     out: Dict[int, Dict[str, object]] = {}
     for uid, mid in uid_to_mid.items():
         cap = dict(caps_by_cid.get(mid) or {})
         base = dict(window.monster_db.turn_effect_capability_for(mid) or {})
-        base["spd_buff_skill_icon"] = str(cap.get("spd_buff_skill_icon", "") or "")
-        base["atb_boost_skill_icon"] = str(cap.get("atb_boost_skill_icon", "") or "")
-        out[int(uid)] = base
+        has_spd_buff = bool(cap.get("has_spd_buff", base.get("has_spd_buff", False)))
+        has_atb_boost = bool(cap.get("has_atb_boost", base.get("has_atb_boost", False)))
+        max_atb_boost_pct = int(cap.get("max_atb_boost_pct", base.get("max_atb_boost_pct", 0)) or 0)
+        if has_atb_boost and max_atb_boost_pct <= 0:
+            max_atb_boost_pct = 100
+        out[int(uid)] = {
+            "has_spd_buff": has_spd_buff,
+            "has_atb_boost": has_atb_boost,
+            "max_atb_boost_pct": int(max_atb_boost_pct),
+            "spd_buff_skill_icon": str(cap.get("spd_buff_skill_icon", "") or ""),
+            "atb_boost_skill_icon": str(cap.get("atb_boost_skill_icon", "") or ""),
+        }
     return out
 
 
-def _arena_speed_lead_pct_by_uid(window, unit_ids: List[int]) -> Dict[int, int]:
+def _arena_speed_lead_pct_by_uid(
+    window,
+    unit_ids: List[int],
+    fetch_missing: bool = True,
+) -> Dict[int, int]:
     out: Dict[int, int] = {}
     if not window.account:
         return out
@@ -368,14 +460,51 @@ def _arena_speed_lead_pct_by_uid(window, unit_ids: List[int]) -> Dict[int, int]:
             if int(mid) in cache:
                 pct = int(cache.get(int(mid), 0) or 0)
             else:
-                fetched_pct = _fetch_arena_speed_lead_pct_for_com2us_id(int(mid))
-                cache[int(mid)] = int(fetched_pct)
-                cache_changed = True
-                pct = int(fetched_pct)
+                if bool(fetch_missing):
+                    fetched_pct = _fetch_arena_speed_lead_pct_for_com2us_id(int(mid))
+                    cache[int(mid)] = int(fetched_pct)
+                    cache_changed = True
+                    pct = int(fetched_pct)
         if pct > 0:
             out[int(uid)] = int(pct)
     if cache_changed:
         _save_arena_speed_lead_cache(cache_path, cache)
+    return out
+
+
+def _arena_archetype_by_uid(
+    window,
+    unit_ids: List[int],
+    fetch_missing: bool = True,
+) -> Dict[int, str]:
+    out: Dict[int, str] = {}
+    if not window.account:
+        return out
+    cache_path = _arena_archetype_cache_path(window)
+    cache = _load_arena_archetype_cache(cache_path)
+    cache_changed = False
+    for uid in [int(x) for x in (unit_ids or []) if int(x) > 0]:
+        unit = window.account.units_by_id.get(int(uid))
+        if unit is None:
+            continue
+        mid = int(unit.unit_master_id or 0)
+        if mid <= 0:
+            continue
+        archetype = str(window.monster_db.archetype_for(int(mid)) or "").strip()
+        if not archetype or archetype.lower() == "unknown":
+            if int(mid) in cache:
+                archetype = str(cache.get(int(mid), "") or "").strip()
+            else:
+                if bool(fetch_missing):
+                    fetched = _fetch_archetype_for_com2us_id(int(mid))
+                    if fetched:
+                        cache[int(mid)] = str(fetched)
+                        cache_changed = True
+                        archetype = str(fetched)
+        if archetype:
+            out[int(uid)] = str(archetype)
+    if cache_changed:
+        _save_arena_archetype_cache(cache_path, cache)
     return out
 
 
@@ -415,7 +544,12 @@ def on_edit_presets_arena_rush(window) -> None:
     for sel in offense_teams:
         order_teams.append([(int(uid), window._unit_text(int(uid))) for uid in sel.unit_ids])
         order_team_titles.append(tr("label.offense", n=int(sel.team_index) + 1))
-    speed_lead_pct_by_uid = _arena_speed_lead_pct_by_uid(window, all_ids)
+    # Keep dialog opening fast: use local/cached data only, no blocking web fetches.
+    speed_lead_pct_by_uid = _arena_speed_lead_pct_by_uid(
+        window,
+        all_ids,
+        fetch_missing=False,
+    )
     order_speed_leaders: List[int] = [int(getattr(window, "arena_def_speed_lead_uid", 0) or 0)]
     order_speed_lead_pct_by_team: List[int] = [int(getattr(window, "arena_def_speed_lead_pct", 0) or 0)]
     off_speed_state = dict(getattr(window, "arena_offense_speed_lead_uid_by_team", {}) or {})
@@ -423,7 +557,13 @@ def on_edit_presets_arena_rush(window) -> None:
     for sel in offense_teams:
         order_speed_leaders.append(int(off_speed_state.get(int(sel.team_index), 0) or 0))
         order_speed_lead_pct_by_team.append(int(off_speed_pct_state.get(int(sel.team_index), 0) or 0))
-    effect_caps_by_uid = _arena_effect_capabilities_by_unit(window, all_ids)
+    # Keep dialog opening fast: use cached capabilities only, no blocking web fetches.
+    effect_caps_by_uid = _arena_effect_capabilities_by_unit(
+        window,
+        all_ids,
+        fetch_missing=False,
+        ensure_icons_for_dialog=False,
+    )
     arena_effect_state = dict(getattr(window, "arena_offense_turn_effects", {}) or {})
     order_turn_effects: List[Dict[int, Dict[str, object]]] = [{}]
     for sel in offense_teams:
@@ -638,6 +778,14 @@ def on_optimize_arena_rush(window) -> None:
             }
         )
     window._arena_rush_last_offense_payload = offense_payload_debug
+    all_selected_uids: List[int] = list(defense_ids)
+    for row in offense_payload:
+        all_selected_uids.extend([int(uid) for uid in (row.unit_ids or []) if int(uid) > 0])
+    unit_archetype_by_uid = _arena_archetype_by_uid(
+        window,
+        all_selected_uids,
+        fetch_missing=_allow_online_metadata_fetch(window),
+    )
 
     def _run_arena_rush(
         is_cancelled,
@@ -649,6 +797,7 @@ def on_optimize_arena_rush(window) -> None:
             defense_unit_ids=list(defense_ids),
             defense_unit_team_turn_order=defense_turn_order,
             defense_unit_spd_leader_bonus_flat=defense_leader_bonus,
+            unit_archetype_by_uid=dict(unit_archetype_by_uid),
             offense_teams=offense_payload,
             workers=workers,
             time_limit_per_unit_s=5.0,
