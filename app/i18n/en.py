@@ -65,6 +65,7 @@ STRINGS: dict[str, str] = {
     "label.units": "units",
     "label.defense": "Defense {n}",
     "label.arena_defense": "Arena Defense",
+    "label.arena_offense": "Arena Offense {n}",
     "label.offense": "Offense {n}",
     "label.active": "Active",
     "label.import_account_first": "Import an account first.",

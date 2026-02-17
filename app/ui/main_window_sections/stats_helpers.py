@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Dict, List, Tuple
 
+from app.engine.arena_rush_timing import effective_spd_buff_pct_for_unit, spd_buff_increase_pct_for_unit
 
 def unit_base_stats(window, unit_id: int) -> Dict[str, int]:
     if not window.account:
@@ -19,6 +21,141 @@ def unit_base_stats(window, unit_id: int) -> Dict[str, int]:
         "RES": int(u.base_res or 15),
         "ACC": int(u.base_acc or 0),
     }
+
+
+def _arena_rush_team_context(window, team_unit_ids: List[int]) -> Tuple[str, int]:
+    ids = [int(uid) for uid in (team_unit_ids or []) if int(uid) > 0]
+    if not ids:
+        return "", -1
+    ids_set = set(ids)
+    try:
+        def_ids = []
+        for cmb in (getattr(window, "arena_def_combos", []) or []):
+            uid = int(cmb.currentData() or 0)
+            if uid > 0:
+                def_ids.append(uid)
+        if len(def_ids) == len(ids) and set(def_ids) == ids_set:
+            return "defense", -1
+    except Exception:
+        pass
+    try:
+        off_rows = list(getattr(window, "arena_offense_team_combos", []) or [])
+        off_enabled = list(getattr(window, "chk_arena_offense_enabled", []) or [])
+        for team_index, row in enumerate(off_rows):
+            if team_index < len(off_enabled) and not bool(off_enabled[team_index].isChecked()):
+                continue
+            sids = []
+            for cmb in row:
+                uid = int(cmb.currentData() or 0)
+                if uid > 0:
+                    sids.append(uid)
+            if len(sids) == len(ids) and set(sids) == ids_set:
+                return "offense", int(team_index)
+    except Exception:
+        pass
+    return "", -1
+
+
+def _arena_rush_selected_speed_lead(window, team_unit_ids: List[int]):
+    if not window.account:
+        return None
+    ctx, off_idx = _arena_rush_team_context(window, team_unit_ids)
+    lead_uid = 0
+    lead_pct = 0
+    if ctx == "defense":
+        lead_uid = int(getattr(window, "arena_def_speed_lead_uid", 0) or 0)
+        lead_pct = int(getattr(window, "arena_def_speed_lead_pct", 0) or 0)
+    elif ctx == "offense":
+        lead_uid = int(dict(getattr(window, "arena_offense_speed_lead_uid_by_team", {}) or {}).get(int(off_idx), 0) or 0)
+        lead_pct = int(dict(getattr(window, "arena_offense_speed_lead_pct_by_team", {}) or {}).get(int(off_idx), 0) or 0)
+    if lead_uid <= 0 or lead_uid not in {int(uid) for uid in (team_unit_ids or []) if int(uid) > 0}:
+        return None
+    if lead_pct <= 0:
+        lead_unit = window.account.units_by_id.get(int(lead_uid))
+        if lead_unit is None:
+            return None
+        ls = window.monster_db.leader_skill_for(int(lead_unit.unit_master_id))
+        if not ls or str(ls.stat).strip().upper() != "SPD%" or str(ls.area).strip() not in ("Arena", "General"):
+            return None
+        lead_pct = int(ls.amount or 0)
+    if lead_pct <= 0:
+        return None
+    return SimpleNamespace(stat="SPD%", amount=int(lead_pct), area="Arena", element="")
+
+
+def _arena_rush_spd_buff_bonus_for_unit(
+    window,
+    unit_id: int,
+    team_unit_ids: List[int],
+    base_spd: int,
+    artifacts_by_unit: Dict[int, Dict[int, int]] | None = None,
+) -> int:
+    mode_ctx = str(getattr(window, "_result_mode_context", "") or "").strip().lower()
+    if mode_ctx != "arena_rush":
+        return 0
+    ctx, off_idx = _arena_rush_team_context(window, team_unit_ids)
+    if ctx != "offense" or int(off_idx) < 0:
+        return 0
+    order = [int(uid) for uid in (team_unit_ids or []) if int(uid) > 0]
+    target_uid = int(unit_id or 0)
+    if target_uid <= 0 or target_uid not in order:
+        return 0
+    target_pos = order.index(int(target_uid))
+    team_effects: Dict[int, Dict[str, object]] = {}
+    payload_rows = list(getattr(window, "_arena_rush_last_offense_payload", []) or [])
+    for row in payload_rows:
+        r_off_idx = int((row or {}).get("team_index", -1) or -1)
+        r_ids = [int(uid) for uid in ((row or {}).get("unit_ids") or []) if int(uid) > 0]
+        if r_off_idx == int(off_idx) and r_ids == order:
+            team_effects = {
+                int(uid): dict(cfg or {})
+                for uid, cfg in dict((row or {}).get("turn_effects_by_unit") or {}).items()
+                if int(uid or 0) > 0
+            }
+            break
+    if not team_effects:
+        team_effects = dict(dict(getattr(window, "arena_offense_turn_effects", {}) or {}).get(int(off_idx), {}) or {})
+    applies = False
+    for pos, caster_uid in enumerate(order):
+        if pos >= target_pos:
+            break
+        cfg = dict(team_effects.get(int(caster_uid), {}) or {})
+        if not bool(cfg.get("applies_spd_buff", False)):
+            continue
+        applies = True
+        break
+    if not applies:
+        return 0
+    artifact_lookup = {int(a.artifact_id): a for a in (window.account.artifacts or [])}
+    selected_artifacts = dict((artifacts_by_unit or {}).get(int(target_uid), {}) or {})
+    artifact_ids = [int(aid) for aid in selected_artifacts.values() if int(aid or 0) > 0]
+    inc_pct = spd_buff_increase_pct_for_unit(artifact_ids, artifact_lookup)
+    eff_buff_pct = effective_spd_buff_pct_for_unit(inc_pct, base_spd_buff_pct=30.0)
+    return int(int(base_spd or 0) * float(eff_buff_pct) / 100.0)
+
+
+def unit_spd_buff_bonus(
+    window,
+    unit_id: int,
+    team_unit_ids: List[int],
+    artifacts_by_unit: Dict[int, Dict[int, int]] | None = None,
+) -> Dict[str, int]:
+    if not window.account:
+        return {}
+    u = window.account.units_by_id.get(int(unit_id))
+    if u is None:
+        return {}
+    base_spd = int(u.base_spd or 0)
+    bonus = _arena_rush_spd_buff_bonus_for_unit(
+        window,
+        int(unit_id),
+        list(team_unit_ids or []),
+        base_spd,
+        artifacts_by_unit=artifacts_by_unit,
+    )
+    if bonus <= 0:
+        return {}
+    return {"SPD": int(bonus)}
 
 
 def unit_leader_bonus(window, unit_id: int, team_unit_ids: List[int]) -> Dict[str, int]:
@@ -68,7 +205,13 @@ def unit_totem_bonus(window, unit_id: int) -> Dict[str, int]:
     return out
 
 
-def unit_final_spd_value(window, unit_id: int, team_unit_ids: List[int], runes_by_unit: Dict[int, Dict[int, int]]) -> int:
+def unit_final_spd_value(
+    window,
+    unit_id: int,
+    team_unit_ids: List[int],
+    runes_by_unit: Dict[int, Dict[int, int]],
+    artifacts_by_unit: Dict[int, Dict[int, int]] | None = None,
+) -> int:
     if not window.account:
         return 0
     u = window.account.units_by_id.get(unit_id)
@@ -96,10 +239,19 @@ def unit_final_spd_value(window, unit_id: int, team_unit_ids: List[int], runes_b
 
     ls = window._team_leader_skill(team_unit_ids)
     lead_spd_bonus = int(base_spd * ls.amount / 100) if ls and ls.stat == "SPD%" else 0
-    return int(base_spd + rune_spd_flat + set_spd_bonus + totem_spd_bonus + lead_spd_bonus)
+    spd_buff_bonus = _arena_rush_spd_buff_bonus_for_unit(
+        window, unit_id, team_unit_ids, base_spd, artifacts_by_unit=artifacts_by_unit
+    )
+    return int(base_spd + rune_spd_flat + set_spd_bonus + totem_spd_bonus + lead_spd_bonus + spd_buff_bonus)
 
 
-def unit_final_stats_values(window, unit_id: int, team_unit_ids: List[int], runes_by_unit: Dict[int, Dict[int, int]]) -> Dict[str, int]:
+def unit_final_stats_values(
+    window,
+    unit_id: int,
+    team_unit_ids: List[int],
+    runes_by_unit: Dict[int, Dict[int, int]],
+    artifacts_by_unit: Dict[int, Dict[int, int]] | None = None,
+) -> Dict[str, int]:
     if not window.account:
         return {}
     u = window.account.units_by_id.get(unit_id)
@@ -202,7 +354,10 @@ def unit_final_stats_values(window, unit_id: int, team_unit_ids: List[int], rune
     hp = base_hp + flat_hp + int(base_hp * pct_hp / 100) + lead_hp
     atk = base_atk + flat_atk + int(base_atk * pct_atk / 100) + lead_atk
     deff = base_def + flat_def + int(base_def * pct_def / 100) + lead_def
-    spd = base_spd + add_spd + spd_from_swift + spd_from_totem + lead_spd
+    spd_buff_bonus = _arena_rush_spd_buff_bonus_for_unit(
+        window, unit_id, team_unit_ids, base_spd, artifacts_by_unit=artifacts_by_unit
+    )
+    spd = base_spd + add_spd + spd_from_swift + spd_from_totem + lead_spd + spd_buff_bonus
 
     return {
         "HP": int(hp),
@@ -219,6 +374,11 @@ def unit_final_stats_values(window, unit_id: int, team_unit_ids: List[int], rune
 def team_leader_skill(window, team_unit_ids: List[int]):
     if not window.account or not team_unit_ids:
         return None
+    mode_ctx = str(getattr(window, "_result_mode_context", "") or "").strip().lower()
+    if mode_ctx == "arena_rush":
+        selected = _arena_rush_selected_speed_lead(window, team_unit_ids)
+        if selected is not None:
+            return selected
     leader_uid = team_unit_ids[0]
     u = window.account.units_by_id.get(int(leader_uid))
     if not u:

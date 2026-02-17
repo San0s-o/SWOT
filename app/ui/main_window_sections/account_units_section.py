@@ -81,6 +81,13 @@ def apply_saved_account(window, account, source_label: str) -> None:
     if hasattr(window, "lbl_arena_rush_validate"):
         window.lbl_arena_rush_validate.setText(tr("status.arena_rush_ready"))
 
+    if hasattr(window, "arena_def_combos") and hasattr(window, "arena_offense_team_combos"):
+        try:
+            from app.ui.main_window_sections.arena_rush_actions import restore_arena_rush_ui_state
+            restore_arena_rush_ui_state(window)
+        except Exception:
+            pass
+
     window._ensure_siege_team_defaults()
     window._refresh_team_combo()
     window._set_team_controls_enabled(True)

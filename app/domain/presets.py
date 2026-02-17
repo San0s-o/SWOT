@@ -199,6 +199,7 @@ class BuildStore:
         "siege": ModeBuilds(),
         "wgb": ModeBuilds(),
         "rta": ModeBuilds(),
+        "arena_rush": ModeBuilds(),
     })
 
     # -----------------------------
@@ -215,7 +216,7 @@ class BuildStore:
         store.version = str(raw.get("version") or store.version)
 
         modes_raw = raw.get("modes") or {}
-        for mode in ("siege", "wgb", "rta"):
+        for mode in ("siege", "wgb", "rta", "arena_rush"):
             mr = modes_raw.get(mode) or {}
             mb = ModeBuilds()
             by = mr.get("by_unit_id") or {}

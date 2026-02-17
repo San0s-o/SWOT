@@ -1,35 +1,26 @@
 ﻿from __future__ import annotations
 
-import json
-import os
-import subprocess
-import sys
-import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Tuple, Set, Dict, Callable, Any
+from typing import Optional, List, Tuple, Dict, Callable, Any
 
-from PySide6.QtCore import Qt, QSize, QTimer, QThreadPool, QEventLoop
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel,
-    QMessageBox, QTabWidget, QComboBox, QProgressDialog
+    QTabWidget, QComboBox
 )
 
-from app.domain.models import AccountData, Rune, Artifact
+from app.domain.models import AccountData
 from app.domain.monster_db import MonsterDB
 from app.domain.presets import (
     BuildStore,
-    SET_NAMES,
 )
 from app.engine.greedy_optimizer import GreedyUnitResult
 from app.services.account_persistence import AccountPersistence
 from app.domain.team_store import TeamStore, Team
-from app.domain.optimization_store import OptimizationStore, SavedUnitResult
-from app.ui.async_worker import _TaskWorker
-from app.ui.dialogs.optimize_result_dialog import OptimizeResultDialog
-from app.ui.license_flow import _apply_license_title, _ensure_license_accepted
+from app.domain.optimization_store import OptimizationStore
 from app.ui.main_window_sections.builders_and_saved import (
     init_saved_siege_tab as _sec_init_saved_siege_tab,
     init_saved_wgb_tab as _sec_init_saved_wgb_tab,
@@ -39,7 +30,6 @@ from app.ui.main_window_sections.builders_and_saved import (
     refresh_saved_opt_combo as _sec_refresh_saved_opt_combo,
     on_saved_opt_changed as _sec_on_saved_opt_changed,
     on_delete_saved_opt as _sec_on_delete_saved_opt,
-    new_unit_search_combo as _sec_new_unit_search_combo,
     init_siege_builder_ui as _sec_init_siege_builder_ui,
     init_wgb_builder_ui as _sec_init_wgb_builder_ui,
     init_rta_builder_ui as _sec_init_rta_builder_ui,
@@ -68,14 +58,6 @@ from app.ui.main_window_sections.mode_actions import (
     on_validate_rta as _sec_on_validate_rta,
     on_edit_presets_rta as _sec_on_edit_presets_rta,
     on_optimize_rta as _sec_on_optimize_rta,
-    on_take_current_arena_def as _sec_on_take_current_arena_def,
-    on_take_current_arena_off as _sec_on_take_current_arena_off,
-    collect_arena_def_selection as _sec_collect_arena_def_selection,
-    collect_arena_offense_selections as _sec_collect_arena_offense_selections,
-    on_validate_arena_rush as _sec_on_validate_arena_rush,
-    on_edit_presets_arena_rush as _sec_on_edit_presets_arena_rush,
-    on_optimize_arena_rush as _sec_on_optimize_arena_rush,
-    _validate_arena_rush as _sec_validate_arena_rush,
 )
 from app.ui.main_window_sections.team_section import (
     init_team_tab_ui as _sec_init_team_tab_ui,
@@ -95,6 +77,7 @@ from app.ui.main_window_sections.stats_helpers import (
     unit_base_stats as _sec_unit_base_stats,
     unit_leader_bonus as _sec_unit_leader_bonus,
     unit_totem_bonus as _sec_unit_totem_bonus,
+    unit_spd_buff_bonus as _sec_unit_spd_buff_bonus,
     unit_final_spd_value as _sec_unit_final_spd_value,
     unit_final_stats_values as _sec_unit_final_stats_values,
     team_leader_skill as _sec_team_leader_skill,
@@ -136,32 +119,37 @@ from app.ui.main_window_sections.settings_section import (
     on_settings_language_changed as _sec_on_settings_language_changed,
     retranslate_settings as _sec_retranslate_settings,
 )
-from app.ui.theme import apply_dark_palette as _apply_dark_palette_impl
-from app.ui.update_flow import _start_update_check
+from app.ui.main_window_sections.worker_controls_section import (
+    max_solver_workers as _sec_max_solver_workers,
+    default_solver_workers as _sec_default_solver_workers,
+    gpu_search_available as _sec_gpu_search_available,
+    populate_worker_combo as _sec_populate_worker_combo,
+    effective_workers as _sec_effective_workers,
+    sync_worker_controls as _sec_sync_worker_controls,
+)
+from app.ui.main_window_sections.tab_order_section import (
+    on_tab_moved as _sec_on_tab_moved,
+    save_tab_order as _sec_save_tab_order,
+    restore_tab_order as _sec_restore_tab_order,
+)
+from app.ui.main_window_sections.async_progress_section import (
+    build_pass_progress_callback as _sec_build_pass_progress_callback,
+    run_with_busy_progress as _sec_run_with_busy_progress,
+)
+from app.ui.main_window_sections.results_section import (
+    show_optimize_results as _sec_show_optimize_results,
+)
+from app.ui.main_window_sections.runtime_section import (
+    apply_dark_palette as _sec_apply_dark_palette,
+    acquire_single_instance as _sec_acquire_single_instance,
+    run_app as _sec_run_app,
+)
 from app.ui.widgets.reorderable_tab_bar import ReorderableTabBar
-from app.ui.widgets.selection_combos import _UnitSearchComboBox
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.overview_widget import OverviewWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
 from app.ui.rune_optimization_widget import RuneOptimizationWidget
 from app.i18n import tr
-
-
-DEFAULT_TAB_ORDER = [
-    "tab_overview",
-    "tab_siege_raw",
-    "tab_rta_overview",
-    "tab_rune_optimization",
-    "tab_siege_builder",
-    "tab_saved_siege",
-    "tab_wgb_builder",
-    "tab_saved_wgb",
-    "tab_rta_builder",
-    "tab_saved_rta",
-    "tab_arena_rush_builder",
-    "tab_saved_arena_rush",
-    "tab_settings",
-]
 
 
 @dataclass
@@ -173,53 +161,24 @@ class TeamSelection:
 class MainWindow(QMainWindow):
     @staticmethod
     def _max_solver_workers() -> int:
-        total = max(1, int(os.cpu_count() or 8))
-        return max(1, int(total * 0.9))
+        return _sec_max_solver_workers()
 
     @staticmethod
     def _default_solver_workers() -> int:
-        m = MainWindow._max_solver_workers()
-        return max(1, min(m, m // 2 if m > 1 else 1))
+        return _sec_default_solver_workers()
 
     @staticmethod
     def _gpu_search_available() -> bool:
-        try:
-            import torch  # type: ignore
-
-            return bool(torch.cuda.is_available())
-        except Exception:
-            return False
+        return _sec_gpu_search_available()
 
     def _populate_worker_combo(self, combo: QComboBox) -> None:
-        combo.clear()
-        max_w = self._max_solver_workers()
-        for w in range(1, max_w + 1):
-            combo.addItem(str(w), int(w))
-        default_w = self._default_solver_workers()
-        idx = combo.findData(int(default_w))
-        combo.setCurrentIndex(idx if idx >= 0 else 0)
-        combo.setToolTip(tr("tooltip.workers"))
+        return _sec_populate_worker_combo(self, combo)
 
     def _effective_workers(self, quality_profile: str, combo: QComboBox) -> int:
-        prof = str(quality_profile or "").strip().lower()
-        if prof in ("max_quality", "gpu_search_max"):
-            return int(combo.currentData() or self._default_solver_workers())
-        return int(self._default_solver_workers())
+        return _sec_effective_workers(self, quality_profile, combo)
 
     def _sync_worker_controls(self) -> None:
-        def _apply(profile_combo_attr: str, workers_combo_attr: str) -> None:
-            prof = getattr(self, profile_combo_attr, None)
-            workers = getattr(self, workers_combo_attr, None)
-            if prof is None or workers is None:
-                return
-            is_max = str(prof.currentData() or "").strip().lower() in ("max_quality", "gpu_search_max")
-            workers.setEnabled(bool(is_max))
-
-        _apply("combo_quality_profile_siege", "combo_workers_siege")
-        _apply("combo_quality_profile_wgb", "combo_workers_wgb")
-        _apply("combo_quality_profile_rta", "combo_workers_rta")
-        _apply("combo_quality_profile_arena_rush", "combo_workers_arena_rush")
-        _apply("combo_quality_profile_team", "combo_workers_team")
+        return _sec_sync_worker_controls(self)
 
     def __init__(self):
         super().__init__()
@@ -375,73 +334,13 @@ class MainWindow(QMainWindow):
     _tab_move_guard = False
 
     def _on_tab_moved(self, from_index: int, to_index: int) -> None:
-        if self._tab_move_guard:
-            return
-        overview_idx = self.tabs.indexOf(self.tab_overview)
-        if overview_idx != 0:
-            self._tab_move_guard = True
-            self.tabs.tabBar().moveTab(overview_idx, 0)
-            self._tab_move_guard = False
-        self._save_tab_order()
+        return _sec_on_tab_moved(self, from_index, to_index)
 
     def _save_tab_order(self) -> None:
-        order = []
-        for i in range(self.tabs.count()):
-            widget = self.tabs.widget(i)
-            for attr_name in DEFAULT_TAB_ORDER:
-                if getattr(self, attr_name, None) is widget:
-                    order.append(attr_name)
-                    break
-        settings_path = self.config_dir / "app_settings.json"
-        data: dict = {}
-        if settings_path.exists():
-            try:
-                data = json.loads(settings_path.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
-        data["tab_order"] = order
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        return _sec_save_tab_order(self)
 
     def _restore_tab_order(self) -> None:
-        settings_path = self.config_dir / "app_settings.json"
-        if not settings_path.exists():
-            return
-        try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
-        saved_order = data.get("tab_order")
-        if not saved_order or not isinstance(saved_order, list):
-            return
-        if saved_order[0] != "tab_overview":
-            return
-
-        known: Dict[str, QWidget] = {}
-        for attr_name in DEFAULT_TAB_ORDER:
-            widget = getattr(self, attr_name, None)
-            if widget is not None:
-                known[attr_name] = widget
-
-        valid_order: List[str] = []
-        seen: Set[str] = set()
-        for name in saved_order:
-            if name in known and name not in seen:
-                valid_order.append(name)
-                seen.add(name)
-        for name in DEFAULT_TAB_ORDER:
-            if name not in seen and name in known:
-                valid_order.append(name)
-
-        self._tab_move_guard = True
-        for target_index, attr_name in enumerate(valid_order):
-            widget = known[attr_name]
-            current_index = self.tabs.indexOf(widget)
-            if current_index != target_index and current_index >= 0:
-                self.tabs.tabBar().moveTab(current_index, target_index)
-        self._tab_move_guard = False
+        return _sec_restore_tab_order(self)
 
     # ============================================================
     # Help dialog
@@ -462,110 +361,14 @@ class MainWindow(QMainWindow):
         return _sec_try_restore_snapshot(self)
 
     def _build_pass_progress_callback(self, label: QLabel, prefix: str) -> Callable[[int, int], None]:
-        def _cb(current_pass: int, total_passes: int) -> None:
-            text = tr("status.pass_progress", prefix=prefix, current=int(current_pass), total=int(total_passes))
-            label.setText(text)
-            self.statusBar().showMessage(text)
-            QApplication.processEvents()
-        return _cb
+        return _sec_build_pass_progress_callback(self, label, prefix)
 
     def _run_with_busy_progress(
         self,
         text: str,
         work_fn: Callable[[Callable[[], bool], Callable[[Any], None], Callable[[int, int], None]], Any],
     ) -> Any:
-        dlg = QProgressDialog(text, tr("btn.cancel"), 0, 0, self)
-        dlg.setWindowTitle(tr("btn.optimize"))
-        dlg.setLabelText(text)
-        dlg.setWindowModality(Qt.ApplicationModal)
-        dlg.setCancelButtonText(tr("btn.cancel"))
-        dlg.setMinimumDuration(0)
-        dlg.setAutoClose(False)
-        dlg.setAutoReset(False)
-        dlg.setRange(0, 0)
-        dlg.show()
-        QApplication.processEvents()
-
-        cancel_event = threading.Event()
-        solver_lock = threading.Lock()
-        active_solvers: List[Any] = []
-        progress_lock = threading.Lock()
-        progress_state: Dict[str, int] = {"current": 0, "total": 0}
-
-        def _is_cancelled() -> bool:
-            return bool(cancel_event.is_set())
-
-        def _register_solver(solver_obj: Any) -> None:
-            with solver_lock:
-                active_solvers.append(solver_obj)
-
-        def _report_progress(current: int, total: int) -> None:
-            with progress_lock:
-                progress_state["current"] = max(0, int(current or 0))
-                progress_state["total"] = max(0, int(total or 0))
-
-        def _refresh_progress() -> None:
-            if cancel_event.is_set():
-                return
-            with progress_lock:
-                current = int(progress_state.get("current", 0))
-                total = int(progress_state.get("total", 0))
-            if total <= 0:
-                return
-            if dlg.maximum() == 0:
-                dlg.setRange(0, 100)
-                dlg.setValue(0)
-            pct = max(0, min(100, int(round((float(current) / float(total)) * 100.0))))
-            dlg.setValue(pct)
-            label_text = f"{text} ({pct}%)"
-            dlg.setLabelText(label_text)
-            self.statusBar().showMessage(label_text)
-
-        progress_timer = QTimer(dlg)
-        progress_timer.timeout.connect(_refresh_progress)
-        progress_timer.start(120)
-
-        def _request_cancel() -> None:
-            cancel_event.set()
-            dlg.setLabelText(tr("opt.cancelled"))
-            with solver_lock:
-                solvers = list(active_solvers)
-            for s in solvers:
-                try:
-                    if hasattr(s, "StopSearch"):
-                        s.StopSearch()
-                    elif hasattr(s, "stop_search"):
-                        s.stop_search()
-                except Exception:
-                    continue
-
-        dlg.canceled.connect(_request_cancel)
-
-        wait_loop = QEventLoop()
-        out: Dict[str, Any] = {}
-        err: Dict[str, str] = {}
-        worker = _TaskWorker(lambda: work_fn(_is_cancelled, _register_solver, _report_progress))
-
-        def _on_finished(result: Any) -> None:
-            out["result"] = result
-            wait_loop.quit()
-
-        def _on_failed(msg: str) -> None:
-            err["msg"] = str(msg)
-            wait_loop.quit()
-
-        worker.signals.finished.connect(_on_finished)
-        worker.signals.failed.connect(_on_failed)
-        QThreadPool.globalInstance().start(worker)
-        wait_loop.exec()
-
-        progress_timer.stop()
-        dlg.close()
-        dlg.deleteLater()
-        QApplication.processEvents()
-        if "msg" in err:
-            raise RuntimeError(err["msg"])
-        return out.get("result")
+        return _sec_run_with_busy_progress(self, text, work_fn)
 
     # ============================================================
     # Helpers: names+icons
@@ -644,9 +447,6 @@ class MainWindow(QMainWindow):
     # ============================================================
     # Custom Builders UI
     # ============================================================
-    def _new_unit_search_combo(self, min_width: int = 300) -> _UnitSearchComboBox:
-        return _sec_new_unit_search_combo(self, min_width=min_width)
-
     def _init_siege_builder_ui(self):
         return _sec_init_siege_builder_ui(self)
 
@@ -701,59 +501,21 @@ class MainWindow(QMainWindow):
         unit_display_order: Optional[Dict[int, int]] = None,
         mode: str = "",
         teams: Optional[List[List[int]]] = None,
+        team_header_by_index: Optional[Dict[int, str]] = None,
+        group_size: int = 3,
     ) -> None:
-        if not self.account:
-            QMessageBox.warning(self, tr("result.title_siege"), tr("dlg.load_import_first"))
-            return
-        rune_lookup: Dict[int, Rune] = {r.rune_id: r for r in self.account.runes}
-        artifact_lookup: Dict[int, Artifact] = {int(a.artifact_id): a for a in self.account.artifacts}
-        # Build mode-specific rune owner lookup (rune_id -> unit_id)
-        mode_rune_owner: Dict[int, int] = {}
-        if mode in ("siege", "guild", "wgb"):
-            for uid, rids in self.account.guild_rune_equip.items():
-                for rid in rids:
-                    mode_rune_owner[rid] = uid
-        elif mode == "rta":
-            for uid, rids in self.account.rta_rune_equip.items():
-                for rid in rids:
-                    mode_rune_owner[rid] = uid
-        dlg = OptimizeResultDialog(
+        return _sec_show_optimize_results(
             self,
             title,
             summary,
             results,
-            rune_lookup,
-            artifact_lookup,
-            self._unit_text,
-            self._unit_icon_for_unit_id,
-            self._unit_final_spd_value,
-            self._unit_final_stats_values,
-            self._rune_set_icon,
-            self._unit_base_stats,
-            self._unit_leader_bonus,
-            self._unit_totem_bonus,
             unit_team_index=unit_team_index,
             unit_display_order=unit_display_order,
-            mode_rune_owner=mode_rune_owner,
+            mode=mode,
+            teams=teams,
+            team_header_by_index=team_header_by_index,
+            group_size=group_size,
         )
-        dlg.exec()
-
-        if dlg.saved and mode and teams:
-            from datetime import datetime
-            ts = datetime.now().strftime("%d.%m.%Y %H:%M")
-            name = tr("result.opt_name", mode=mode.upper(), ts=ts)
-            saved_results: List[SavedUnitResult] = []
-            for r in results:
-                if r.ok and r.runes_by_slot:
-                    saved_results.append(SavedUnitResult(
-                        unit_id=r.unit_id,
-                        runes_by_slot=dict(r.runes_by_slot),
-                        artifacts_by_type=dict(r.artifacts_by_type or {}),
-                        final_speed=r.final_speed,
-                    ))
-            self.opt_store.upsert(mode, name, teams, saved_results)
-            self.opt_store.save(self.opt_store_path)
-            self._refresh_saved_opt_combo(mode)
 
     def _unit_icon_for_unit_id(self, unit_id: int) -> QIcon:
         if not self.account:
@@ -772,21 +534,31 @@ class MainWindow(QMainWindow):
     def _unit_totem_bonus(self, unit_id: int) -> Dict[str, int]:
         return _sec_unit_totem_bonus(self, unit_id)
 
+    def _unit_spd_buff_bonus(
+        self,
+        unit_id: int,
+        team_unit_ids: List[int],
+        artifacts_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
+    ) -> Dict[str, int]:
+        return _sec_unit_spd_buff_bonus(self, unit_id, team_unit_ids, artifacts_by_unit)
+
     def _unit_final_spd_value(
         self,
         unit_id: int,
         team_unit_ids: List[int],
         runes_by_unit: Dict[int, Dict[int, int]],
+        artifacts_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
     ) -> int:
-        return _sec_unit_final_spd_value(self, unit_id, team_unit_ids, runes_by_unit)
+        return _sec_unit_final_spd_value(self, unit_id, team_unit_ids, runes_by_unit, artifacts_by_unit)
 
     def _unit_final_stats_values(
         self,
         unit_id: int,
         team_unit_ids: List[int],
         runes_by_unit: Dict[int, Dict[int, int]],
+        artifacts_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
     ) -> Dict[str, int]:
-        return _sec_unit_final_stats_values(self, unit_id, team_unit_ids, runes_by_unit)
+        return _sec_unit_final_stats_values(self, unit_id, team_unit_ids, runes_by_unit, artifacts_by_unit)
 
     def _team_leader_skill(self, team_unit_ids: List[int]):
         return _sec_team_leader_skill(self, team_unit_ids)
@@ -875,33 +647,6 @@ class MainWindow(QMainWindow):
     def on_optimize_rta(self):
         return _sec_on_optimize_rta(self)
 
-    # ============================================================
-    # Arena Rush Builder
-    # ============================================================
-    def on_take_current_arena_def(self):
-        return _sec_on_take_current_arena_def(self)
-
-    def on_take_current_arena_off(self):
-        return _sec_on_take_current_arena_off(self)
-
-    def _collect_arena_def_selection(self) -> List[int]:
-        return _sec_collect_arena_def_selection(self)
-
-    def _collect_arena_offense_selections(self) -> List[TeamSelection]:
-        return _sec_collect_arena_offense_selections(self)
-
-    def _validate_arena_rush(self):
-        return _sec_validate_arena_rush(self)
-
-    def on_validate_arena_rush(self):
-        return _sec_on_validate_arena_rush(self)
-
-    def on_edit_presets_arena_rush(self):
-        return _sec_on_edit_presets_arena_rush(self)
-
-    def on_optimize_arena_rush(self):
-        return _sec_on_optimize_arena_rush(self)
-
     def _retranslate_ui(self) -> None:
         return _sec_retranslate_ui(self)
 
@@ -943,69 +688,12 @@ class MainWindow(QMainWindow):
 
 
 def _apply_dark_palette(app: QApplication) -> None:
-    return _apply_dark_palette_impl(app)
+    return _sec_apply_dark_palette(app)
 
 
 def _acquire_single_instance():
-    """Ensure only one instance of the application is running.
-
-    Uses a Windows named mutex.  Falls back to a lock-file approach on
-    other platforms.  Returns a handle that must be kept alive for the
-    lifetime of the process (preventing GC / early release).
-    """
-    if sys.platform == "win32":
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        mutex_name = "Global\\SWOT_SingleInstance_Mutex"
-        handle = kernel32.CreateMutexW(None, True, mutex_name)
-        ERROR_ALREADY_EXISTS = 183
-        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-            return None  # another instance is running
-        return handle  # keep alive
-    else:
-        import fcntl
-        lock_path = Path.home() / ".swot.lock"
-        lock_file = open(lock_path, "w")
-        try:
-            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return None
-        return lock_file  # keep alive
+    return _sec_acquire_single_instance()
 
 
 def run_app():
-    instance_lock = _acquire_single_instance()
-    if instance_lock is None:
-        # Show a message and exit – no QApplication yet, use a temporary one
-        _tmp = QApplication(sys.argv)
-        QMessageBox.warning(
-            None,
-            "SWOT",
-            "Die Anwendung läuft bereits.",
-        )
-        sys.exit(0)
-
-    app = QApplication(sys.argv)
-    _apply_dark_palette(app)
-    # Set application icon
-    icon_path = Path(__file__).resolve().parents[1] / "assets" / "app_icon.png"
-    if icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
-    import app.i18n as i18n
-    config_dir = Path(__file__).resolve().parents[1] / "config"
-    i18n.init(config_dir)
-    license_info = _ensure_license_accepted()
-    if not license_info:
-        sys.exit(1)
-    w = MainWindow()
-    _apply_license_title(w, license_info)
-    w.show()
-    QTimer.singleShot(1200, lambda: _start_update_check(w))
-    sys.exit(app.exec())
-
-
-
-
-
-
-
+    return _sec_run_app(MainWindow)

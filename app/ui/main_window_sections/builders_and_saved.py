@@ -26,6 +26,9 @@ from PySide6.QtWidgets import (
 from app.i18n import tr
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
+from app.ui.main_window_sections.arena_rush_ui import (
+    init_arena_rush_builder_ui as _sec_init_arena_rush_builder_ui,
+)
 
 
 def init_saved_siege_tab(window) -> None:
@@ -133,7 +136,7 @@ def init_siege_builder_ui(window) -> None:
         grid.addWidget(lbl, t, 0)
         row: List[QComboBox] = []
         for s in range(3):
-            cmb = window._new_unit_search_combo(min_width=300)
+            cmb = new_unit_search_combo(window, min_width=300)
             grid.addWidget(cmb, t, 1 + s)
             row.append(cmb)
         window.siege_team_combos.append(row)
@@ -210,7 +213,7 @@ def init_wgb_builder_ui(window) -> None:
         grid.addWidget(lbl, t, 0)
         row: List[QComboBox] = []
         for s in range(3):
-            cmb = window._new_unit_search_combo(min_width=300)
+            cmb = new_unit_search_combo(window, min_width=300)
             grid.addWidget(cmb, t, 1 + s)
             row.append(cmb)
         window.wgb_team_combos.append(row)
@@ -278,7 +281,7 @@ def init_rta_builder_ui(window) -> None:
     box_layout = QVBoxLayout(window.box_rta_select)
 
     top_row = QHBoxLayout()
-    window.rta_add_combo = window._new_unit_search_combo(min_width=350)
+    window.rta_add_combo = new_unit_search_combo(window, min_width=350)
     top_row.addWidget(window.rta_add_combo, 1)
 
     window.btn_rta_add = QPushButton(tr("btn.add"))
@@ -356,113 +359,7 @@ def init_rta_builder_ui(window) -> None:
 
 
 def init_arena_rush_builder_ui(window) -> None:
-    v = QVBoxLayout(window.tab_arena_rush_builder)
-    window.arena_offense_turn_effects = {}
-
-    window.box_arena_def_select = QGroupBox(tr("group.arena_def_select"))
-    v.addWidget(window.box_arena_def_select)
-    def_grid = QGridLayout(window.box_arena_def_select)
-    window.lbl_arena_defense = QLabel(tr("label.arena_defense"))
-    def_grid.addWidget(window.lbl_arena_defense, 0, 0)
-    window.arena_def_combos: List[QComboBox] = []
-    for s in range(4):
-        cmb = window._new_unit_search_combo(min_width=300)
-        def_grid.addWidget(cmb, 0, 1 + s)
-        window.arena_def_combos.append(cmb)
-
-    window.box_arena_off_select = QGroupBox(tr("group.arena_off_select"))
-    v.addWidget(window.box_arena_off_select, 1)
-    off_box_layout = QVBoxLayout(window.box_arena_off_select)
-    off_scroll = QScrollArea()
-    off_scroll.setWidgetResizable(True)
-    off_box_layout.addWidget(off_scroll)
-    off_inner = QWidget()
-    off_grid = QGridLayout(off_inner)
-    off_scroll.setWidget(off_inner)
-    window.lbl_arena_offense: List[QLabel] = []
-    window.chk_arena_offense_enabled: List[QCheckBox] = []
-    window.arena_offense_team_combos: List[List[QComboBox]] = []
-    max_rows = 15
-    for t in range(max_rows):
-        chk = QCheckBox(tr("label.active"))
-        chk.setChecked(False)
-        off_grid.addWidget(chk, t, 0)
-        window.chk_arena_offense_enabled.append(chk)
-        lbl = QLabel(tr("label.offense", n=t + 1))
-        window.lbl_arena_offense.append(lbl)
-        off_grid.addWidget(lbl, t, 1)
-        row: List[QComboBox] = []
-        for s in range(4):
-            cmb = window._new_unit_search_combo(min_width=300)
-            off_grid.addWidget(cmb, t, 2 + s)
-            row.append(cmb)
-        window.arena_offense_team_combos.append(row)
-
-    btn_row = QHBoxLayout()
-    v.addLayout(btn_row)
-
-    window.btn_take_current_arena_def = QPushButton(tr("btn.take_arena_def"))
-    window.btn_take_current_arena_def.setEnabled(False)
-    window.btn_take_current_arena_def.clicked.connect(window.on_take_current_arena_def)
-    btn_row.addWidget(window.btn_take_current_arena_def)
-
-    window.btn_take_arena_decks = QPushButton(tr("btn.take_arena_off"))
-    window.btn_take_arena_decks.setEnabled(False)
-    window.btn_take_arena_decks.clicked.connect(window.on_take_current_arena_off)
-    btn_row.addWidget(window.btn_take_arena_decks)
-
-    window.btn_validate_arena_rush = QPushButton(tr("btn.validate_pools"))
-    window.btn_validate_arena_rush.setEnabled(False)
-    window.btn_validate_arena_rush.clicked.connect(window.on_validate_arena_rush)
-    btn_row.addWidget(window.btn_validate_arena_rush)
-
-    window.btn_edit_presets_arena_rush = QPushButton(tr("btn.builds"))
-    window.btn_edit_presets_arena_rush.setEnabled(False)
-    window.btn_edit_presets_arena_rush.clicked.connect(window.on_edit_presets_arena_rush)
-    btn_row.addWidget(window.btn_edit_presets_arena_rush)
-
-    window.btn_optimize_arena_rush = QPushButton(tr("btn.optimize"))
-    window.btn_optimize_arena_rush.setEnabled(False)
-    window.btn_optimize_arena_rush.clicked.connect(window.on_optimize_arena_rush)
-    btn_row.addWidget(window.btn_optimize_arena_rush)
-
-    window.lbl_arena_rush_passes = QLabel(tr("label.passes"))
-    btn_row.addWidget(window.lbl_arena_rush_passes)
-    window.spin_multi_pass_arena_rush = QSpinBox()
-    window.spin_multi_pass_arena_rush.setRange(1, 10)
-    window.spin_multi_pass_arena_rush.setValue(3)
-    window.spin_multi_pass_arena_rush.setToolTip(tr("tooltip.passes"))
-    window.spin_multi_pass_arena_rush.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
-    btn_row.addWidget(window.spin_multi_pass_arena_rush)
-
-    window.lbl_arena_rush_workers = QLabel(tr("label.workers"))
-    btn_row.addWidget(window.lbl_arena_rush_workers)
-    window.combo_workers_arena_rush = QComboBox()
-    window._populate_worker_combo(window.combo_workers_arena_rush)
-    btn_row.addWidget(window.combo_workers_arena_rush)
-
-    window.lbl_arena_rush_profile = QLabel("Profil")
-    btn_row.addWidget(window.lbl_arena_rush_profile)
-    window.combo_quality_profile_arena_rush = QComboBox()
-    window.combo_quality_profile_arena_rush.addItem("Fast", "fast")
-    window.combo_quality_profile_arena_rush.addItem("Balanced", "balanced")
-    window.combo_quality_profile_arena_rush.addItem("Max Qualität", "max_quality")
-    if window._gpu_search_available():
-        window.combo_quality_profile_arena_rush.addItem("GPU Fast", "gpu_search_fast")
-        window.combo_quality_profile_arena_rush.addItem("GPU Balanced", "gpu_search_balanced")
-        window.combo_quality_profile_arena_rush.addItem("GPU Max", "gpu_search_max")
-    window.combo_quality_profile_arena_rush.setCurrentIndex(1)
-    window.combo_quality_profile_arena_rush.currentIndexChanged.connect(window._sync_worker_controls)
-    btn_row.addWidget(window.combo_quality_profile_arena_rush)
-    window._sync_worker_controls()
-
-    btn_row.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-
-    window.lbl_arena_rush_validate = QLabel("—")
-    v.addWidget(window.lbl_arena_rush_validate)
-
-    window.arena_rush_result_cards = SiegeDefCardsWidget()
-    v.addWidget(window.arena_rush_result_cards, 1)
+    return _sec_init_arena_rush_builder_ui(window, new_unit_search_combo)
 
 
 def saved_opt_widgets(window, mode: str):

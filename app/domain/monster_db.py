@@ -119,6 +119,21 @@ class MonsterDB:
         if not ls or not isinstance(ls, dict):
             return None
         stat = str(ls.get("stat") or "").strip()
+        if not stat:
+            attr = str(ls.get("attribute") or "").strip().lower()
+            attr_to_stat = {
+                "attack speed": "SPD%",
+                "attack power": "ATK%",
+                "attack": "ATK%",
+                "defense": "DEF%",
+                "def": "DEF%",
+                "hp": "HP%",
+                "critical rate": "CR%",
+                "critical damage": "CD%",
+                "resistance": "RES%",
+                "accuracy": "ACC%",
+            }
+            stat = str(attr_to_stat.get(attr, "") or "")
         amount = 0
         try:
             amount = max(0, int(ls.get("amount") or 0))

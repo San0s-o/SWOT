@@ -128,7 +128,7 @@ ARTIFACT_RANK_LABELS: Dict[int, str] = {
 
 # Legacy effects no longer obtainable on new artifacts.
 ARTIFACT_LEGACY_EFFECT_IDS = {
-    200, 201, 202, 203, 204, 205, 206, 207, 208, 209,
+    200, 201, 202, 203, 204, 205, 207, 208, 209,
     211, 212, 213, 216, 217,
 }
 

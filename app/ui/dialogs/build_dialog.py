@@ -92,6 +92,10 @@ class BuildDialog(QDialog):
         order_turn_effects: List[Dict[int, Dict[str, Any]]] | None = None,
         show_turn_effect_controls: bool = False,
         order_turn_effect_capabilities: Dict[int, Dict[str, Any]] | None = None,
+        show_speed_lead_controls: bool = False,
+        order_speed_leaders: List[int] | None = None,
+        order_speed_lead_pct_by_unit: Dict[int, int] | None = None,
+        order_speed_lead_pct_by_team: List[int] | None = None,
         persist_order_fields: bool = True,
         skill_icons_dir: str | None = None,
     ):
@@ -132,6 +136,14 @@ class BuildDialog(QDialog):
             for uid, cfg in dict(order_turn_effect_capabilities or {}).items()
             if int(uid or 0) > 0
         }
+        self._show_speed_lead_controls = bool(show_speed_lead_controls)
+        self._order_speed_leaders: List[int] = [int(uid or 0) for uid in (order_speed_leaders or [])]
+        self._order_speed_lead_pct_by_unit: Dict[int, int] = {
+            int(uid): int(pct or 0)
+            for uid, pct in dict(order_speed_lead_pct_by_unit or {}).items()
+            if int(uid or 0) > 0 and int(pct or 0) > 0
+        }
+        self._order_speed_lead_pct_by_team: List[int] = [int(v or 0) for v in (order_speed_lead_pct_by_team or [])]
         self._persist_order_fields = bool(persist_order_fields)
         self._artifact_substat_options_by_type = self._collect_artifact_substat_options_by_type(self._account)
 
@@ -142,6 +154,8 @@ class BuildDialog(QDialog):
         self._team_spd_tick_combo_by_unit: Dict[int, List[QComboBox]] = {}
         self._syncing_team_spd_tick = False
         self._team_effect_controls: Dict[Tuple[int, int], Tuple[QCheckBox, QCheckBox, QSpinBox]] = {}
+        self._team_speed_lead_combo_by_team: Dict[int, QComboBox] = {}
+        self._team_speed_lead_pct_spin_by_team: Dict[int, QSpinBox] = {}
 
         if show_order_sections:
             order_box = QGroupBox(tr("group.turn_order"))
@@ -292,16 +306,28 @@ class BuildDialog(QDialog):
             if teams and self._order_teams:
                 # Arena rush: Defense (first team) on top, offense teams in grid below
                 def_title = self._order_team_titles[0] if self._order_team_titles else "Team 1"
-                def_label = QLabel(f"<b>{def_title}</b>")
-                order_outer.addWidget(def_label)
+                if self._show_speed_lead_controls:
+                    order_outer.addLayout(self._build_team_header_with_speed_lead(0, def_title, teams[0]))
+                else:
+                    def_label = QLabel(f"<b>{def_title}</b>")
+                    order_outer.addWidget(def_label)
                 def_lw = _build_team_list(0, teams[0])
                 order_outer.addWidget(def_lw)
 
                 if len(teams) > 1:
                     off_grid = QGridLayout()
                     for t_off, team_units in enumerate(teams[1:], start=1):
-                        team_title = self._order_team_titles[t_off] if t_off < len(self._order_team_titles) and self._order_team_titles[t_off] else f"Team {t_off+1}"
-                        off_grid.addWidget(QLabel(f"<b>{team_title}</b>"), 0, t_off - 1)
+                        team_title = (
+                            self._order_team_titles[t_off]
+                            if t_off < len(self._order_team_titles) and self._order_team_titles[t_off]
+                            else f"Team {t_off+1}"
+                        )
+                        if self._show_speed_lead_controls:
+                            hdr = QWidget()
+                            hdr.setLayout(self._build_team_header_with_speed_lead(int(t_off), team_title, team_units))
+                            off_grid.addWidget(hdr, 0, t_off - 1)
+                        else:
+                            off_grid.addWidget(QLabel(f"<b>{team_title}</b>"), 0, t_off - 1)
                         off_lw = _build_team_list(t_off, team_units)
                         off_grid.addWidget(off_lw, 1, t_off - 1)
                     order_outer.addLayout(off_grid)
@@ -318,7 +344,10 @@ class BuildDialog(QDialog):
             order_scroll = QScrollArea()
             order_scroll.setWidgetResizable(True)
             order_scroll.setWidget(order_box)
-            order_scroll.setMaximumHeight(340)
+            if str(self.mode).strip().lower() == "arena_rush":
+                order_scroll.setMaximumHeight(430)
+            else:
+                order_scroll.setMaximumHeight(340)
             layout.addWidget(order_scroll)
 
         self._set1_combo: Dict[int, _SetMultiCombo] = {}
@@ -358,10 +387,11 @@ class BuildDialog(QDialog):
         list_layout = QVBoxLayout(list_box)
         list_layout.setContentsMargins(8, 8, 8, 8)
         list_layout.addWidget(self._unit_list, 1)
-        btn_load_runes = QPushButton(tr("btn.load_current_runes"))
-        btn_load_runes.setToolTip(tr("tooltip.load_current_runes"))
-        btn_load_runes.clicked.connect(self._on_load_current_runes)
-        list_layout.addWidget(btn_load_runes)
+        if str(self.mode).strip().lower() == "arena_rush":
+            btn_load_runes = QPushButton(tr("btn.load_current_runes"))
+            btn_load_runes.setToolTip(tr("tooltip.load_current_runes"))
+            btn_load_runes.clicked.connect(self._on_load_current_runes)
+            list_layout.addWidget(btn_load_runes)
         editor_split.addWidget(list_box)
 
         detail_box = QGroupBox(tr("group.build_editor"))
@@ -805,7 +835,14 @@ class BuildDialog(QDialog):
         """Load currently equipped rune sets and mainstats for all units."""
         if not self._account:
             return
-        rune_mode = self.mode if self.mode in ("siege", "guild", "rta") else "siege"
+        # Arena Rush should preload current PvE equips (occupied_id), not siege/rta snapshots.
+        mode_key = str(self.mode or "").strip().lower()
+        if mode_key == "rta":
+            rune_mode = "rta"
+        elif mode_key == "arena_rush":
+            rune_mode = "pve"
+        else:
+            rune_mode = "siege"
         for unit_id in list(self._set1_combo.keys()):
             equipped = self._account.equipped_runes_for(int(unit_id), rune_mode)
             if not equipped:
@@ -915,6 +952,51 @@ class BuildDialog(QDialog):
         finally:
             self._syncing_team_spd_tick = False
 
+    def _build_team_header_with_speed_lead(self, team_index: int, team_title: str, team_units: List[Tuple[int, str]]) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(QLabel(f"<b>{team_title}</b>"))
+        row.addStretch(1)
+        row.addWidget(QLabel("SPD Lead"))
+        cmb = _NoScrollComboBox()
+        cmb.setMinimumWidth(180)
+        cmb.addItem("-", 0)
+        for uid, label in team_units:
+            pct = int(self._order_speed_lead_pct_by_unit.get(int(uid), 0) or 0)
+            if pct <= 0:
+                continue
+            cmb.addItem(f"{label} (+{pct}%)", int(uid))
+        preferred_uid = int(self._order_speed_leaders[int(team_index)]) if int(team_index) < len(self._order_speed_leaders) else 0
+        idx = cmb.findData(int(preferred_uid))
+        if idx < 0 and cmb.count() > 1:
+            idx = 1
+        cmb.setCurrentIndex(max(0, idx))
+        cmb.setEnabled(bool(cmb.count() > 1))
+        row.addWidget(cmb)
+        pct_spin = QSpinBox()
+        pct_spin.setMinimum(0)
+        pct_spin.setMaximum(100)
+        pct_spin.setSingleStep(1)
+        pct_spin.setSuffix("%")
+        pct_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        pct_spin.setReadOnly(True)
+        pct_spin.setMaximumWidth(64)
+        preferred_pct = int(self._order_speed_lead_pct_by_team[int(team_index)]) if int(team_index) < len(self._order_speed_lead_pct_by_team) else 0
+        if preferred_pct <= 0:
+            selected_uid = int(cmb.currentData() or 0)
+            preferred_pct = int(self._order_speed_lead_pct_by_unit.get(int(selected_uid), 0) or 0)
+        pct_spin.setValue(max(0, min(100, int(preferred_pct))))
+        row.addWidget(pct_spin)
+        def _sync_pct_from_selected(_idx: int, _cmb=cmb, _spin=pct_spin) -> None:
+            sel_uid = int(_cmb.currentData() or 0)
+            known_pct = int(self._order_speed_lead_pct_by_unit.get(int(sel_uid), 0) or 0)
+            _spin.setValue(max(0, min(100, int(known_pct))))
+        cmb.currentIndexChanged.connect(_sync_pct_from_selected)
+        self._team_speed_lead_combo_by_team[int(team_index)] = cmb
+        self._team_speed_lead_pct_spin_by_team[int(team_index)] = pct_spin
+        return row
+
     def team_order_by_lists(self) -> List[List[int]]:
         out: List[List[int]] = []
         for lw in self._team_order_lists:
@@ -925,6 +1007,20 @@ class BuildDialog(QDialog):
                 if uid > 0:
                     row.append(uid)
             out.append(row)
+        return out
+
+    def team_speed_lead_by_lists(self) -> List[int]:
+        out: List[int] = []
+        for t, _lw in enumerate(self._team_order_lists):
+            cmb = self._team_speed_lead_combo_by_team.get(int(t))
+            out.append(int(cmb.currentData() or 0) if cmb is not None else 0)
+        return out
+
+    def team_speed_lead_pct_by_lists(self) -> List[int]:
+        out: List[int] = []
+        for t, _lw in enumerate(self._team_order_lists):
+            spin = self._team_speed_lead_pct_spin_by_team.get(int(t))
+            out.append(int(spin.value()) if spin is not None else 0)
         return out
 
     def team_turn_effects_by_lists(self) -> List[Dict[int, Dict[str, Any]]]:

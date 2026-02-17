@@ -4,7 +4,7 @@ from typing import List, Set
 
 from PySide6.QtCore import Qt, QEvent, QModelIndex, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import QWidget, QComboBox, QCompleter
+from PySide6.QtWidgets import QWidget, QComboBox, QCompleter, QAbstractItemView
 
 from app.domain.presets import SET_NAMES, SET_SIZES
 from app.i18n import tr
@@ -94,7 +94,8 @@ class _UnitSearchComboBox(_NoScrollComboBox):
         line_edit = self.lineEdit()
         if line_edit is None:
             return
-        current_text = self.currentText()
+        current_uid = int(self.currentData(Qt.UserRole) or 0)
+        current_text = "" if current_uid == 0 else self.currentText()
         line_edit.blockSignals(True)
         line_edit.setText(current_text)
         line_edit.blockSignals(False)
@@ -336,6 +337,7 @@ class _SetMultiCombo(_NoScrollComboBox):
 
 class _MainstatMultiCombo(_NoScrollComboBox):
     """Checkable multi-select combo for allowed mainstats."""
+    ANY_TOKEN = "__ANY__"
 
     def __init__(self, options: List[str], parent: QWidget | None = None):
         super().__init__(parent)
@@ -349,12 +351,23 @@ class _MainstatMultiCombo(_NoScrollComboBox):
             le.installEventFilter(self)
         model = QStandardItemModel(self)
         self.setModel(model)
+        # We handle check toggling ourselves in `_on_item_pressed`.
+        # Disable default item editing/toggling to avoid double-toggle when
+        # clicking directly on the checkbox indicator.
+        self.view().setEditTriggers(QAbstractItemView.NoEditTriggers)
+        any_item = QStandardItem("Any")
+        any_item.setData(self.ANY_TOKEN, Qt.UserRole)
+        any_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+        any_item.setData(Qt.Checked, Qt.CheckStateRole)
+        model.appendRow(any_item)
         for key in options:
             item = QStandardItem(str(key))
             item.setData(str(key), Qt.UserRole)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
+        # Use `pressed` (not `clicked`) so the check-state toggle happens
+        # before the combo popup auto-closes on item activation.
         self.view().pressed.connect(self._on_item_pressed)
         self.currentIndexChanged.connect(lambda _: self._refresh_text())
         self._refresh_text()
@@ -379,8 +392,20 @@ class _MainstatMultiCombo(_NoScrollComboBox):
         item = self.model().item(index.row())
         if item is None:
             return
+        key = str(item.data(Qt.UserRole) or "")
         new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
-        item.setCheckState(new_state)
+        if key == self.ANY_TOKEN:
+            if new_state == Qt.Checked:
+                self._check_only_any()
+            else:
+                # Keep at least one valid selection; "Any" is fallback.
+                self._check_only_any()
+        else:
+            item.setCheckState(new_state)
+            if new_state == Qt.Checked:
+                self._set_any_checked(False)
+            if not self.checked_values():
+                self._check_only_any()
         self._block_hide_once = True
         self._refresh_text()
 
@@ -399,7 +424,10 @@ class _MainstatMultiCombo(_NoScrollComboBox):
             if item is None:
                 continue
             if item.checkState() == Qt.Checked:
-                out.append(str(item.data(Qt.UserRole) or item.text() or ""))
+                key = str(item.data(Qt.UserRole) or item.text() or "")
+                if key == self.ANY_TOKEN:
+                    continue
+                out.append(key)
         return [x for x in out if x]
 
     def set_checked_values(self, values: List[str]) -> None:
@@ -410,8 +438,33 @@ class _MainstatMultiCombo(_NoScrollComboBox):
             if item is None:
                 continue
             key = str(item.data(Qt.UserRole) or item.text() or "")
-            item.setCheckState(Qt.Checked if key in selected else Qt.Unchecked)
+            if key == self.ANY_TOKEN:
+                item.setCheckState(Qt.Unchecked)
+            else:
+                item.setCheckState(Qt.Checked if key in selected else Qt.Unchecked)
+        if not selected:
+            self._set_any_checked(True)
         self._refresh_text()
+
+    def _set_any_checked(self, checked: bool) -> None:
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            key = str(item.data(Qt.UserRole) or item.text() or "")
+            if key == self.ANY_TOKEN:
+                item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+                break
+
+    def _check_only_any(self) -> None:
+        m = self.model()
+        for row in range(m.rowCount()):
+            item = m.item(row)
+            if item is None:
+                continue
+            key = str(item.data(Qt.UserRole) or item.text() or "")
+            item.setCheckState(Qt.Checked if key == self.ANY_TOKEN else Qt.Unchecked)
 
     def _refresh_text(self) -> None:
         vals = self.checked_values()

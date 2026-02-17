@@ -213,6 +213,7 @@ class GreedyRequest:
     unit_team_turn_order: Dict[int, int] | None = None
     unit_spd_leader_bonus_flat: Dict[int, int] | None = None
     unit_min_final_speed: Dict[int, int] | None = None
+    unit_max_final_speed: Dict[int, int] | None = None
     excluded_rune_ids: Set[int] | None = None
     excluded_artifact_ids: Set[int] | None = None
     unit_fixed_runes_by_slot: Dict[int, Dict[int, int]] | None = None
@@ -593,6 +594,7 @@ def _solve_single_unit_best(
     force_speed_priority: bool = False,
     is_cancelled: Optional[Callable[[], bool]] = None,
     register_solver: Optional[Callable[[object], None]] = None,
+    mode: str = "normal",
 ) -> GreedyUnitResult:
     """
     Solve for ONE unit:
@@ -920,15 +922,16 @@ def _solve_single_unit_best(
         spd_tick = int(getattr(b, "spd_tick", 0) or 0)
         min_spd_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD", 0) or 0)
         min_spd_no_base_cfg = int((getattr(b, "min_stats", {}) or {}).get("SPD_NO_BASE", 0) or 0)
-        min_spd_tick = int(min_spd_for_tick(spd_tick, req.mode) or 0)
+        apply_native_spd_tick = str(mode or "").strip().lower() != "arena_rush"
+        min_spd_tick = int(min_spd_for_tick(spd_tick, mode) or 0) if apply_native_spd_tick else 0
         if min_spd_cfg > 0:
             model.Add(final_speed_raw_expr >= min_spd_cfg).OnlyEnforceIf(vb)
         if min_spd_no_base_cfg > 0:
             model.Add(final_speed_raw_expr - int(base_spd or 0) >= min_spd_no_base_cfg).OnlyEnforceIf(vb)
         if min_spd_tick > 0:
             model.Add(final_speed_expr >= min_spd_tick).OnlyEnforceIf(vb)
-        if spd_tick > 0:
-            max_spd_tick = int(max_spd_for_tick(spd_tick, req.mode) or 0)
+        if apply_native_spd_tick and spd_tick > 0:
+            max_spd_tick = int(max_spd_for_tick(spd_tick, mode) or 0)
             if max_spd_tick > 0:
                 model.Add(final_speed_expr <= max_spd_tick).OnlyEnforceIf(vb)
 
@@ -1052,6 +1055,11 @@ def _solve_single_unit_best(
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         detail = _diagnose_single_unit_infeasible(pool, artifact_pool, builds)
+        if str(detail) == str(tr("opt.feasible")):
+            detail = (
+                f"{detail}; harte Constraints nicht erfuellbar "
+                f"(z. B. Min-Stats/SPD-Tick/Turnorder-Speed-Caps/Locks)"
+            )
         return GreedyUnitResult(uid, False, f"infeasible ({detail})", runes_by_slot={})
 
     # extract build
@@ -1269,9 +1277,28 @@ def _run_pass_with_profile(
 
     # initial pool
     pool = _allowed_runes_for_mode(account, req, unit_ids, rune_top_per_set_override=rune_top_per_set_override)
-    blocked: Set[int] = set()  # rune_id
     artifact_pool = _allowed_artifacts_for_mode(account, unit_ids, req=req)
-    blocked_artifacts: Set[int] = set()  # artifact_id
+    # Reserve fixed assignments for their owner unit so no other unit can consume them.
+    reserved_rune_owner: Dict[int, int] = {}
+    for owner_uid, by_slot in dict(req.unit_fixed_runes_by_slot or {}).items():
+        ou = int(owner_uid or 0)
+        if ou <= 0:
+            continue
+        for rid in (dict(by_slot or {})).values():
+            ri = int(rid or 0)
+            if ri > 0:
+                reserved_rune_owner[ri] = ou
+    reserved_artifact_owner: Dict[int, int] = {}
+    for owner_uid, by_type in dict(req.unit_fixed_artifacts_by_type or {}).items():
+        ou = int(owner_uid or 0)
+        if ou <= 0:
+            continue
+        for aid in (dict(by_type or {})).values():
+            ai = int(aid or 0)
+            if ai > 0:
+                reserved_artifact_owner[ai] = ou
+    blocked: Set[int] = set(reserved_rune_owner.keys())  # rune_id
+    blocked_artifacts: Set[int] = set(reserved_artifact_owner.keys())  # artifact_id
 
     # For RTA mode, build lookup of RTA-equipped rune IDs per unit
     rta_equip = account.rta_rune_equip if req.mode == "rta" else {}
@@ -1282,8 +1309,15 @@ def _run_pass_with_profile(
     for unit_pos, uid in enumerate(unit_ids):
         if req.is_cancelled and req.is_cancelled():
             break
-        cur_pool = [r for r in pool if r.rune_id not in blocked]
-        cur_art_pool = [a for a in artifact_pool if int(a.artifact_id or 0) not in blocked_artifacts]
+        cur_pool = [
+            r for r in pool
+            if (r.rune_id not in blocked) or (int(reserved_rune_owner.get(int(r.rune_id), 0)) == int(uid))
+        ]
+        cur_art_pool = [
+            a for a in artifact_pool
+            if (int(a.artifact_id or 0) not in blocked_artifacts)
+            or (int(reserved_artifact_owner.get(int(a.artifact_id or 0), 0)) == int(uid))
+        ]
         unit = account.units_by_id.get(uid)
         base_hp = int((unit.base_con or 0) * 15) if unit else 0
         base_atk = int(unit.base_atk or 0) if unit else 0
@@ -1320,6 +1354,13 @@ def _run_pass_with_profile(
         min_speed_value = int(min_floor_map.get(int(uid), 0) or 0)
         if min_speed_value > 0:
             min_speed_floor = int(min_speed_value)
+        max_cap_map = dict(req.unit_max_final_speed or {})
+        max_speed_value = int(max_cap_map.get(int(uid), 0) or 0)
+        if max_speed_value > 0:
+            if max_speed_cap is None:
+                max_speed_cap = int(max_speed_value)
+            else:
+                max_speed_cap = min(int(max_speed_cap), int(max_speed_value))
 
         # RTA mode: pass RTA-equipped rune IDs for scoring preference
         rta_rids: Optional[Set[int]] = None
@@ -1373,6 +1414,7 @@ def _run_pass_with_profile(
             force_speed_priority=bool(force_speed_priority),
             is_cancelled=req.is_cancelled,
             register_solver=req.register_solver,
+            mode=str(req.mode),
         )
         if str(r.message or "") == tr("opt.cancelled"):
             break

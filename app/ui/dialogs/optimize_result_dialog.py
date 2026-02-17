@@ -55,22 +55,28 @@ class OptimizeResultDialog(QDialog):
         artifact_lookup: Dict[int, Artifact],
         unit_label_fn: Callable[[int], str],
         unit_icon_fn: Callable[[int], QIcon],
-        unit_spd_fn: Callable[[int, List[int], Dict[int, Dict[int, int]]], int],
-        unit_stats_fn: Callable[[int, List[int], Dict[int, Dict[int, int]]], Dict[str, int]],
+        unit_spd_fn: Callable[[int, List[int], Dict[int, Dict[int, int]], Dict[int, Dict[int, int]]], int],
+        unit_stats_fn: Callable[[int, List[int], Dict[int, Dict[int, int]], Dict[int, Dict[int, int]]], Dict[str, int]],
         set_icon_fn: Callable[[int], QIcon],
         unit_base_stats_fn: Callable[[int], Dict[str, int]],
         unit_leader_bonus_fn: Callable[[int, List[int]], Dict[str, int]],
         unit_totem_bonus_fn: Callable[[int], Dict[str, int]],
+        unit_spd_buff_bonus_fn: Callable[[int, List[int], Dict[int, Dict[int, int]]], Dict[str, int]],
         unit_team_index: Optional[Dict[int, int]] = None,
         unit_display_order: Optional[Dict[int, int]] = None,
         mode_rune_owner: Optional[Dict[int, int]] = None,
+        team_header_by_index: Optional[Dict[int, str]] = None,
+        group_size: int = 3,
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(1440, 760)
+        self.resize(1680, 900)
+        self.setMinimumSize(1560, 860)
 
         self._results = list(results)
-        self._results_by_uid: Dict[int, GreedyUnitResult] = {r.unit_id: r for r in self._results}
+        self._results_by_key: Dict[int, GreedyUnitResult] = {
+            int(idx): r for idx, r in enumerate(self._results)
+        }
         self._unit_label_fn = unit_label_fn
         self._unit_icon_fn = unit_icon_fn
         self._unit_spd_fn = unit_spd_fn
@@ -79,11 +85,14 @@ class OptimizeResultDialog(QDialog):
         self._unit_base_stats_fn = unit_base_stats_fn
         self._unit_leader_bonus_fn = unit_leader_bonus_fn
         self._unit_totem_bonus_fn = unit_totem_bonus_fn
+        self._unit_spd_buff_bonus_fn = unit_spd_buff_bonus_fn
         self._unit_team_index = unit_team_index or {}
         self._unit_display_order = unit_display_order or {}
         self._rune_lookup = rune_lookup
         self._artifact_lookup = artifact_lookup
         self._mode_rune_owner = mode_rune_owner or {}
+        self._team_header_by_index = dict(team_header_by_index or {})
+        self._group_size = max(1, int(group_size))
         self.saved = False
         self._stats_detailed = True
         self._runes_detailed = True
@@ -135,18 +144,19 @@ class OptimizeResultDialog(QDialog):
         self.nav_list.clear()
         has_selection = False
         for team_idx, team_results in self._grouped_results():
-            header = QListWidgetItem(f"Team {team_idx + 1}")
+            header_text = str(self._team_header_by_index.get(int(team_idx), f"Team {team_idx + 1}"))
+            header = QListWidgetItem(header_text)
             header.setData(Qt.UserRole, None)
             header.setFlags(Qt.NoItemFlags)
             self.nav_list.addItem(header)
-            for result in team_results:
+            for result_key, result in team_results:
                 label = self._unit_label_fn(result.unit_id)
                 state = "OK" if result.ok else tr("label.error")
                 item = QListWidgetItem(f"{label} [{state}]")
                 icon = self._unit_icon_fn(result.unit_id)
                 if not icon.isNull():
                     item.setIcon(icon)
-                item.setData(Qt.UserRole, result.unit_id)
+                item.setData(Qt.UserRole, int(result_key))
                 self.nav_list.addItem(item)
                 if not has_selection:
                     self.nav_list.setCurrentItem(item)
@@ -163,40 +173,34 @@ class OptimizeResultDialog(QDialog):
         if not item:
             self._render_details(None)
             return
-        uid = item.data(Qt.UserRole)
-        if uid is None:
+        result_key = item.data(Qt.UserRole)
+        if result_key is None:
             self._render_details(None)
             return
-        self._render_details(int(uid))
+        self._render_details(int(result_key))
 
-    def _render_team_icon_bar(self, selected_uid: int | None) -> None:
+    def _team_results_for_key(self, result_key: int) -> List[Tuple[int, GreedyUnitResult]]:
+        for _team_idx, team_results in self._grouped_results():
+            for key, _res in team_results:
+                if int(key) == int(result_key):
+                    return list(team_results)
+        return []
+
+    def _render_team_icon_bar(self, selected_result_key: int | None) -> None:
         while self.team_icon_layout.count():
             child = self.team_icon_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
-        if selected_uid is None:
+        if selected_result_key is None:
             return
 
-        team_results: List[GreedyUnitResult] = []
-        if self._unit_team_index:
-            sel_team = self._unit_team_index.get(int(selected_uid), None)
-            if sel_team is not None:
-                team_results = [r for r in self._results if self._unit_team_index.get(int(r.unit_id), -1) == int(sel_team)]
-                team_results.sort(key=lambda r: self._unit_display_order.get(int(r.unit_id), 10000))
-        if not team_results:
-            selected_index = 0
-            for idx, result in enumerate(self._results):
-                if result.unit_id == selected_uid:
-                    selected_index = idx
-                    break
-            team_idx = selected_index // 3
-            team_results = self._results[team_idx * 3 : (team_idx + 1) * 3]
+        team_results = self._team_results_for_key(int(selected_result_key))
 
-        for result in team_results:
+        for result_key, result in team_results:
             card = QFrame()
             card.setFrameShape(QFrame.StyledPanel)
-            card.setProperty("selected", result.unit_id == selected_uid)
+            card.setProperty("selected", int(result_key) == int(selected_result_key))
             v = QVBoxLayout(card)
             v.setContentsMargins(6, 6, 6, 6)
             v.setSpacing(4)
@@ -208,8 +212,14 @@ class OptimizeResultDialog(QDialog):
             icon_lbl.setAlignment(Qt.AlignCenter)
             v.addWidget(icon_lbl)
 
-            runes_by_unit = {r.unit_id: (r.runes_by_slot or {}) for r in team_results}
-            spd = self._unit_spd_fn(result.unit_id, [r.unit_id for r in team_results], runes_by_unit)
+            runes_by_unit = {int(r.unit_id): (r.runes_by_slot or {}) for _, r in team_results}
+            artifacts_by_unit = {int(r.unit_id): (r.artifacts_by_type or {}) for _, r in team_results}
+            spd = self._unit_spd_fn(
+                result.unit_id,
+                [int(r.unit_id) for _, r in team_results],
+                runes_by_unit,
+                artifacts_by_unit,
+            )
             spd_lbl = QLabel(str(spd))
             spd_lbl.setAlignment(Qt.AlignCenter)
             v.addWidget(spd_lbl)
@@ -218,64 +228,74 @@ class OptimizeResultDialog(QDialog):
 
         self.team_icon_layout.addStretch(1)
 
-    def _grouped_results(self) -> List[Tuple[int, List[GreedyUnitResult]]]:
+    def _grouped_results(self) -> List[Tuple[int, List[Tuple[int, GreedyUnitResult]]]]:
+        indexed = [(int(idx), r) for idx, r in enumerate(self._results)]
         if not self._unit_team_index:
-            out: List[Tuple[int, List[GreedyUnitResult]]] = []
-            team_count = (len(self._results) + 2) // 3
+            out: List[Tuple[int, List[Tuple[int, GreedyUnitResult]]]] = []
+            team_count = (len(indexed) + self._group_size - 1) // self._group_size
             for team_idx in range(team_count):
-                out.append((team_idx, self._results[team_idx * 3 : (team_idx + 1) * 3]))
+                start = int(team_idx * self._group_size)
+                end = int((team_idx + 1) * self._group_size)
+                out.append((team_idx, indexed[start:end]))
             return out
 
-        grouped: Dict[int, List[GreedyUnitResult]] = {}
-        for r in self._results:
+        grouped: Dict[int, List[Tuple[int, GreedyUnitResult]]] = {}
+        for key, r in indexed:
             t = int(self._unit_team_index.get(int(r.unit_id), 0))
-            grouped.setdefault(t, []).append(r)
+            grouped.setdefault(t, []).append((int(key), r))
         out = []
         for team_idx in sorted(grouped.keys()):
             arr = grouped[team_idx]
-            arr.sort(key=lambda rr: self._unit_display_order.get(int(rr.unit_id), 10000))
+            arr.sort(key=lambda pair: (self._unit_display_order.get(int(pair[1].unit_id), 10000), int(pair[0])))
             out.append((team_idx, arr))
         return out
 
-    def _team_unit_ids_for(self, unit_id: int) -> List[int]:
-        if self._unit_team_index:
-            team_idx = self._unit_team_index.get(int(unit_id))
-            if team_idx is not None:
-                ids = [int(r.unit_id) for r in self._results if self._unit_team_index.get(int(r.unit_id), -1) == int(team_idx)]
-                ids.sort(key=lambda uid: self._unit_display_order.get(uid, 10000))
-                return ids
+    def _team_unit_ids_for(self, result_key: int) -> List[int]:
+        team_results = self._team_results_for_key(int(result_key))
+        if team_results:
+            return [int(r.unit_id) for _, r in team_results]
         return [int(r.unit_id) for r in self._results]
 
-    def _render_details(self, unit_id: int | None) -> None:
-        self._render_team_icon_bar(unit_id)
-        self._current_uid = unit_id
+    def _render_details(self, result_key: int | None) -> None:
+        self._render_team_icon_bar(result_key)
+        self._current_uid = int(result_key) if result_key is not None else None
 
         while self.detail_layout.count():
             child = self.detail_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
-        if unit_id is None:
+        if result_key is None:
             w = QWidget()
             QVBoxLayout(w).addWidget(QLabel(tr("dlg.select_left")))
             self.detail_layout.addWidget(w)
             return
 
-        result = self._results_by_uid.get(unit_id)
+        result = self._results_by_key.get(int(result_key))
         if not result:
             w = QWidget()
             QVBoxLayout(w).addWidget(QLabel(tr("dlg.no_result")))
             self.detail_layout.addWidget(w)
             return
 
-        team_unit_ids = self._team_unit_ids_for(unit_id)
-        runes_by_unit = {int(r.unit_id): (r.runes_by_slot or {}) for r in self._results}
-        total_stats = self._unit_stats_fn(int(unit_id), team_unit_ids, runes_by_unit)
-        base_stats = self._unit_base_stats_fn(int(unit_id))
-        leader_bonus = self._unit_leader_bonus_fn(int(unit_id), team_unit_ids)
-        totem_bonus = self._unit_totem_bonus_fn(int(unit_id))
+        unit_id = int(result.unit_id)
+        team_unit_ids = self._team_unit_ids_for(int(result_key))
+        team_results = self._team_results_for_key(int(result_key))
+        runes_by_unit = {int(r.unit_id): (r.runes_by_slot or {}) for _, r in team_results} if team_results else {
+            int(r.unit_id): (r.runes_by_slot or {}) for r in self._results
+        }
+        artifacts_by_unit = {int(r.unit_id): (r.artifacts_by_type or {}) for _, r in team_results} if team_results else {
+            int(r.unit_id): (r.artifacts_by_type or {}) for r in self._results
+        }
+        total_stats = self._unit_stats_fn(unit_id, team_unit_ids, runes_by_unit, artifacts_by_unit)
+        base_stats = self._unit_base_stats_fn(unit_id)
+        leader_bonus = self._unit_leader_bonus_fn(unit_id, team_unit_ids)
+        totem_bonus = self._unit_totem_bonus_fn(unit_id)
+        spd_buff_bonus = self._unit_spd_buff_bonus_fn(unit_id, team_unit_ids, artifacts_by_unit)
 
-        self.detail_layout.addWidget(self._build_stats_tab(unit_id, result, base_stats, total_stats, leader_bonus, totem_bonus))
+        self.detail_layout.addWidget(
+            self._build_stats_tab(unit_id, result, base_stats, total_stats, leader_bonus, totem_bonus, spd_buff_bonus)
+        )
 
         if result.ok and result.runes_by_slot:
             self.detail_layout.addWidget(self._build_runes_tab(result))
@@ -290,6 +310,7 @@ class OptimizeResultDialog(QDialog):
         total_stats: Dict[str, int],
         leader_bonus: Dict[str, int],
         totem_bonus: Dict[str, int],
+        spd_buff_bonus: Dict[str, int],
     ) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
@@ -321,6 +342,7 @@ class OptimizeResultDialog(QDialog):
         stat_keys = ["HP", "ATK", "DEF", "SPD", "CR", "CD", "RES", "ACC"]
         has_leader = any(leader_bonus.get(k, 0) != 0 for k in stat_keys)
         has_totem = any(totem_bonus.get(k, 0) != 0 for k in stat_keys)
+        has_buff = any(spd_buff_bonus.get(k, 0) != 0 for k in stat_keys)
         table = QTableWidget()
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -333,12 +355,15 @@ class OptimizeResultDialog(QDialog):
                 headers.append(tr("header.totem"))
             if has_leader:
                 headers.append(tr("header.leader"))
+            if has_buff:
+                headers.append("Buff")
             headers.append(tr("header.total"))
             table.setColumnCount(len(headers))
             table.setHorizontalHeaderLabels(headers)
 
             total_col = len(headers) - 1
-            leader_col = total_col - 1 if has_leader else -1
+            buff_col = total_col - 1 if has_buff else -1
+            leader_col = total_col - 1 - (1 if has_buff else 0) if has_leader else -1
             totem_col = 3 if has_totem else -1
             runes_col = 2
 
@@ -347,7 +372,8 @@ class OptimizeResultDialog(QDialog):
                 total = total_stats.get(key, 0)
                 lead = leader_bonus.get(key, 0)
                 totem = totem_bonus.get(key, 0)
-                rune_bonus = total - base - lead - totem
+                buff = spd_buff_bonus.get(key, 0)
+                rune_bonus = total - base - lead - totem - buff
                 table.setItem(i, 0, QTableWidgetItem(_stat_label_tr(key)))
                 it_b = QTableWidgetItem(str(base))
                 it_b.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -366,6 +392,11 @@ class OptimizeResultDialog(QDialog):
                     it_l = QTableWidgetItem(lead_str)
                     it_l.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     table.setItem(i, leader_col, it_l)
+                if has_buff and buff_col >= 0:
+                    buff_str = f"+{buff}" if buff > 0 else str(buff) if buff else ""
+                    it_bf = QTableWidgetItem(buff_str)
+                    it_bf.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    table.setItem(i, buff_col, it_bf)
                 it_t = QTableWidgetItem(str(total))
                 it_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 table.setItem(i, total_col, it_t)
