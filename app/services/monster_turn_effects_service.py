@@ -33,7 +33,7 @@ def _default_capability() -> Dict[str, int | bool | str]:
     }
 
 
-_CACHE_VERSION = 3
+_CACHE_VERSION = 4
 
 
 def _load_cache(path: Path) -> Dict:

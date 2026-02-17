@@ -418,10 +418,9 @@ def _arena_effect_capabilities_by_unit(
     out: Dict[int, Dict[str, object]] = {}
     for uid, mid in uid_to_mid.items():
         cap = dict(caps_by_cid.get(mid) or {})
-        base = dict(window.monster_db.turn_effect_capability_for(mid) or {})
-        has_spd_buff = bool(cap.get("has_spd_buff", base.get("has_spd_buff", False)))
-        has_atb_boost = bool(cap.get("has_atb_boost", base.get("has_atb_boost", False)))
-        max_atb_boost_pct = int(cap.get("max_atb_boost_pct", base.get("max_atb_boost_pct", 0)) or 0)
+        has_spd_buff = bool(cap.get("has_spd_buff", False))
+        has_atb_boost = bool(cap.get("has_atb_boost", False))
+        max_atb_boost_pct = int(cap.get("max_atb_boost_pct", 0) or 0)
         if has_atb_boost and max_atb_boost_pct <= 0:
             max_atb_boost_pct = 100
         out[int(uid)] = {
