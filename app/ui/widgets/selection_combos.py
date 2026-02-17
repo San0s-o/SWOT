@@ -63,6 +63,11 @@ class _UnitSearchComboBox(_NoScrollComboBox):
     def _on_filter_text_edited(self, text: str) -> None:
         if self._suspend_filter:
             return
+        line_edit = self.lineEdit()
+        # Ignore programmatic text updates while loading many combos.
+        # This prevents completer popups from appearing during bulk assignments.
+        if line_edit is None or not line_edit.hasFocus():
+            return
         query = (text or "").strip()
         if not query:
             self._proxy_model.setFilterRegularExpression(QRegularExpression())
@@ -185,7 +190,7 @@ class _SetMultiCombo(_NoScrollComboBox):
         le = self.lineEdit()
         if le is not None:
             le.setReadOnly(True)
-            le.setPlaceholderText("—")
+            le.setPlaceholderText("-")
         model = QStandardItemModel(self)
         self.setModel(model)
         for sid in sorted(SET_NAMES.keys()):
@@ -196,12 +201,19 @@ class _SetMultiCombo(_NoScrollComboBox):
             item = QStandardItem(f"{name} ({sid})")
             item.setData(int(sid), self.ROLE_SET_ID)
             item.setData(int(ssize), self.ROLE_SET_SIZE)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
         self.view().pressed.connect(self._on_item_pressed)
         self._apply_size_constraints()
         self._refresh_text()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.showPopup()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def _on_item_pressed(self, index) -> None:
         if not index.isValid():
@@ -303,7 +315,7 @@ class _SetMultiCombo(_NoScrollComboBox):
     def _refresh_text(self) -> None:
         ids = self.checked_ids()
         if not ids:
-            text = "—"
+            text = "-"
         else:
             names = [str(SET_NAMES.get(int(sid), sid)) for sid in ids]
             text = ", ".join(names)
@@ -329,11 +341,18 @@ class _MainstatMultiCombo(_NoScrollComboBox):
         for key in options:
             item = QStandardItem(str(key))
             item.setData(str(key), Qt.UserRole)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
         self.view().pressed.connect(self._on_item_pressed)
         self._refresh_text()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.showPopup()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def _on_item_pressed(self, index) -> None:
         if not index.isValid():

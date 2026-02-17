@@ -21,6 +21,7 @@ class MonsterInfo:
     element: str            # Fire/Wind/Water/Light/Dark/Unknown
     icon: str               # relative path like "icons/13403.png" or ""
     leader_skill: Optional[LeaderSkill] = None
+    turn_effect_capabilities: Dict[str, int | bool] | None = None
 
 
 class MonsterDB:
@@ -35,7 +36,8 @@ class MonsterDB:
         {
           "com2us_id": 13403, "name": "Lushen", "element": "Wind",
           "icon": "icons/13403.png",
-          "leader_skill": {"stat": "ATK%", "amount": 33, "area": "Arena"}
+          "leader_skill": {"stat": "ATK%", "amount": 33, "area": "Arena"},
+          "turn_effect_capabilities": {"has_spd_buff": false, "has_atb_boost": true, "max_atb_boost_pct": 30}
         },
         ...
       ]
@@ -62,6 +64,7 @@ class MonsterDB:
                     element=str(m.get("element") or "Unknown").strip() or "Unknown",
                     icon=str(m.get("icon") or "").strip(),
                     leader_skill=ls,
+                    turn_effect_capabilities=self._parse_turn_effect_capabilities(m),
                 )
                 self._by_id[mid] = info
             except Exception:
@@ -85,6 +88,17 @@ class MonsterDB:
     def leader_skill_for(self, com2us_id: int) -> Optional[LeaderSkill]:
         info = self.get(com2us_id)
         return info.leader_skill if info else None
+
+    def turn_effect_capability_for(self, com2us_id: int) -> Dict[str, int | bool]:
+        info = self.get(com2us_id)
+        if not info:
+            return {"has_spd_buff": False, "has_atb_boost": False, "max_atb_boost_pct": 0}
+        raw = dict(info.turn_effect_capabilities or {})
+        return {
+            "has_spd_buff": bool(raw.get("has_spd_buff", False)),
+            "has_atb_boost": bool(raw.get("has_atb_boost", False)),
+            "max_atb_boost_pct": int(raw.get("max_atb_boost_pct", 0) or 0),
+        }
 
     def speed_lead_percent_for(self, com2us_id: int) -> int:
         ls = self.leader_skill_for(com2us_id)
@@ -115,3 +129,21 @@ class MonsterDB:
         area = str(ls.get("area") or "General").strip()
         element = str(ls.get("element") or "").strip()
         return LeaderSkill(stat=stat, amount=amount, area=area, element=element)
+
+    @staticmethod
+    def _parse_turn_effect_capabilities(raw: Dict[str, Any]) -> Dict[str, int | bool]:
+        data = raw.get("turn_effect_capabilities")
+        if not isinstance(data, dict):
+            data = raw.get("turn_effects")
+        if not isinstance(data, dict):
+            data = raw
+        has_spd_buff = bool(data.get("has_spd_buff", False))
+        has_atb_boost = bool(data.get("has_atb_boost", False))
+        max_atb = int(data.get("max_atb_boost_pct", 0) or 0)
+        if has_atb_boost and max_atb <= 0:
+            max_atb = 100
+        return {
+            "has_spd_buff": has_spd_buff,
+            "has_atb_boost": has_atb_boost,
+            "max_atb_boost_pct": max(0, int(max_atb)),
+        }

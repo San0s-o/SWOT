@@ -1,0 +1,547 @@
+{
+  "version": 1,
+  "by_com2us_id": {
+    "13811": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "13812": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "14412": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "14413": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "18913": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 30
+    },
+    "19411": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "19715": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "26111": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "26113": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 50
+    },
+    "26811": {
+      "has_spd_buff": true,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "27115": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "28612": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "28913": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "29311": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "30012": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "31311": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "32111": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "11031": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "13413": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "13911": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "15911": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 20
+    },
+    "16613": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "19812": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "25812": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "26813": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "27412": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "30613": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 30
+    }
+  },
+  "by_skill_id": {
+    "1234": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1241": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1244": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1233": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1240": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1243": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1072": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1074": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1075": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1071": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1078": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1079": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1204": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1208": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1214": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 30
+    },
+    "865": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1563": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "875": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1222": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1224": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1232": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3364": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3369": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3374": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3366": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3371": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3376": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 50
+    },
+    "3449": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3454": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3459": {
+      "has_spd_buff": true,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3499": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3504": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3509": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3937": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3942": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3947": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4008": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4013": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4018": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4102": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4107": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4112": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4165": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4170": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4175": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4559": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4564": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4569": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4627": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4632": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4637": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "2208": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "2213": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "2218": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "710": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "717": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "721": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "850": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "855": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "860": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "591": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "595": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "600": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 20
+    },
+    "1086": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1090": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "1096": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "769": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "774": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "779": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3251": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3256": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3261": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3451": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3456": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3461": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3574": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3579": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "3584": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4412": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4417": {
+      "has_spd_buff": false,
+      "has_atb_boost": false,
+      "max_atb_boost_pct": 0
+    },
+    "4422": {
+      "has_spd_buff": false,
+      "has_atb_boost": true,
+      "max_atb_boost_pct": 30
+    }
+  }
+}

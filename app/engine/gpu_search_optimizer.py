@@ -78,7 +78,7 @@ def _unit_features(account: AccountData, presets: BuildStore, req: GreedyRequest
         _selected_unit_ids=unit_ids,
         rune_top_per_set_override=max(0, int(getattr(req, "rune_top_per_set", 200) or 200)),
     )
-    artifact_pool = _allowed_artifacts_for_mode(account, unit_ids)
+    artifact_pool = _allowed_artifacts_for_mode(account, unit_ids, req=req)
 
     top_rune_spd = 0.0
     top_rune_qual = 0.0

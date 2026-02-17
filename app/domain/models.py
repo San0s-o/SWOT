@@ -55,6 +55,9 @@ class AccountData:
 
     # Raw defense lists
     guildsiege_defense_unit_list: List[int] = field(default_factory=list)
+    arena_defense_unit_list: List[int] = field(default_factory=list)
+    # deck_list entries for classic arena loadout/decks (deck_type=1)
+    arena_deck_teams: List[List[int]] = field(default_factory=list)
     # Sky Tribe Totem (SPD building) extracted from account JSON.
     sky_tribe_totem_level: int = 0
     sky_tribe_totem_spd_pct: int = 0
@@ -70,6 +73,23 @@ class AccountData:
         ids = self.guildsiege_defense_unit_list
         # Group into chunks of 3 (4 defs typical, but we don't assume count)
         return [ids[i:i+3] for i in range(0, len(ids), 3) if ids[i:i+3]]
+
+    def arena_def_team(self) -> List[int]:
+        return [int(uid) for uid in (self.arena_defense_unit_list or []) if int(uid or 0) > 0][:4]
+
+    def arena_offense_decks(self, limit: int = 12, exclude_current_defense: bool = True) -> List[List[int]]:
+        out: List[List[int]] = []
+        defense_set = set(self.arena_def_team())
+        for team in (self.arena_deck_teams or []):
+            ids = [int(uid) for uid in (team or []) if int(uid or 0) > 0][:4]
+            if len(ids) != 4:
+                continue
+            if exclude_current_defense and defense_set and set(ids) == defense_set:
+                continue
+            out.append(ids)
+            if len(out) >= int(max(1, int(limit or 1))):
+                break
+        return out
 
     def rta_active_unit_ids(self) -> List[int]:
         """Unit-IDs that are fully equipped for RTA (6 runes + 2 artifacts)."""

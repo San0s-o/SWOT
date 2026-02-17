@@ -65,8 +65,21 @@ def apply_saved_account(window, account, source_label: str) -> None:
     window.btn_edit_presets_rta.setEnabled(True)
     window.btn_optimize_rta.setEnabled(True)
 
+    if hasattr(window, "btn_take_current_arena_def"):
+        window.btn_take_current_arena_def.setEnabled(True)
+    if hasattr(window, "btn_take_arena_decks"):
+        window.btn_take_arena_decks.setEnabled(True)
+    if hasattr(window, "btn_validate_arena_rush"):
+        window.btn_validate_arena_rush.setEnabled(True)
+    if hasattr(window, "btn_edit_presets_arena_rush"):
+        window.btn_edit_presets_arena_rush.setEnabled(True)
+    if hasattr(window, "btn_optimize_arena_rush"):
+        window.btn_optimize_arena_rush.setEnabled(True)
+
     window.lbl_siege_validate.setText(tr("status.siege_ready"))
     window.lbl_wgb_validate.setText(tr("status.wgb_ready"))
+    if hasattr(window, "lbl_arena_rush_validate"):
+        window.lbl_arena_rush_validate.setText(tr("status.arena_rush_ready"))
 
     window._ensure_siege_team_defaults()
     window._refresh_team_combo()
@@ -108,6 +121,18 @@ def try_restore_snapshot(window) -> None:
     else:
         source_label = source_name
     window._apply_saved_account(account, source_label)
+
+    # Show reminder if import is older than 1 month
+    if imported_at is not None:
+        from datetime import timedelta
+        age = datetime.now() - imported_at
+        if age > timedelta(days=30):
+            date_str = imported_at.strftime("%d.%m.%Y %H:%M")
+            QMessageBox.warning(
+                window,
+                tr("main.import_outdated_title"),
+                tr("main.import_outdated_msg", source=source_name, date=date_str),
+            )
 
 
 def icon_for_master_id(window, master_id: int) -> QIcon:
@@ -218,7 +243,12 @@ def populate_all_dropdowns(window) -> None:
 
 
 def tab_needs_unit_dropdowns(window, tab: QWidget | None) -> bool:
-    return tab in (window.tab_siege_builder, window.tab_wgb_builder, window.tab_rta_builder)
+    return tab in (
+        window.tab_siege_builder,
+        window.tab_wgb_builder,
+        window.tab_rta_builder,
+        getattr(window, "tab_arena_rush_builder", None),
+    )
 
 
 def on_tab_changed(window, index: int) -> None:

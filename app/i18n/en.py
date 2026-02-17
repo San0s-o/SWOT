@@ -13,6 +13,8 @@ STRINGS: dict[str, str] = {
     "main.snapshot_title": "Load snapshot",
     "main.snapshot_failed": "Could not load snapshot:\n{exc}",
     "main.source_unknown": "Original name unknown",
+    "main.import_outdated_title": "Import outdated",
+    "main.import_outdated_msg": "The current import \"{source}\" is from {date} and older than 1 month.\n\nPlease import a current JSON file to keep your data up to date.",
 
     # -- Tabs ----------------------------------------------------
     "tab.overview": "Overview",
@@ -25,6 +27,7 @@ STRINGS: dict[str, str] = {
     "tab.wgb_saved": "GWB Optimizations (saved)",
     "tab.rta_builder": "RTA Builder (Custom)",
     "tab.rta_saved": "RTA Optimizations (saved)",
+    "tab.arena_rush_builder": "Arena Rush Builder",
 
     # -- Buttons -------------------------------------------------
     "btn.add": "Add",
@@ -48,6 +51,8 @@ STRINGS: dict[str, str] = {
     "btn.optimize_team": "Optimize Team",
     "btn.take_siege": "Load current Siege Defenses",
     "btn.take_rta": "Load current RTA Monsters",
+    "btn.take_arena_def": "Load current Arena Defense",
+    "btn.take_arena_off": "Load Arena Offense Decks",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Passes",
@@ -57,12 +62,17 @@ STRINGS: dict[str, str] = {
     "label.team_name": "Team Name",
     "label.units": "units",
     "label.defense": "Defense {n}",
+    "label.arena_defense": "Arena Defense",
+    "label.offense": "Offense {n}",
+    "label.active": "Active",
     "label.import_account_first": "Import an account first.",
     "label.no_teams": "No teams defined.",
     "label.no_team_selected": "No team selected.",
     "label.no_units": "No units.",
     "label.error": "Error",
     "label.spd_tick_short": "Tick",
+    "label.effect_spd_buff": "SPD+",
+    "label.effect_atb_boost": "ATB",
     "label.min_mode": "Calculation",
     "label.min_mode_hint": "With base stats: entered values are rune bonus.",
     "label.min_base_prefix": "{value} +",
@@ -78,6 +88,8 @@ STRINGS: dict[str, str] = {
     "tooltip.passes": "Number of optimizer passes (1 = single pass only).",
     "tooltip.workers": "Number of CPU cores/threads used by the solver (max 90% of available cores).",
     "tooltip.spd_tick": "Optional SPD tick per monster. Enforces the corresponding SPD breakpoint.",
+    "tooltip.effect_spd_buff": "When enabled, an SPD buff after this unit's turn is considered.",
+    "tooltip.effect_atb_boost": "When enabled, an attack bar push in % is considered.",
 
     # -- Group Boxes ---------------------------------------------
     "group.opt_order": "Optimization Order (Drag & Drop)",
@@ -85,6 +97,8 @@ STRINGS: dict[str, str] = {
     "group.siege_select": "Select Siege Teams (up to 10 defenses x 3 monsters)",
     "group.wgb_select": "Select GWB Teams (5 defenses x 3 monsters)",
     "group.rta_select": "Select RTA Monsters (up to 15 - order via Drag & Drop)",
+    "group.arena_def_select": "Arena Defense (4 monsters)",
+    "group.arena_off_select": "Arena Offense Teams (up to 15 teams x 4 monsters)",
     "group.build_monster_list": "Monsters",
     "group.build_editor": "Build Editor",
     "group.build_rune_sets": "Rune Sets",
@@ -152,6 +166,11 @@ STRINGS: dict[str, str] = {
     "status.wgb_ready": "Ready. (GWB) Select teams.",
     "status.siege_taken": "Current defenses loaded. Please validate.",
     "status.rta_taken": "{count} active RTA monsters loaded.",
+    "status.arena_rush_ready": "Ready. Load Arena def/off -> Validate -> Builds -> Optimize.",
+    "status.arena_def_taken": "Arena defense loaded from snapshot.",
+    "status.arena_off_taken": "{count} Arena offense decks loaded.",
+    "status.arena_off_taken_limited": "{count}/{total} Arena offense decks loaded (UI limit reached).",
+    "status.arena_caps_loading": "Loading monster skill data for effect filters...",
     "status.pass_progress": "{prefix}: Pass {current}/{total}...",
 
     # -- Validation Messages -------------------------------------
@@ -167,6 +186,16 @@ STRINGS: dict[str, str] = {
     "val.title_wgb_ok": "GWB Validation OK",
     "val.title_rta": "RTA Validation",
     "val.title_rta_ok": "RTA Validation OK",
+    "val.title_arena": "Arena Rush Validation",
+    "val.title_arena_ok": "Arena Rush Validation OK",
+    "val.arena_def_need_4": "Arena defense must contain exactly 4 monsters (currently {have}).",
+    "val.arena_def_duplicate": "Arena defense contains duplicates.",
+    "val.arena_off_need_4": "Offense team {team} must contain exactly 4 monsters (currently {have}).",
+    "val.arena_off_duplicate": "Offense team {team} contains duplicates.",
+    "val.arena_need_off": "At least one complete offense team is required.",
+    "val.arena_turn_conflict": "Turn-order conflict between teams detected:\n{details}",
+    "val.arena_turn_conflict_line": "{unit}: teams [{teams}] use different slots [{slots}]",
+    "val.arena_ok": "Arena Rush: OK ({off_count} offense teams).",
     "val.set_invalid": "Invalid set combo for {unit}: none of the set options fit in 6 slots.",
 
     # -- Dialog Messages -----------------------------------------
@@ -178,6 +207,7 @@ STRINGS: dict[str, str] = {
     "dlg.select_monsters_first": "Please select monsters first.",
     "dlg.duplicates_found": "Duplicates found. Please validate first.",
     "dlg.max_15_rta": "Maximum 15 monsters allowed.",
+    "dlg.arena_builds": "Arena Rush Builds",
     "dlg.delete_confirm": "Really delete '{name}'?",
     "dlg.builds_saved_title": "Builds saved",
     "dlg.builds_saved": "Saved to {path}",
@@ -189,6 +219,8 @@ STRINGS: dict[str, str] = {
     "result.title_siege": "Optimizer",
     "result.title_wgb": "GWB Optimizer",
     "result.title_rta": "RTA Optimizer",
+    "result.title_arena_def": "Arena Rush - Defense",
+    "result.title_arena_off": "Arena Rush - Offense {n}",
     "result.opt_running": "{mode} optimization running",
     "result.team_opt_running": "Team '{name}' optimization running",
     "result.avg_rune_eff": "O Rune efficiency: <b>{eff}%</b>",
@@ -431,6 +463,7 @@ STRINGS: dict[str, str] = {
     "rta.no_monsters": "RTA: No monsters selected.",
     "rta.duplicate": "RTA: '{name}' is selected twice.",
     "rta.ok": "RTA: OK ({count} monsters).",
+    "arena_rush.mode": "Arena Rush",
 
     # -- Tabs (Settings) -----------------------------------------
     "tab.settings": "Settings",

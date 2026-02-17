@@ -42,6 +42,7 @@ from app.ui.main_window_sections.builders_and_saved import (
     init_siege_builder_ui as _sec_init_siege_builder_ui,
     init_wgb_builder_ui as _sec_init_wgb_builder_ui,
     init_rta_builder_ui as _sec_init_rta_builder_ui,
+    init_arena_rush_builder_ui as _sec_init_arena_rush_builder_ui,
 )
 from app.ui.main_window_sections.mode_actions import (
     on_take_current_siege as _sec_on_take_current_siege,
@@ -66,6 +67,14 @@ from app.ui.main_window_sections.mode_actions import (
     on_validate_rta as _sec_on_validate_rta,
     on_edit_presets_rta as _sec_on_edit_presets_rta,
     on_optimize_rta as _sec_on_optimize_rta,
+    on_take_current_arena_def as _sec_on_take_current_arena_def,
+    on_take_current_arena_off as _sec_on_take_current_arena_off,
+    collect_arena_def_selection as _sec_collect_arena_def_selection,
+    collect_arena_offense_selections as _sec_collect_arena_offense_selections,
+    on_validate_arena_rush as _sec_on_validate_arena_rush,
+    on_edit_presets_arena_rush as _sec_on_edit_presets_arena_rush,
+    on_optimize_arena_rush as _sec_on_optimize_arena_rush,
+    _validate_arena_rush as _sec_validate_arena_rush,
 )
 from app.ui.main_window_sections.team_section import (
     init_team_tab_ui as _sec_init_team_tab_ui,
@@ -148,6 +157,7 @@ DEFAULT_TAB_ORDER = [
     "tab_saved_wgb",
     "tab_rta_builder",
     "tab_saved_rta",
+    "tab_arena_rush_builder",
     "tab_settings",
 ]
 
@@ -206,6 +216,7 @@ class MainWindow(QMainWindow):
         _apply("combo_quality_profile_siege", "combo_workers_siege")
         _apply("combo_quality_profile_wgb", "combo_workers_wgb")
         _apply("combo_quality_profile_rta", "combo_workers_rta")
+        _apply("combo_quality_profile_arena_rush", "combo_workers_arena_rush")
         _apply("combo_quality_profile_team", "combo_workers_team")
 
     def __init__(self):
@@ -326,6 +337,11 @@ class MainWindow(QMainWindow):
         self.tab_saved_rta = QWidget()
         self.tabs.addTab(self.tab_saved_rta, tr("tab.rta_saved"))
         self._init_saved_rta_tab()
+
+        # Arena Rush Builder
+        self.tab_arena_rush_builder = QWidget()
+        self.tabs.addTab(self.tab_arena_rush_builder, tr("tab.arena_rush_builder"))
+        self._init_arena_rush_builder_ui()
 
         # Team Manager (fixed + custom teams)
         self.tab_team_builder = QWidget()
@@ -630,6 +646,9 @@ class MainWindow(QMainWindow):
     def _init_rta_builder_ui(self):
         return _sec_init_rta_builder_ui(self)
 
+    def _init_arena_rush_builder_ui(self):
+        return _sec_init_arena_rush_builder_ui(self)
+
     def _init_team_tab_ui(self):
         return _sec_init_team_tab_ui(self)
 
@@ -846,6 +865,33 @@ class MainWindow(QMainWindow):
     def on_optimize_rta(self):
         return _sec_on_optimize_rta(self)
 
+    # ============================================================
+    # Arena Rush Builder
+    # ============================================================
+    def on_take_current_arena_def(self):
+        return _sec_on_take_current_arena_def(self)
+
+    def on_take_current_arena_off(self):
+        return _sec_on_take_current_arena_off(self)
+
+    def _collect_arena_def_selection(self) -> List[int]:
+        return _sec_collect_arena_def_selection(self)
+
+    def _collect_arena_offense_selections(self) -> List[TeamSelection]:
+        return _sec_collect_arena_offense_selections(self)
+
+    def _validate_arena_rush(self):
+        return _sec_validate_arena_rush(self)
+
+    def on_validate_arena_rush(self):
+        return _sec_on_validate_arena_rush(self)
+
+    def on_edit_presets_arena_rush(self):
+        return _sec_on_edit_presets_arena_rush(self)
+
+    def on_optimize_arena_rush(self):
+        return _sec_on_optimize_arena_rush(self)
+
     def _retranslate_ui(self) -> None:
         return _sec_retranslate_ui(self)
 
@@ -946,7 +992,6 @@ def run_app():
     w.show()
     QTimer.singleShot(1200, lambda: _start_update_check(w))
     sys.exit(app.exec())
-
 
 
 

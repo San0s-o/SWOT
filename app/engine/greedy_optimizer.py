@@ -212,6 +212,11 @@ class GreedyRequest:
     unit_team_index: Dict[int, int] | None = None
     unit_team_turn_order: Dict[int, int] | None = None
     unit_spd_leader_bonus_flat: Dict[int, int] | None = None
+    unit_min_final_speed: Dict[int, int] | None = None
+    excluded_rune_ids: Set[int] | None = None
+    excluded_artifact_ids: Set[int] | None = None
+    unit_fixed_runes_by_slot: Dict[int, Dict[int, int]] | None = None
+    unit_fixed_artifacts_by_type: Dict[int, Dict[int, int]] | None = None
 
 @dataclass
 class GreedyUnitResult:
@@ -258,6 +263,13 @@ def _allowed_runes_for_mode(
 ) -> List[Rune]:
     # Full account pool optionally pruned to top-N per set to keep search tractable.
     all_runes = list(account.runes)
+    excluded_rune_ids = {
+        int(rid)
+        for rid in (req.excluded_rune_ids or set())
+        if int(rid or 0) > 0
+    }
+    if excluded_rune_ids:
+        all_runes = [r for r in all_runes if int(r.rune_id or 0) not in excluded_rune_ids]
     top_n_raw = rune_top_per_set_override if rune_top_per_set_override is not None else getattr(req, "rune_top_per_set", 0)
     top_n = int(top_n_raw or 0)
     if top_n <= 0:
@@ -279,9 +291,21 @@ def _allowed_runes_for_mode(
     return pruned
 
 
-def _allowed_artifacts_for_mode(account: AccountData, _selected_unit_ids: List[int]) -> List[Artifact]:
+def _allowed_artifacts_for_mode(
+    account: AccountData,
+    _selected_unit_ids: List[int],
+    req: GreedyRequest | None = None,
+) -> List[Artifact]:
     # User requested full account pool: use every artifact from the JSON snapshot/import.
-    return [a for a in account.artifacts if int(a.type_ or 0) in (1, 2)]
+    artifacts = [a for a in account.artifacts if int(a.type_ or 0) in (1, 2)]
+    excluded_artifact_ids = {
+        int(aid)
+        for aid in ((req.excluded_artifact_ids or set()) if req is not None else set())
+        if int(aid or 0) > 0
+    }
+    if excluded_artifact_ids:
+        artifacts = [a for a in artifacts if int(a.artifact_id or 0) not in excluded_artifact_ids]
+    return artifacts
 
 
 def _count_required_set_pieces(set_names: List[str]) -> Dict[int, int]:
@@ -550,6 +574,7 @@ def _solve_single_unit_best(
     base_res: int,
     base_acc: int,
     max_final_speed: Optional[int],
+    min_final_speed: Optional[int] = None,
     rta_rune_ids_for_unit: Optional[Set[int]] = None,
     rta_artifact_ids_for_unit: Optional[Set[int]] = None,
     speed_hard_priority: bool = True,
@@ -557,6 +582,8 @@ def _solve_single_unit_best(
     build_priority_penalty: int = DEFAULT_BUILD_PRIORITY_PENALTY,
     set_option_preference_offset: int = 0,
     set_option_preference_bonus: int = SET_OPTION_PREFERENCE_BONUS,
+    fixed_runes_by_slot: Optional[Dict[int, int]] = None,
+    fixed_artifacts_by_type: Optional[Dict[int, int]] = None,
     avoid_runes_by_slot: Optional[Dict[int, int]] = None,
     avoid_artifacts_by_type: Optional[Dict[int, int]] = None,
     avoid_same_rune_penalty: int = 0,
@@ -584,6 +611,22 @@ def _solve_single_unit_best(
         if 1 <= r.slot_no <= 6:
             runes_by_slot[r.slot_no].append(r)
 
+    locked_runes = {
+        int(slot): int(rid)
+        for slot, rid in (fixed_runes_by_slot or {}).items()
+        if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+    }
+    for slot, rune_id in locked_runes.items():
+        matches = [r for r in runes_by_slot.get(int(slot), []) if int(r.rune_id or 0) == int(rune_id)]
+        if not matches:
+            return GreedyUnitResult(
+                uid,
+                False,
+                f"Locked rune {int(rune_id)} not available for slot {int(slot)}.",
+                runes_by_slot={},
+            )
+        runes_by_slot[int(slot)] = matches
+
     # Hard feasibility: each slot must have >= 1 candidate
     for s in range(1, 7):
         if not runes_by_slot[s]:
@@ -594,6 +637,25 @@ def _solve_single_unit_best(
         t = int(art.type_ or 0)
         if t in (1, 2):
             artifacts_by_type[t].append(art)
+
+    locked_artifacts = {
+        int(art_type): int(aid)
+        for art_type, aid in (fixed_artifacts_by_type or {}).items()
+        if int(art_type or 0) in (1, 2) and int(aid or 0) > 0
+    }
+    for art_type, art_id in locked_artifacts.items():
+        matches = [
+            a for a in artifacts_by_type.get(int(art_type), [])
+            if int(a.artifact_id or 0) == int(art_id)
+        ]
+        if not matches:
+            return GreedyUnitResult(
+                uid,
+                False,
+                f"Locked artifact {int(art_id)} not available for type {int(art_type)}.",
+                runes_by_slot={},
+            )
+        artifacts_by_type[int(art_type)] = matches
 
     if not artifacts_by_type[1]:
         return GreedyUnitResult(uid, False, tr("opt.no_attr_artifact"), runes_by_slot={})
@@ -848,6 +910,8 @@ def _solve_single_unit_best(
     )
     # Combat SPD for turn-order/tick/caps: includes tower and leader.
     final_speed_expr = final_speed_raw_expr + int(base_spd_bonus_flat or 0)
+    if min_final_speed is not None and int(min_final_speed) > 0:
+        model.Add(final_speed_expr >= int(min_final_speed))
     if max_final_speed is not None and max_final_speed > 0:
         model.Add(final_speed_expr <= int(max_final_speed))
 
@@ -1206,7 +1270,7 @@ def _run_pass_with_profile(
     # initial pool
     pool = _allowed_runes_for_mode(account, req, unit_ids, rune_top_per_set_override=rune_top_per_set_override)
     blocked: Set[int] = set()  # rune_id
-    artifact_pool = _allowed_artifacts_for_mode(account, unit_ids)
+    artifact_pool = _allowed_artifacts_for_mode(account, unit_ids, req=req)
     blocked_artifacts: Set[int] = set()  # artifact_id
 
     # For RTA mode, build lookup of RTA-equipped rune IDs per unit
@@ -1233,6 +1297,7 @@ def _run_pass_with_profile(
         base_res = int(unit.base_res or 15) if unit else 15
         base_acc = int(unit.base_acc or 0) if unit else 0
         max_speed_cap: Optional[int] = None
+        min_speed_floor: Optional[int] = None
         if req.enforce_turn_order:
             team_idx_map = req.unit_team_index or {}
             team_turn_map = req.unit_team_turn_order or {}
@@ -1251,6 +1316,10 @@ def _run_pass_with_profile(
                         prev_caps.append(int(prev.final_speed) - 1)
                 if prev_caps:
                     max_speed_cap = min(prev_caps)
+        min_floor_map = dict(req.unit_min_final_speed or {})
+        min_speed_value = int(min_floor_map.get(int(uid), 0) or 0)
+        if min_speed_value > 0:
+            min_speed_floor = int(min_speed_value)
 
         # RTA mode: pass RTA-equipped rune IDs for scoring preference
         rta_rids: Optional[Set[int]] = None
@@ -1265,6 +1334,8 @@ def _run_pass_with_profile(
         builds = sorted(builds, key=lambda b: int(b.priority))
         avoid_ref = (avoid_solution_by_unit or {}).get(int(uid))
         force_speed_priority = _force_swift_speed_priority(req, uid, builds)
+        fixed_runes_by_slot = dict(((req.unit_fixed_runes_by_slot or {}).get(int(uid), {}) or {}))
+        fixed_artifacts_by_type = dict(((req.unit_fixed_artifacts_by_type or {}).get(int(uid), {}) or {}))
 
         r = _solve_single_unit_best(
             uid=uid,
@@ -1283,6 +1354,7 @@ def _run_pass_with_profile(
             base_res=base_res,
             base_acc=base_acc,
             max_final_speed=max_speed_cap,
+            min_final_speed=min_speed_floor,
             rta_rune_ids_for_unit=rta_rids,
             rta_artifact_ids_for_unit=rta_aids,
             speed_hard_priority=speed_hard_priority,
@@ -1290,6 +1362,8 @@ def _run_pass_with_profile(
             build_priority_penalty=build_priority_penalty,
             set_option_preference_offset=int(set_option_preference_offset_base) + int(unit_pos),
             set_option_preference_bonus=int(set_option_preference_bonus),
+            fixed_runes_by_slot=fixed_runes_by_slot,
+            fixed_artifacts_by_type=fixed_artifacts_by_type,
             avoid_runes_by_slot=dict((avoid_ref.runes_by_slot or {})) if avoid_ref else None,
             avoid_artifacts_by_type=dict((avoid_ref.artifacts_by_type or {})) if avoid_ref else None,
             avoid_same_rune_penalty=int(avoid_same_rune_penalty),

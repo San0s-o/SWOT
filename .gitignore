@@ -57,4 +57,7 @@ dist/
 *.log
 *.tmp
 tests/
+!tests/
+tests/*
+!tests/test_arena_rush_optimizer.py
 app/services/license_service.py

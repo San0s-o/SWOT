@@ -35,7 +35,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         return GreedyResult(False, tr("opt.cancelled"), [])
 
     pool = _allowed_runes_for_mode(account, req, unit_ids)
-    artifact_pool = _allowed_artifacts_for_mode(account, unit_ids)
+    artifact_pool = _allowed_artifacts_for_mode(account, unit_ids, req=req)
     runes_by_slot_global: Dict[int, List[Rune]] = {s: [] for s in range(1, 7)}
     for r in pool:
         if 1 <= int(r.slot_no or 0) <= 6:
@@ -81,11 +81,24 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         base_cd = int(unit.crit_dmg or 50) if unit else 50
         base_res = int(unit.base_res or 15) if unit else 15
         base_acc = int(unit.base_acc or 0) if unit else 0
+        fixed_runes_by_slot = {
+            int(slot): int(rid)
+            for slot, rid in ((req.unit_fixed_runes_by_slot or {}).get(int(uid), {}) or {}).items()
+            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+        }
+        fixed_artifacts_by_type = {
+            int(art_type): int(aid)
+            for art_type, aid in ((req.unit_fixed_artifacts_by_type or {}).get(int(uid), {}) or {}).items()
+            if int(art_type or 0) in (1, 2) and int(aid or 0) > 0
+        }
 
         # rune pick: exactly one per slot
         rune_candidates_by_slot: Dict[int, List[Rune]] = {}
         for slot in range(1, 7):
             cands = list(runes_by_slot_global.get(slot, []))
+            locked_rune_id = int(fixed_runes_by_slot.get(int(slot), 0) or 0)
+            if locked_rune_id > 0:
+                cands = [r for r in cands if int(r.rune_id or 0) == int(locked_rune_id)]
             rune_candidates_by_slot[slot] = cands
             if not cands:
                 fallback = _run_greedy_pass(
@@ -107,7 +120,10 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
 
         # artifact pick: exactly one per type
         for art_type in (1, 2):
-            cands = artifacts_by_type_global[art_type]
+            cands = list(artifacts_by_type_global[art_type])
+            locked_artifact_id = int(fixed_artifacts_by_type.get(int(art_type), 0) or 0)
+            if locked_artifact_id > 0:
+                cands = [a for a in cands if int(a.artifact_id or 0) == int(locked_artifact_id)]
             if not cands:
                 fallback = _run_greedy_pass(
                     account=account,

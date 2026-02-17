@@ -102,6 +102,7 @@ def retranslate_ui(window) -> None:
     _set_tab_text("tab_saved_wgb", "tab.wgb_saved")
     _set_tab_text("tab_rta_builder", "tab.rta_builder")
     _set_tab_text("tab_saved_rta", "tab.rta_saved")
+    _set_tab_text("tab_arena_rush_builder", "tab.arena_rush_builder")
     _set_tab_text("tab_settings", "tab.settings")
 
     window.lbl_saved_siege.setText(tr("label.saved_opt"))
@@ -148,6 +149,24 @@ def retranslate_ui(window) -> None:
     window.lbl_rta_profile.setText("Profil")
     window.spin_multi_pass_rta.setToolTip(tr("tooltip.passes"))
     window.combo_workers_rta.setToolTip(tr("tooltip.workers"))
+
+    window.box_arena_def_select.setTitle(tr("group.arena_def_select"))
+    window.box_arena_off_select.setTitle(tr("group.arena_off_select"))
+    window.lbl_arena_defense.setText(tr("label.arena_defense"))
+    for idx, lbl in enumerate(window.lbl_arena_offense, start=1):
+        lbl.setText(tr("label.offense", n=idx))
+    for chk in window.chk_arena_offense_enabled:
+        chk.setText(tr("label.active"))
+    window.btn_take_current_arena_def.setText(tr("btn.take_arena_def"))
+    window.btn_take_arena_decks.setText(tr("btn.take_arena_off"))
+    window.btn_validate_arena_rush.setText(tr("btn.validate_pools"))
+    window.btn_edit_presets_arena_rush.setText(tr("btn.builds"))
+    window.btn_optimize_arena_rush.setText(tr("btn.optimize"))
+    window.lbl_arena_rush_passes.setText(tr("label.passes"))
+    window.lbl_arena_rush_workers.setText(tr("label.workers"))
+    window.lbl_arena_rush_profile.setText("Profil")
+    window.spin_multi_pass_arena_rush.setToolTip(tr("tooltip.passes"))
+    window.combo_workers_arena_rush.setToolTip(tr("tooltip.workers"))
 
     window.lbl_team.setText(tr("label.team"))
     window.btn_new_team.setText(tr("btn.new_team"))

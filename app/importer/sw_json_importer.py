@@ -244,6 +244,39 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
         if _safe_int(x) != 0
     ]
 
+    # Classic Arena defense team
+    # Prefer defense_deck_info (normal arena deck); server_arena_* can point to
+    # interserver/special context depending on snapshot source.
+    arena_def_from_deck = [
+        _safe_int(x)
+        for x in ((data.get("defense_deck_info") or {}).get("unit_id_list") or [])
+        if _safe_int(x) > 0
+    ]
+    arena_def_from_server: List[int] = []
+    for row in sorted(
+        (data.get("server_arena_defense_unit_list") or []),
+        key=lambda x: _safe_int((x or {}).get("pos_id"), 999),
+    ):
+        if not isinstance(row, dict):
+            continue
+        uid = _safe_int(row.get("unit_id"))
+        if uid > 0:
+            arena_def_from_server.append(uid)
+    acc.arena_defense_unit_list = (arena_def_from_deck or arena_def_from_server)[:4]
+
+    # Classic Arena deck presets (deck_type=1, 4 units)
+    arena_deck_teams: List[List[int]] = []
+    for d in (data.get("deck_list") or []):
+        if not isinstance(d, dict):
+            continue
+        if _safe_int(d.get("deck_type")) != 1:
+            continue
+        unit_ids = [_safe_int(x) for x in (d.get("unit_id_list") or []) if _safe_int(x) > 0][:4]
+        if len(unit_ids) != 4:
+            continue
+        arena_deck_teams.append(unit_ids)
+    acc.arena_deck_teams = arena_deck_teams
+
     # ── mode-specific rune equipment ──────────────────────────
     # Guild/Siege: equip_info_list[*].rune_equip_list
     for equip_info in (data.get("equip_info_list") or []):
