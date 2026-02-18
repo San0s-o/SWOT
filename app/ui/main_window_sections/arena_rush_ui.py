@@ -117,6 +117,9 @@ def init_arena_rush_builder_ui(
     window.spin_multi_pass_arena_rush.setToolTip(tr("tooltip.passes"))
     window.spin_multi_pass_arena_rush.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
     btn_row.addWidget(window.spin_multi_pass_arena_rush)
+    # Arena Rush uses fixed max-quality/global optimization; pass control is not applicable in UI.
+    window.lbl_arena_rush_passes.setVisible(False)
+    window.spin_multi_pass_arena_rush.setVisible(False)
 
     window.lbl_arena_rush_workers = QLabel(tr("label.workers"))
     btn_row.addWidget(window.lbl_arena_rush_workers)

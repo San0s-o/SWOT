@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, replace
 from typing import Dict, List, Tuple, Set, Optional, Callable
 
 from ortools.sat.python import cp_model
@@ -29,6 +30,20 @@ STAT_SCORE_WEIGHTS: Dict[int, int] = {
     10: 9,  # CD
     11: 4,  # RES
     12: 4,  # ACC
+}
+
+DEFENSIVE_STAT_SCORE_WEIGHTS: Dict[int, int] = {
+    1: 3,    # HP flat
+    2: 18,   # HP%
+    3: -4,   # ATK flat
+    4: -10,  # ATK%
+    5: 3,    # DEF flat
+    6: 18,   # DEF%
+    8: 10,   # SPD
+    9: -8,   # CR
+    10: -8,  # CD
+    11: 16,  # RES
+    12: 8,   # ACC
 }
 
 SET_SCORE_BONUS: Dict[int, int] = {
@@ -62,6 +77,17 @@ PASS_EFFICIENCY_WEIGHT = 10
 ARENA_RUSH_ATK_EFFICIENCY_SCALE = 45
 ARENA_RUSH_ATK_RUNE_EFF_WEIGHT = 2
 ARENA_RUSH_ATK_ART_EFF_WEIGHT = 2
+ARENA_RUSH_DEF_EFFICIENCY_SCALE = 1
+ARENA_RUSH_DEF_QUALITY_WEIGHT = 4
+ARENA_RUSH_DEF_RUNE_WEIGHT = 3
+ARENA_RUSH_DEF_ART_WEIGHT = 3
+ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT = 2
+STAT_OVERCAP_LIMIT = 100
+CR_OVERCAP_PENALTY_PER_POINT = 20
+RES_OVERCAP_PENALTY_PER_POINT = 16
+ACC_OVERCAP_PENALTY_PER_POINT = 16
+SINGLE_SOLVER_OVERCAP_PENALTY_SCALE = 10
+BASELINE_REGRESSION_GUARD_WEIGHT = 1200
 
 # Artifact main focus mapping (HP/ATK/DEF).
 # Supports both rune-like stat IDs and commonly seen artifact main IDs.
@@ -83,6 +109,11 @@ def _score_stat(eff_id: int, value: int) -> int:
     return int(STAT_SCORE_WEIGHTS.get(eff, 0) * int(value or 0))
 
 
+def _score_stat_defensive(eff_id: int, value: int) -> int:
+    eff = int(eff_id or 0)
+    return int(DEFENSIVE_STAT_SCORE_WEIGHTS.get(eff, 0) * int(value or 0))
+
+
 def _is_attack_type_unit(base_hp: int, base_atk: int, base_def: int, archetype: str = "") -> bool:
     # Prefer explicit archetype when available; fall back to base-stat heuristic.
     arch = str(archetype or "").strip().lower()
@@ -100,6 +131,31 @@ def _is_attack_type_unit(base_hp: int, base_atk: int, base_def: int, archetype: 
     return bool(atk >= defense + 60 and atk >= con + 40)
 
 
+def _arena_role_from_archetype(archetype: str = "") -> str:
+    arch = str(archetype or "").strip().lower()
+    if not arch:
+        return "unknown"
+    if arch in ("attack", "atk", "angriff"):
+        return "attack"
+    if arch in ("defense", "def", "abwehr"):
+        return "defense"
+    if arch in ("hp", "leben"):
+        return "hp"
+    if arch in ("support", "rueckhalt", "rückhalt"):
+        return "support"
+    if arch == "unknown":
+        return "unknown"
+    return "unknown"
+
+
+def _is_attack_archetype(archetype: str = "") -> bool:
+    return str(_arena_role_from_archetype(archetype)) == "attack"
+
+
+def _is_defensive_archetype(archetype: str = "") -> bool:
+    return str(_arena_role_from_archetype(archetype)) in ("defense", "hp", "support")
+
+
 def _rune_damage_score_proxy(r: Rune, base_atk: int) -> int:
     atk_pct = int(_rune_stat_total(r, 4) or 0)
     atk_flat = int(_rune_stat_total(r, 3) or 0)
@@ -108,6 +164,52 @@ def _rune_damage_score_proxy(r: Rune, base_atk: int) -> int:
     spd = int(_rune_flat_spd(r) or 0)
     flat_as_pct = int((atk_flat * 100) / max(1, int(base_atk or 1)))
     return int((atk_pct * 18) + (flat_as_pct * 12) + (cr * 14) + (cd * 16) + (spd * 2))
+
+
+def _rune_defensive_score_proxy(r: Rune, base_hp: int, base_def: int, archetype: str = "") -> int:
+    role = _arena_role_from_archetype(archetype)
+    hp_pct = int(_rune_stat_total(r, 2) or 0)
+    hp_flat = int(_rune_stat_total(r, 1) or 0)
+    def_pct = int(_rune_stat_total(r, 6) or 0)
+    def_flat = int(_rune_stat_total(r, 5) or 0)
+    res = int(_rune_stat_total(r, 11) or 0)
+    acc = int(_rune_stat_total(r, 12) or 0)
+    spd = int(_rune_flat_spd(r) or 0)
+
+    hp_flat_as_pct = int((hp_flat * 100) / max(1, int(base_hp or 1)))
+    def_flat_as_pct = int((def_flat * 100) / max(1, int(base_def or 1)))
+
+    if role == "defense":
+        return int(
+            (hp_pct * 9)
+            + (hp_flat_as_pct * 6)
+            + (def_pct * 18)
+            + (def_flat_as_pct * 12)
+            + (res * 8)
+            + (spd * 4)
+            + (acc * 2)
+        )
+    if role == "hp":
+        return int(
+            (hp_pct * 18)
+            + (hp_flat_as_pct * 12)
+            + (def_pct * 8)
+            + (def_flat_as_pct * 6)
+            + (res * 8)
+            + (spd * 4)
+            + (acc * 2)
+        )
+    if role == "support":
+        return int(
+            (hp_pct * 12)
+            + (hp_flat_as_pct * 9)
+            + (def_pct * 10)
+            + (def_flat_as_pct * 7)
+            + (res * 11)
+            + (spd * 7)
+            + (acc * 8)
+        )
+    return 0
 
 
 def _artifact_damage_score_proxy(art: Artifact) -> int:
@@ -124,6 +226,46 @@ def _artifact_damage_score_proxy(art: Artifact) -> int:
             score += int(round(val * 28.0))
         elif eid in (210, 212, 222, 223, 224, 225, 400, 401, 402, 403, 410, 411):
             score += int(round(val * 18.0))
+    return int(score)
+
+
+def _artifact_defensive_score_proxy(art: Artifact, archetype: str = "") -> int:
+    role = _arena_role_from_archetype(archetype)
+    if role not in ("defense", "hp", "support"):
+        return 0
+
+    score = 0
+    # Main stat is a decisive signal for defensive archetypes:
+    # HP/DEF mains are strongly preferred, ATK main is penalized.
+    try:
+        main_eff = int((art.pri_effect or (0,))[0] or 0)
+    except Exception:
+        main_eff = 0
+    if main_eff == 101:
+        score -= 260
+    elif main_eff == 100:
+        score += 220 if role == "hp" else (180 if role == "support" else 160)
+    elif main_eff == 102:
+        score += 220 if role == "defense" else (150 if role == "support" else 120)
+
+    for sec in (art.sec_effects or []):
+        if not sec or len(sec) < 2:
+            continue
+        try:
+            eid = int(sec[0] or 0)
+            val = float(sec[1] or 0)
+        except Exception:
+            continue
+        if eid in (201, 205, 226):
+            score += int(round(val * (14.0 if role == "defense" else 10.0)))
+        elif eid in (213, 214, 305, 306, 307, 308, 309):
+            score += int(round(val * (16.0 if role == "support" else 13.0)))
+        elif eid in (404, 405, 406):
+            score += int(round(val * (14.0 if role == "support" else 8.0)))
+        elif eid in (206, 203):
+            score += int(round(val * (8.0 if role == "support" else 5.0)))
+        elif eid in (407, 408, 409):
+            score += int(round(val * (10.0 if role == "support" else 3.0)))
     return int(score)
 
 
@@ -167,6 +309,39 @@ def _rune_quality_score(r: Rune, uid: int,
         score += 45
 
     return score
+
+
+def _rune_quality_score_defensive(
+    r: Rune,
+    uid: int,
+    rta_rune_ids_for_unit: Optional[Set[int]] = None,
+) -> int:
+    score = 0
+    score += int(r.upgrade_curr or 0) * 8
+    score += int(r.rank or 0) * 6
+    score += int(r.rune_class or 0) * 10
+
+    score += _score_stat_defensive(int(r.pri_eff[0] or 0), int(r.pri_eff[1] or 0))
+    score += _score_stat_defensive(int(r.prefix_eff[0] or 0), int(r.prefix_eff[1] or 0))
+
+    for sec in (r.sec_eff or []):
+        if not sec:
+            continue
+        eff_id = int(sec[0] or 0)
+        val = int(sec[1] or 0)
+        grind = int(sec[3] or 0) if len(sec) >= 4 else 0
+        score += _score_stat_defensive(eff_id, val + grind)
+
+    if not _is_good_even_slot_mainstat(int(r.pri_eff[0] or 0), int(r.slot_no or 0)):
+        score -= 140
+
+    if rta_rune_ids_for_unit is not None:
+        if r.rune_id in rta_rune_ids_for_unit:
+            score += 45
+    elif r.occupied_type == 1 and r.occupied_id == uid:
+        score += 45
+
+    return int(score)
 
 
 def _artifact_focus_key(art: Artifact) -> str:
@@ -239,6 +414,70 @@ def _artifact_quality_score(
     return int(score)
 
 
+def _artifact_quality_score_defensive(
+    art: Artifact,
+    uid: int,
+    rta_artifact_ids_for_unit: Optional[Set[int]] = None,
+    archetype: str = "",
+) -> int:
+    score = 0
+    score += int(art.level or 0) * 8
+    base_rank = int(getattr(art, "original_rank", 0) or 0)
+    if base_rank <= 0:
+        base_rank = int(art.rank or 0)
+    score += base_rank * 6
+
+    # Defensive effect quality as the primary artifact signal.
+    score += int(_artifact_defensive_score_proxy(art, archetype))
+    # Penalize pure offensive artifact lines for defensive units.
+    score -= int(_artifact_damage_score_proxy(art))
+
+    if rta_artifact_ids_for_unit is not None:
+        if int(art.artifact_id or 0) in rta_artifact_ids_for_unit:
+            score += ARTIFACT_BONUS_FOR_SAME_UNIT
+    elif int(art.occupied_id or 0) == int(uid):
+        score += ARTIFACT_BONUS_FOR_SAME_UNIT
+
+    return int(score)
+
+
+def _baseline_guard_rune_coef(
+    r: Rune,
+    uid: int,
+    base_hp: int,
+    base_atk: int,
+    base_def: int,
+    role: str,
+    rta_rune_ids_for_unit: Optional[Set[int]] = None,
+) -> int:
+    if str(role) in ("defense", "hp", "support"):
+        return int(
+            _rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit)
+            + (int(ARENA_RUSH_DEF_RUNE_WEIGHT) * int(_rune_defensive_score_proxy(r, base_hp, base_def, role)))
+            - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(_rune_damage_score_proxy(r, base_atk)))
+        )
+    if str(role) == "attack":
+        return int(_rune_quality_score(r, uid, rta_rune_ids_for_unit) + int(_rune_damage_score_proxy(r, base_atk)))
+    return int(_rune_quality_score(r, uid, rta_rune_ids_for_unit))
+
+
+def _baseline_guard_artifact_coef(
+    art: Artifact,
+    uid: int,
+    role: str,
+    rta_artifact_ids_for_unit: Optional[Set[int]] = None,
+) -> int:
+    if str(role) in ("defense", "hp", "support"):
+        return int(
+            _artifact_quality_score_defensive(art, uid, rta_artifact_ids_for_unit, archetype=role)
+            + (int(ARENA_RUSH_DEF_ART_WEIGHT) * int(_artifact_defensive_score_proxy(art, role)))
+            - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(_artifact_damage_score_proxy(art)))
+        )
+    if str(role) == "attack":
+        return int(_artifact_quality_score(art, uid, rta_artifact_ids_for_unit) + int(_artifact_damage_score_proxy(art)))
+    return int(_artifact_quality_score(art, uid, rta_artifact_ids_for_unit))
+
+
 @dataclass
 class GreedyRequest:
     mode: str
@@ -261,10 +500,15 @@ class GreedyRequest:
     unit_spd_leader_bonus_flat: Dict[int, int] | None = None
     unit_min_final_speed: Dict[int, int] | None = None
     unit_max_final_speed: Dict[int, int] | None = None
+    unit_speed_tiebreak_weight: Dict[int, int] | None = None
     excluded_rune_ids: Set[int] | None = None
     excluded_artifact_ids: Set[int] | None = None
     unit_fixed_runes_by_slot: Dict[int, Dict[int, int]] | None = None
     unit_fixed_artifacts_by_type: Dict[int, Dict[int, int]] | None = None
+    unit_baseline_runes_by_slot: Dict[int, Dict[int, int]] | None = None
+    unit_baseline_artifacts_by_type: Dict[int, Dict[int, int]] | None = None
+    baseline_regression_guard_weight: int = 0
+    global_seed_offset: int = 0
     unit_archetype_by_uid: Dict[int, str] | None = None
     arena_rush_context: str = ""  # "", "defense", "offense"
 
@@ -629,11 +873,15 @@ def _solve_single_unit_best(
     rta_artifact_ids_for_unit: Optional[Set[int]] = None,
     speed_hard_priority: bool = True,
     speed_weight_soft: int = SOFT_SPEED_WEIGHT,
+    speed_tiebreak_weight: int = 1,
     build_priority_penalty: int = DEFAULT_BUILD_PRIORITY_PENALTY,
     set_option_preference_offset: int = 0,
     set_option_preference_bonus: int = SET_OPTION_PREFERENCE_BONUS,
     fixed_runes_by_slot: Optional[Dict[int, int]] = None,
     fixed_artifacts_by_type: Optional[Dict[int, int]] = None,
+    baseline_runes_by_slot: Optional[Dict[int, int]] = None,
+    baseline_artifacts_by_type: Optional[Dict[int, int]] = None,
+    baseline_regression_guard_weight: int = 0,
     avoid_runes_by_slot: Optional[Dict[int, int]] = None,
     avoid_artifacts_by_type: Optional[Dict[int, int]] = None,
     avoid_same_rune_penalty: int = 0,
@@ -937,6 +1185,9 @@ def _solve_single_unit_best(
     # speed expression (for SPD-first)
     speed_terms = []
     swift_piece_vars = []
+    cr_terms_all: List[cp_model.LinearExpr] = []
+    res_terms_all: List[cp_model.LinearExpr] = []
+    acc_terms_all: List[cp_model.LinearExpr] = []
     swift_bonus_value = int(int(base_spd or 0) * 25 / 100)
     for slot in range(1, 7):
         for r in runes_by_slot[slot]:
@@ -944,6 +1195,15 @@ def _solve_single_unit_best(
             spd = _rune_flat_spd(r)
             if spd:
                 speed_terms.append(spd * v)
+            cr = _rune_stat_total(r, 9)
+            if cr:
+                cr_terms_all.append(cr * v)
+            res = _rune_stat_total(r, 11)
+            if res:
+                res_terms_all.append(res * v)
+            acc = _rune_stat_total(r, 12)
+            if acc:
+                acc_terms_all.append(acc * v)
             if int(r.set_id or 0) == 3:
                 swift_piece_vars.append(v)
 
@@ -986,39 +1246,89 @@ def _solve_single_unit_best(
             if max_spd_tick > 0:
                 model.Add(final_speed_expr <= max_spd_tick).OnlyEnforceIf(vb)
 
+    # Soft-penalty for wasted capped stats (CR/RES/ACC above 100).
+    # Use slack vars with lower bounds only; objective minimizes them via negative weight.
+    cr_total_var = model.NewIntVar(0, 500, f"stat_cr_total_u{uid}")
+    model.Add(cr_total_var == int(base_cr or 0) + (sum(cr_terms_all) if cr_terms_all else 0))
+    cr_over_var = model.NewIntVar(0, 400, f"stat_cr_overcap_u{uid}")
+    model.Add(cr_over_var >= cr_total_var - int(STAT_OVERCAP_LIMIT))
+
+    res_total_var = model.NewIntVar(0, 500, f"stat_res_total_u{uid}")
+    model.Add(res_total_var == int(base_res or 0) + (sum(res_terms_all) if res_terms_all else 0))
+    res_over_var = model.NewIntVar(0, 400, f"stat_res_overcap_u{uid}")
+    model.Add(res_over_var >= res_total_var - int(STAT_OVERCAP_LIMIT))
+
+    acc_total_var = model.NewIntVar(0, 500, f"stat_acc_total_u{uid}")
+    model.Add(acc_total_var == int(base_acc or 0) + (sum(acc_terms_all) if acc_terms_all else 0))
+    acc_over_var = model.NewIntVar(0, 400, f"stat_acc_overcap_u{uid}")
+    model.Add(acc_over_var >= acc_total_var - int(STAT_OVERCAP_LIMIT))
+
+    overcap_penalty_expr: cp_model.LinearExpr = (
+        (int(CR_OVERCAP_PENALTY_PER_POINT) * cr_over_var)
+        + (int(RES_OVERCAP_PENALTY_PER_POINT) * res_over_var)
+        + (int(ACC_OVERCAP_PENALTY_PER_POINT) * acc_over_var)
+    )
+
     # quality objective (2nd phase after speed is pinned)
     is_arena_rush_mode = str(mode or "").strip().lower() == "arena_rush"
+    unit_role = _arena_role_from_archetype(str(unit_archetype or ""))
     favor_damage_for_atk_type = (
         bool(arena_rush_damage_bias)
         and is_arena_rush_mode
-        and _is_attack_type_unit(
-        base_hp=int(base_hp or 0),
-        base_atk=int(base_atk or 0),
-        base_def=int(base_def or 0),
-        archetype=str(unit_archetype or ""),
+        and str(unit_role) == "attack"
     )
+    favor_defense_for_role = bool(
+        is_arena_rush_mode
+        and str(unit_role) in ("defense", "hp", "support")
     )
     quality_terms = []
     for slot in range(1, 7):
         for r in runes_by_slot[slot]:
             v = x[(slot, r.rune_id)]
             if str(objective_mode) == "efficiency":
-                eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE if favor_damage_for_atk_type else 100)
+                if favor_damage_for_atk_type:
+                    eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE)
+                elif favor_defense_for_role:
+                    eff_scale = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
+                else:
+                    eff_scale = 100
                 eff_bonus = int(round(float(rune_efficiency(r)) * float(eff_scale)))
                 if eff_bonus:
                     quality_terms.append(eff_bonus * v)
+                if favor_defense_for_role:
+                    def_q = int(_rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit))
+                    if def_q:
+                        quality_terms.append((int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * def_q) * v)
                 if favor_damage_for_atk_type:
                     dmg_bonus = _rune_damage_score_proxy(r, int(base_atk or 0))
                     if dmg_bonus:
                         quality_terms.append(dmg_bonus * v)
+                if favor_defense_for_role:
+                    def_bonus = _rune_defensive_score_proxy(
+                        r,
+                        int(base_hp or 0),
+                        int(base_def or 0),
+                        str(unit_archetype or ""),
+                    )
+                    if def_bonus:
+                        quality_terms.append((int(ARENA_RUSH_DEF_RUNE_WEIGHT) * def_bonus) * v)
+                    dmg_penalty = _rune_damage_score_proxy(r, int(base_atk or 0))
+                    if dmg_penalty:
+                        quality_terms.append(
+                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * v
+                        )
             else:
-                w = _rune_quality_score(r, uid, rta_rune_ids_for_unit)
+                if favor_defense_for_role:
+                    w = _rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit)
+                else:
+                    w = _rune_quality_score(r, uid, rta_rune_ids_for_unit)
                 quality_terms.append(w * v)
-                eff_weight = int(
-                    ARENA_RUSH_ATK_RUNE_EFF_WEIGHT
-                    if favor_damage_for_atk_type
-                    else RUNE_EFFICIENCY_WEIGHT_SOLVER
-                )
+                if favor_damage_for_atk_type:
+                    eff_weight = int(ARENA_RUSH_ATK_RUNE_EFF_WEIGHT)
+                elif favor_defense_for_role:
+                    eff_weight = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
+                else:
+                    eff_weight = int(RUNE_EFFICIENCY_WEIGHT_SOLVER)
                 eff_bonus = int(round(float(rune_efficiency(r)) * float(eff_weight)))
                 if eff_bonus:
                     quality_terms.append(eff_bonus * v)
@@ -1026,26 +1336,74 @@ def _solve_single_unit_best(
                     dmg_bonus = _rune_damage_score_proxy(r, int(base_atk or 0))
                     if dmg_bonus:
                         quality_terms.append(dmg_bonus * v)
+                if favor_defense_for_role:
+                    def_bonus = _rune_defensive_score_proxy(
+                        r,
+                        int(base_hp or 0),
+                        int(base_def or 0),
+                        str(unit_archetype or ""),
+                    )
+                    if def_bonus:
+                        quality_terms.append((int(ARENA_RUSH_DEF_RUNE_WEIGHT) * def_bonus) * v)
+                    dmg_penalty = _rune_damage_score_proxy(r, int(base_atk or 0))
+                    if dmg_penalty:
+                        quality_terms.append(
+                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * v
+                        )
     for art_type in (1, 2):
         for art in artifacts_by_type[art_type]:
             av = xa[(art_type, int(art.artifact_id))]
             if str(objective_mode) == "efficiency":
-                eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE if favor_damage_for_atk_type else 100)
+                if favor_damage_for_atk_type:
+                    eff_scale = int(ARENA_RUSH_ATK_EFFICIENCY_SCALE)
+                elif favor_defense_for_role:
+                    eff_scale = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
+                else:
+                    eff_scale = 100
                 art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(eff_scale)))
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
+                if favor_defense_for_role:
+                    def_q = int(
+                        _artifact_quality_score_defensive(
+                            art,
+                            uid,
+                            rta_artifact_ids_for_unit,
+                            archetype=str(unit_archetype or ""),
+                        )
+                    )
+                    if def_q:
+                        quality_terms.append((int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * def_q) * av)
                 if favor_damage_for_atk_type:
                     dmg_bonus = _artifact_damage_score_proxy(art)
                     if dmg_bonus:
                         quality_terms.append(dmg_bonus * av)
+                if favor_defense_for_role:
+                    def_bonus = _artifact_defensive_score_proxy(art, str(unit_archetype or ""))
+                    if def_bonus:
+                        quality_terms.append((int(ARENA_RUSH_DEF_ART_WEIGHT) * def_bonus) * av)
+                    dmg_penalty = _artifact_damage_score_proxy(art)
+                    if dmg_penalty:
+                        quality_terms.append(
+                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * av
+                        )
             else:
-                aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
+                if favor_defense_for_role:
+                    aw = _artifact_quality_score_defensive(
+                        art,
+                        uid,
+                        rta_artifact_ids_for_unit,
+                        archetype=str(unit_archetype or ""),
+                    )
+                else:
+                    aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
                 quality_terms.append(aw * av)
-                eff_weight = int(
-                    ARENA_RUSH_ATK_ART_EFF_WEIGHT
-                    if favor_damage_for_atk_type
-                    else ARTIFACT_EFFICIENCY_WEIGHT_SOLVER
-                )
+                if favor_damage_for_atk_type:
+                    eff_weight = int(ARENA_RUSH_ATK_ART_EFF_WEIGHT)
+                elif favor_defense_for_role:
+                    eff_weight = int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
+                else:
+                    eff_weight = int(ARTIFACT_EFFICIENCY_WEIGHT_SOLVER)
                 art_eff_bonus = int(round(float(artifact_efficiency(art)) * float(eff_weight)))
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
@@ -1053,6 +1411,15 @@ def _solve_single_unit_best(
                     dmg_bonus = _artifact_damage_score_proxy(art)
                     if dmg_bonus:
                         quality_terms.append(dmg_bonus * av)
+                if favor_defense_for_role:
+                    def_bonus = _artifact_defensive_score_proxy(art, str(unit_archetype or ""))
+                    if def_bonus:
+                        quality_terms.append((int(ARENA_RUSH_DEF_ART_WEIGHT) * def_bonus) * av)
+                    dmg_penalty = _artifact_damage_score_proxy(art)
+                    if dmg_penalty:
+                        quality_terms.append(
+                            (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * av
+                        )
 
     # Build-aware artifact quality:
     # if artifact filters are selected, prefer higher rolls in those selected effects.
@@ -1104,6 +1471,127 @@ def _solve_single_unit_best(
             akey = (int(art_type), int(aid))
             if akey in xa:
                 quality_terms.append((-int(avoid_same_artifact_penalty)) * xa[akey])
+    quality_terms.append((-int(SINGLE_SOLVER_OVERCAP_PENALTY_SCALE)) * overcap_penalty_expr)
+
+    guard_weight = int(max(0, int(baseline_regression_guard_weight or 0)))
+    if guard_weight > 0:
+        baseline_slots = {
+            int(slot): int(rid)
+            for slot, rid in dict(baseline_runes_by_slot or {}).items()
+            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+        }
+        baseline_arts = {
+            int(t): int(aid)
+            for t, aid in dict(baseline_artifacts_by_type or {}).items()
+            if int(t or 0) in (1, 2) and int(aid or 0) > 0
+        }
+        if len(baseline_slots) == 6 and len(baseline_arts) == 2:
+            guard_role = str(unit_role)
+            if guard_role == "unknown":
+                guard_role = (
+                    "attack"
+                    if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=str(unit_archetype or ""))
+                    else "support"
+                )
+            baseline_runes: List[Rune] = []
+            baseline_ok = True
+            for slot in range(1, 7):
+                rid = int(baseline_slots.get(int(slot), 0) or 0)
+                key = (int(slot), int(rid))
+                if rid <= 0 or key not in x:
+                    baseline_ok = False
+                    break
+                ref = next((rr for rr in runes_by_slot[int(slot)] if int(rr.rune_id or 0) == int(rid)), None)
+                if ref is None:
+                    baseline_ok = False
+                    break
+                baseline_runes.append(ref)
+            baseline_artifacts: List[Artifact] = []
+            if baseline_ok:
+                for art_type in (1, 2):
+                    aid = int(baseline_arts.get(int(art_type), 0) or 0)
+                    akey = (int(art_type), int(aid))
+                    if aid <= 0 or akey not in xa:
+                        baseline_ok = False
+                        break
+                    aref = next(
+                        (aa for aa in artifacts_by_type[int(art_type)] if int(aa.artifact_id or 0) == int(aid)),
+                        None,
+                    )
+                    if aref is None:
+                        baseline_ok = False
+                        break
+                    baseline_artifacts.append(aref)
+            if baseline_ok:
+                guard_terms: List[cp_model.LinearExpr] = []
+                for slot in range(1, 7):
+                    for r in runes_by_slot[slot]:
+                        coef = int(
+                            _baseline_guard_rune_coef(
+                                r,
+                                uid=uid,
+                                base_hp=int(base_hp or 0),
+                                base_atk=int(base_atk or 0),
+                                base_def=int(base_def or 0),
+                                role=str(guard_role),
+                                rta_rune_ids_for_unit=rta_rune_ids_for_unit,
+                            )
+                        )
+                        if coef != 0:
+                            guard_terms.append(coef * x[(slot, int(r.rune_id))])
+                for art_type in (1, 2):
+                    for art in artifacts_by_type[art_type]:
+                        coef = int(
+                            _baseline_guard_artifact_coef(
+                                art,
+                                uid=uid,
+                                role=str(guard_role),
+                                rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
+                            )
+                        )
+                        if coef != 0:
+                            guard_terms.append(coef * xa[(int(art_type), int(art.artifact_id))])
+                guard_expr = (sum(guard_terms) if guard_terms else 0) - (
+                    int(SINGLE_SOLVER_OVERCAP_PENALTY_SCALE) * overcap_penalty_expr
+                )
+                baseline_guard_score = 0
+                baseline_cr_total = int(base_cr or 0)
+                baseline_res_total = int(base_res or 0)
+                baseline_acc_total = int(base_acc or 0)
+                for r in baseline_runes:
+                    baseline_guard_score += int(
+                        _baseline_guard_rune_coef(
+                            r,
+                            uid=uid,
+                            base_hp=int(base_hp or 0),
+                            base_atk=int(base_atk or 0),
+                            base_def=int(base_def or 0),
+                            role=str(guard_role),
+                            rta_rune_ids_for_unit=rta_rune_ids_for_unit,
+                        )
+                    )
+                    baseline_cr_total += int(_rune_stat_total(r, 9) or 0)
+                    baseline_res_total += int(_rune_stat_total(r, 11) or 0)
+                    baseline_acc_total += int(_rune_stat_total(r, 12) or 0)
+                for art in baseline_artifacts:
+                    baseline_guard_score += int(
+                        _baseline_guard_artifact_coef(
+                            art,
+                            uid=uid,
+                            role=str(guard_role),
+                            rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
+                        )
+                    )
+                baseline_over = (
+                    (int(CR_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_cr_total) - int(STAT_OVERCAP_LIMIT)))
+                    + (int(RES_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_res_total) - int(STAT_OVERCAP_LIMIT)))
+                    + (int(ACC_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_acc_total) - int(STAT_OVERCAP_LIMIT)))
+                )
+                baseline_guard_score -= int(SINGLE_SOLVER_OVERCAP_PENALTY_SCALE) * int(baseline_over)
+                shortfall_cap = max(200000, abs(int(baseline_guard_score)) + 200000)
+                guard_shortfall = model.NewIntVar(0, int(shortfall_cap), f"baseline_guard_shortfall_u{uid}")
+                model.Add(guard_shortfall >= int(baseline_guard_score) - guard_expr)
+                quality_terms.append((-int(guard_weight)) * guard_shortfall)
 
     solver = cp_model.CpSolver()
     if register_solver:
@@ -1129,14 +1617,14 @@ def _solve_single_unit_best(
                 keep_speed_min = max(0, int(best_speed) - max(0, int(speed_slack_for_quality)))
             # Keep speed near optimum but allow small slack so quality can win.
             model.Add(final_speed_expr >= keep_speed_min)
-            model.Maximize(sum(quality_terms) + final_speed_expr)
+            model.Maximize(sum(quality_terms) + (int(speed_tiebreak_weight) * final_speed_expr))
             status = solver.Solve(model)
             if is_cancelled and is_cancelled():
                 return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
     else:
         if str(objective_mode) == "efficiency":
             # In refinement we prioritize efficiency; speed only breaks ties.
-            model.Maximize((sum(quality_terms) * 1000) + final_speed_expr)
+            model.Maximize((sum(quality_terms) * 1000) + (int(speed_tiebreak_weight) * final_speed_expr))
         else:
             model.Maximize(sum(quality_terms) + (int(speed_weight_soft) * final_speed_expr))
         status = solver.Solve(model)
@@ -1465,8 +1953,13 @@ def _run_pass_with_profile(
         builds = sorted(builds, key=lambda b: int(b.priority))
         avoid_ref = (avoid_solution_by_unit or {}).get(int(uid))
         force_speed_priority = _force_swift_speed_priority(req, uid, builds)
+        speed_tie_raw = (req.unit_speed_tiebreak_weight or {}).get(int(uid), None)
+        speed_tiebreak_weight = 1 if speed_tie_raw is None else int(speed_tie_raw)
+        unit_speed_hard_priority = bool(speed_hard_priority) and int(speed_tiebreak_weight) > 0
         fixed_runes_by_slot = dict(((req.unit_fixed_runes_by_slot or {}).get(int(uid), {}) or {}))
         fixed_artifacts_by_type = dict(((req.unit_fixed_artifacts_by_type or {}).get(int(uid), {}) or {}))
+        baseline_runes_by_slot = dict(((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {}))
+        baseline_artifacts_by_type = dict(((req.unit_baseline_artifacts_by_type or {}).get(int(uid), {}) or {}))
 
         r = _solve_single_unit_best(
             uid=uid,
@@ -1488,13 +1981,20 @@ def _run_pass_with_profile(
             min_final_speed=min_speed_floor,
             rta_rune_ids_for_unit=rta_rids,
             rta_artifact_ids_for_unit=rta_aids,
-            speed_hard_priority=speed_hard_priority,
-            speed_weight_soft=SOFT_SPEED_WEIGHT,
+            speed_hard_priority=unit_speed_hard_priority,
+            speed_weight_soft=(int(SOFT_SPEED_WEIGHT) * int(speed_tiebreak_weight)),
+            speed_tiebreak_weight=int(speed_tiebreak_weight),
             build_priority_penalty=build_priority_penalty,
             set_option_preference_offset=int(set_option_preference_offset_base) + int(unit_pos),
             set_option_preference_bonus=int(set_option_preference_bonus),
             fixed_runes_by_slot=fixed_runes_by_slot,
             fixed_artifacts_by_type=fixed_artifacts_by_type,
+            baseline_runes_by_slot=baseline_runes_by_slot,
+            baseline_artifacts_by_type=baseline_artifacts_by_type,
+            baseline_regression_guard_weight=int(
+                getattr(req, "baseline_regression_guard_weight", BASELINE_REGRESSION_GUARD_WEIGHT)
+                or 0
+            ),
             avoid_runes_by_slot=dict((avoid_ref.runes_by_slot or {})) if avoid_ref else None,
             avoid_artifacts_by_type=dict((avoid_ref.artifacts_by_type or {})) if avoid_ref else None,
             avoid_same_rune_penalty=int(avoid_same_rune_penalty),
@@ -1605,8 +2105,75 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
         profile = "balanced"
     if profile == "max_quality":
         from app.engine.global_optimizer import optimize_global
+        run_count = int(max(1, int(req.multi_pass_count or 1))) if bool(req.multi_pass_enabled) else 1
+        if run_count <= 1:
+            return optimize_global(account, presets, req)
 
-        return optimize_global(account, presets, req)
+        max_parallel = int(max(1, int(req.workers or 1)))
+        parallel_runs = int(max(1, min(int(run_count), int(max_parallel))))
+        workers_per_run = int(max(1, int(max_parallel // parallel_runs)))
+
+        def _run_global_once(run_idx: int) -> tuple[int, GreedyResult]:
+            if req.is_cancelled and req.is_cancelled():
+                return int(run_idx), GreedyResult(False, tr("opt.cancelled"), [])
+            sub_req = replace(
+                req,
+                workers=int(workers_per_run),
+                multi_pass_enabled=False,
+                multi_pass_count=1,
+                progress_callback=None,
+                register_solver=None,
+                global_seed_offset=int(run_idx * 100003),
+            )
+            return int(run_idx), optimize_global(account, presets, sub_req)
+
+        completed = 0
+        run_results: List[tuple[int, GreedyResult]] = []
+        with ThreadPoolExecutor(max_workers=int(parallel_runs)) as ex:
+            futures = [ex.submit(_run_global_once, int(i)) for i in range(int(run_count))]
+            for fut in as_completed(futures):
+                if req.is_cancelled and req.is_cancelled():
+                    for ff in futures:
+                        ff.cancel()
+                    break
+                try:
+                    run_results.append(fut.result())
+                except Exception:
+                    continue
+                completed += 1
+                if req.progress_callback:
+                    try:
+                        req.progress_callback(int(completed), int(run_count))
+                    except Exception:
+                        pass
+
+        if not run_results:
+            return GreedyResult(False, tr("opt.cancelled"), [])
+
+        best_idx = -1
+        best_result: Optional[GreedyResult] = None
+        best_score: Optional[Tuple[int, int, int, int, int, int, int]] = None
+        seen_signatures: Set[
+            Tuple[Tuple[int, bool, Tuple[Tuple[int, int], ...], Tuple[Tuple[int, int], ...], int, str], ...]
+        ] = set()
+        for ridx, rres in run_results:
+            sig = _results_signature(list(rres.results or []))
+            seen_signatures.add(sig)
+            score = _evaluate_pass_score(account, req, list(rres.results or []))
+            if best_score is None or score > best_score:
+                best_score = score
+                best_result = rres
+                best_idx = int(ridx)
+
+        if best_result is None:
+            return GreedyResult(False, "Global optimization failed.", [])
+        msg = (
+            f"{str(best_result.message or 'Global optimization finished.')} "
+            f"parallel_runs={int(parallel_runs)}, launches={int(run_count)}, "
+            f"workers_per_run={int(workers_per_run)}, unique={int(max(1, len(seen_signatures)))}, "
+            f"best_run={int(best_idx + 1)}."
+        )
+        return GreedyResult(bool(best_result.ok), msg, list(best_result.results or []))
     if profile.startswith("gpu_search"):
         from app.engine.gpu_search_optimizer import optimize_gpu_search
 

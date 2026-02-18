@@ -4,7 +4,10 @@ from typing import List, Set
 
 from PySide6.QtCore import Qt, QEvent, QModelIndex, QSortFilterProxyModel, QRegularExpression, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import QWidget, QComboBox, QCompleter, QAbstractItemView
+from PySide6.QtWidgets import (
+    QWidget, QComboBox, QCompleter, QAbstractItemView,
+    QStyledItemDelegate, QStyleOptionViewItem,
+)
 
 from app.domain.presets import SET_NAMES, SET_SIZES
 from app.i18n import tr
@@ -15,6 +18,16 @@ class _NoScrollComboBox(QComboBox):
 
     def wheelEvent(self, event):
         event.ignore()
+
+
+class _NoCheckDelegate(QStyledItemDelegate):
+    """Hides checkbox indicators; checked items get a checkmark prefix."""
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        option.features &= ~QStyleOptionViewItem.HasCheckIndicator
+        if index.data(Qt.CheckStateRole) == Qt.Checked:
+            option.text = "\u2713  " + option.text
 
 
 class _UnitSearchComboBox(_NoScrollComboBox):
@@ -184,7 +197,6 @@ class _SetMultiCombo(_NoScrollComboBox):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._block_hide_once = False
         self._enforced_size: int | None = None
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)
@@ -206,15 +218,22 @@ class _SetMultiCombo(_NoScrollComboBox):
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
-        # We toggle checks ourselves in `_on_item_pressed`.
-        # Disable default view toggling to make clicks on the checkbox reliable.
         self.view().setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.view().pressed.connect(self._on_item_pressed)
+        self.view().setItemDelegate(_NoCheckDelegate(self.view()))
+        self.view().viewport().installEventFilter(self)
         self.currentIndexChanged.connect(lambda _: self._refresh_text())
         self._apply_size_constraints()
         self._refresh_text()
 
     def eventFilter(self, obj, event) -> bool:
+        if obj is self.view().viewport() and event.type() in (
+            QEvent.MouseButtonPress, QEvent.MouseButtonRelease,
+        ):
+            if event.type() == QEvent.MouseButtonPress:
+                index = self.view().indexAt(event.pos())
+                if index.isValid():
+                    self._on_item_pressed(index)
+            return True
         if obj is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
             if isinstance(event, QMouseEvent) and event.button() == Qt.LeftButton:
                 self.showPopup()
@@ -236,15 +255,11 @@ class _SetMultiCombo(_NoScrollComboBox):
             return
         new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
         item.setCheckState(new_state)
-        self._block_hide_once = True
         self._apply_size_constraints()
         self._refresh_text()
         self.selection_changed.emit()
 
     def hidePopup(self) -> None:
-        if self._block_hide_once:
-            self._block_hide_once = False
-            return
         super().hidePopup()
         self._refresh_text()
 
@@ -345,7 +360,6 @@ class _MainstatMultiCombo(_NoScrollComboBox):
 
     def __init__(self, options: List[str], parent: QWidget | None = None):
         super().__init__(parent)
-        self._block_hide_once = False
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)
         le = self.lineEdit()
@@ -355,10 +369,8 @@ class _MainstatMultiCombo(_NoScrollComboBox):
             le.installEventFilter(self)
         model = QStandardItemModel(self)
         self.setModel(model)
-        # We handle check toggling ourselves in `_on_item_pressed`.
-        # Disable default item editing/toggling to avoid double-toggle when
-        # clicking directly on the checkbox indicator.
         self.view().setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.view().setItemDelegate(_NoCheckDelegate(self.view()))
         any_item = QStandardItem("Any")
         any_item.setData(self.ANY_TOKEN, Qt.UserRole)
         any_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
@@ -370,13 +382,19 @@ class _MainstatMultiCombo(_NoScrollComboBox):
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setData(Qt.Unchecked, Qt.CheckStateRole)
             model.appendRow(item)
-        # Use `pressed` (not `clicked`) so the check-state toggle happens
-        # before the combo popup auto-closes on item activation.
-        self.view().pressed.connect(self._on_item_pressed)
+        self.view().viewport().installEventFilter(self)
         self.currentIndexChanged.connect(lambda _: self._refresh_text())
         self._refresh_text()
 
     def eventFilter(self, obj, event) -> bool:
+        if obj is self.view().viewport() and event.type() in (
+            QEvent.MouseButtonPress, QEvent.MouseButtonRelease,
+        ):
+            if event.type() == QEvent.MouseButtonPress:
+                index = self.view().indexAt(event.pos())
+                if index.isValid():
+                    self._on_item_pressed(index)
+            return True
         if obj is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
             if isinstance(event, QMouseEvent) and event.button() == Qt.LeftButton:
                 self.showPopup()
@@ -410,13 +428,9 @@ class _MainstatMultiCombo(_NoScrollComboBox):
                 self._set_any_checked(False)
             if not self.checked_values():
                 self._check_only_any()
-        self._block_hide_once = True
         self._refresh_text()
 
     def hidePopup(self) -> None:
-        if self._block_hide_once:
-            self._block_hide_once = False
-            return
         super().hidePopup()
         self._refresh_text()
 

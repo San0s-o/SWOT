@@ -50,10 +50,10 @@ def allowed_spd_ticks(mode: str | None = None) -> List[int]:
         return ticks
     out: List[int] = []
     for tick in ticks:
-        out.append(int(tick))
         if int(tick) == 11:
-            # Leo-style low-speed bucket: below the normal Tick-11 breakpoint.
+            # Leo-style low-speed bucket should be listed first in the 11-tick group.
             out.append(int(LEO_LOW_SPD_TICK))
+        out.append(int(tick))
     return out
 
 

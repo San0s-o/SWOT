@@ -14,6 +14,7 @@ from app.engine.arena_rush_optimizer import (
     ArenaRushRequest,
     optimize_arena_rush,
 )
+from app.engine.greedy_optimizer import BASELINE_REGRESSION_GUARD_WEIGHT
 from app.engine.arena_rush_timing import OpeningTurnEffect
 from app.i18n import tr
 from app.services.monster_turn_effects_service import ensure_skill_icons, resolve_turn_effect_capabilities
@@ -24,6 +25,90 @@ from app.ui.dialogs.build_dialog import BuildDialog
 class TeamSelection:
     team_index: int
     unit_ids: List[int]
+
+
+def _store_compare_snapshot_from_build_dialog(window, mode: str, dlg: BuildDialog) -> None:
+    mode_key = str(mode or "").strip().lower()
+    if not mode_key:
+        return
+    store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    snap = dlg.loaded_current_runes_snapshot()
+    if not isinstance(snap, dict):
+        store.pop(mode_key, None)
+        window._loaded_current_runes_compare_by_mode = store
+        return
+    runes_raw = dict(snap.get("runes_by_unit") or {})
+    artifacts_raw = dict(snap.get("artifacts_by_unit") or {})
+    runes_by_unit: Dict[int, Dict[int, int]] = {}
+    artifacts_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_slot in runes_raw.items():
+        ui = int(uid or 0)
+        if ui <= 0:
+            continue
+        clean_slots: Dict[int, int] = {}
+        for slot, rid in dict(by_slot or {}).items():
+            s = int(slot or 0)
+            r = int(rid or 0)
+            if 1 <= s <= 6 and r > 0:
+                clean_slots[int(s)] = int(r)
+        if clean_slots:
+            runes_by_unit[int(ui)] = clean_slots
+    for uid, by_type in artifacts_raw.items():
+        ui = int(uid or 0)
+        if ui <= 0:
+            continue
+        clean_types: Dict[int, int] = {}
+        for art_type, aid in dict(by_type or {}).items():
+            t = int(art_type or 0)
+            a = int(aid or 0)
+            if t in (1, 2) and a > 0:
+                clean_types[int(t)] = int(a)
+        if clean_types:
+            artifacts_by_unit[int(ui)] = clean_types
+    if runes_by_unit or artifacts_by_unit:
+        store[mode_key] = {
+            "runes_by_unit": runes_by_unit,
+            "artifacts_by_unit": artifacts_by_unit,
+        }
+    else:
+        store.pop(mode_key, None)
+    window._loaded_current_runes_compare_by_mode = store
+
+
+def _baseline_assignments_for_mode(window, mode: str, unit_ids: List[int]) -> Tuple[Dict[int, Dict[int, int]], Dict[int, Dict[int, int]]]:
+    mode_key = str(mode or "").strip().lower()
+    if not mode_key:
+        return {}, {}
+    unit_set = {int(uid) for uid in (unit_ids or []) if int(uid) > 0}
+    if not unit_set:
+        return {}, {}
+    compare_store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    snap = dict(compare_store.get(mode_key, {}) or {})
+    runes_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_slot in dict(snap.get("runes_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        slots = {
+            int(slot): int(rid)
+            for slot, rid in dict(by_slot or {}).items()
+            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+        }
+        if slots:
+            runes_by_unit[int(ui)] = slots
+    arts_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_type in dict(snap.get("artifacts_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        types = {
+            int(t): int(aid)
+            for t, aid in dict(by_type or {}).items()
+            if int(t or 0) in (1, 2) and int(aid or 0) > 0
+        }
+        if types:
+            arts_by_unit[int(ui)] = types
+    return runes_by_unit, arts_by_unit
 
 
 def _arena_rush_selection_path(window) -> Path:
@@ -624,6 +709,7 @@ def on_edit_presets_arena_rush(window) -> None:
         except ValueError as exc:
             QMessageBox.critical(window, "Builds", str(exc))
             return
+        _store_compare_snapshot_from_build_dialog(window, "arena_rush", dlg)
         if ordered_teams:
             defense_order = ordered_teams[0] if len(ordered_teams) > 0 else []
             for idx, cmb in enumerate(window.arena_def_combos):
@@ -792,6 +878,9 @@ def on_optimize_arena_rush(window) -> None:
     all_selected_uids: List[int] = list(defense_ids)
     for row in offense_payload:
         all_selected_uids.extend([int(uid) for uid in (row.unit_ids or []) if int(uid) > 0])
+    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+        window, "arena_rush", all_selected_uids
+    )
     unit_archetype_by_uid = _arena_archetype_by_uid(
         window,
         all_selected_uids,
@@ -809,6 +898,13 @@ def on_optimize_arena_rush(window) -> None:
             defense_unit_team_turn_order=defense_turn_order,
             defense_unit_spd_leader_bonus_flat=defense_leader_bonus,
             unit_archetype_by_uid=dict(unit_archetype_by_uid),
+            unit_baseline_runes_by_slot=dict(baseline_runes_by_unit),
+            unit_baseline_artifacts_by_type=dict(baseline_arts_by_unit),
+            baseline_regression_guard_weight=(
+                int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                if (baseline_runes_by_unit or baseline_arts_by_unit)
+                else 0
+            ),
             offense_teams=offense_payload,
             workers=workers,
             time_limit_per_unit_s=5.0,

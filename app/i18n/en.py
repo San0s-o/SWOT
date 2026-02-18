@@ -141,6 +141,9 @@ STRINGS: dict[str, str] = {
     "header.leader": "Leader",
     "header.total": "Total",
     "header.value": "Value",
+    "header.before": "Before",
+    "header.after": "After",
+    "header.delta": "Delta",
     "rune_opt.col.symbol": "Rune",
     "rune_opt.col.set": "Set",
     "rune_opt.col.quality": "Quality / Ancient",
@@ -229,6 +232,9 @@ STRINGS: dict[str, str] = {
     "result.team_opt_running": "Team '{name}' optimization running",
     "result.avg_rune_eff": "O Rune efficiency: <b>{eff}%</b>",
     "result.avg_rune_eff_none": "O Rune efficiency: <b>-</b>",
+    "result.compare_before_after": "Show before/after",
+    "result.rune_changes": "Changed rune slots: {changes}",
+    "result.rune_changes_none": "No rune-slot changes.",
     "result.opt_name": "{mode} Optimization {ts}",
 
     # -- Saved optimization display names ------------------------

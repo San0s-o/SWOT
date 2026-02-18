@@ -7,7 +7,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QListWidgetItem, QMessageBox
 
 from app.domain.presets import Build
-from app.engine.greedy_optimizer import GreedyRequest, optimize_greedy
+from app.engine.greedy_optimizer import (
+    BASELINE_REGRESSION_GUARD_WEIGHT,
+    GreedyRequest,
+    optimize_greedy,
+)
 from app.i18n import tr
 from app.ui.dialogs.build_dialog import BuildDialog
 
@@ -16,6 +20,90 @@ from app.ui.dialogs.build_dialog import BuildDialog
 class TeamSelection:
     team_index: int
     unit_ids: List[int]
+
+
+def _store_compare_snapshot_from_build_dialog(window, mode: str, dlg: BuildDialog) -> None:
+    mode_key = str(mode or "").strip().lower()
+    if not mode_key:
+        return
+    store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    snap = dlg.loaded_current_runes_snapshot()
+    if not isinstance(snap, dict):
+        store.pop(mode_key, None)
+        window._loaded_current_runes_compare_by_mode = store
+        return
+    runes_raw = dict(snap.get("runes_by_unit") or {})
+    artifacts_raw = dict(snap.get("artifacts_by_unit") or {})
+    runes_by_unit: Dict[int, Dict[int, int]] = {}
+    artifacts_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_slot in runes_raw.items():
+        ui = int(uid or 0)
+        if ui <= 0:
+            continue
+        clean_slots: Dict[int, int] = {}
+        for slot, rid in dict(by_slot or {}).items():
+            s = int(slot or 0)
+            r = int(rid or 0)
+            if 1 <= s <= 6 and r > 0:
+                clean_slots[int(s)] = int(r)
+        if clean_slots:
+            runes_by_unit[int(ui)] = clean_slots
+    for uid, by_type in artifacts_raw.items():
+        ui = int(uid or 0)
+        if ui <= 0:
+            continue
+        clean_types: Dict[int, int] = {}
+        for art_type, aid in dict(by_type or {}).items():
+            t = int(art_type or 0)
+            a = int(aid or 0)
+            if t in (1, 2) and a > 0:
+                clean_types[int(t)] = int(a)
+        if clean_types:
+            artifacts_by_unit[int(ui)] = clean_types
+    if runes_by_unit or artifacts_by_unit:
+        store[mode_key] = {
+            "runes_by_unit": runes_by_unit,
+            "artifacts_by_unit": artifacts_by_unit,
+        }
+    else:
+        store.pop(mode_key, None)
+    window._loaded_current_runes_compare_by_mode = store
+
+
+def _baseline_assignments_for_mode(window, mode: str, unit_ids: List[int]) -> Tuple[Dict[int, Dict[int, int]], Dict[int, Dict[int, int]]]:
+    mode_key = str(mode or "").strip().lower()
+    if not mode_key:
+        return {}, {}
+    unit_set = {int(uid) for uid in (unit_ids or []) if int(uid) > 0}
+    if not unit_set:
+        return {}, {}
+    compare_store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    snap = dict(compare_store.get(mode_key, {}) or {})
+    runes_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_slot in dict(snap.get("runes_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        slots = {
+            int(slot): int(rid)
+            for slot, rid in dict(by_slot or {}).items()
+            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+        }
+        if slots:
+            runes_by_unit[int(ui)] = slots
+    arts_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_type in dict(snap.get("artifacts_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        types = {
+            int(t): int(aid)
+            for t, aid in dict(by_type or {}).items()
+            if int(t or 0) in (1, 2) and int(aid or 0) > 0
+        }
+        if types:
+            arts_by_unit[int(ui)] = types
+    return runes_by_unit, arts_by_unit
 
 
 def save_arena_rush_ui_state(window) -> None:
@@ -112,6 +200,7 @@ def on_edit_presets_siege(window) -> None:
         except ValueError as exc:
             QMessageBox.critical(window, "Builds", str(exc))
             return
+        _store_compare_snapshot_from_build_dialog(window, "siege", dlg)
         window.presets.save(window.presets_path)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
 
@@ -145,6 +234,9 @@ def on_optimize_siege(window) -> None:
             builds = window.presets.get_unit_builds("siege", int(uid))
             b0 = builds[0] if builds else Build.default_any()
             team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
+        baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+            window, "siege", ordered_unit_ids
+        )
         res = window._run_with_busy_progress(
             running_text,
             lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -166,6 +258,13 @@ def on_optimize_siege(window) -> None:
                     unit_team_index=team_idx_by_uid,
                     unit_team_turn_order=team_turn_by_uid,
                     unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                    unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+                    unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+                    baseline_regression_guard_weight=(
+                        int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                        if (baseline_runes_by_unit or baseline_arts_by_unit)
+                        else 0
+                    ),
                 ),
             ),
         )
@@ -302,6 +401,7 @@ def on_edit_presets_wgb(window) -> None:
         except ValueError as exc:
             QMessageBox.critical(window, "Builds", str(exc))
             return
+        _store_compare_snapshot_from_build_dialog(window, "wgb", dlg)
         window.presets.save(window.presets_path)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
 
@@ -336,6 +436,9 @@ def on_optimize_wgb(window) -> None:
         builds = window.presets.get_unit_builds("wgb", int(uid))
         b0 = builds[0] if builds else Build.default_any()
         team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
+    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+        window, "wgb", ordered_unit_ids
+    )
     res = window._run_with_busy_progress(
         running_text,
         lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -357,6 +460,13 @@ def on_optimize_wgb(window) -> None:
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
                 unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+                unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+                baseline_regression_guard_weight=(
+                    int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                    if (baseline_runes_by_unit or baseline_arts_by_unit)
+                    else 0
+                ),
             ),
         ),
     )
@@ -482,6 +592,7 @@ def on_edit_presets_rta(window) -> None:
         except ValueError as exc:
             QMessageBox.critical(window, "Builds", str(exc))
             return
+        _store_compare_snapshot_from_build_dialog(window, "rta", dlg)
         window.presets.save(window.presets_path)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
 
@@ -505,6 +616,9 @@ def on_optimize_rta(window) -> None:
 
     team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in ids}
     team_turn_by_uid: Dict[int, int] = {int(uid): pos + 1 for pos, uid in enumerate(ids)}
+    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+        window, "rta", ids
+    )
     res = window._run_with_busy_progress(
         running_text,
         lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -526,6 +640,13 @@ def on_optimize_rta(window) -> None:
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
                 unit_spd_leader_bonus_flat={},
+                unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+                unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+                baseline_regression_guard_weight=(
+                    int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                    if (baseline_runes_by_unit or baseline_arts_by_unit)
+                    else 0
+                ),
             ),
         ),
     )

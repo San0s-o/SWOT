@@ -43,6 +43,7 @@ def apply_saved_account(window, account, source_label: str) -> None:
     window._unit_combo_model = None
     window._unit_combo_index_by_uid = {}
     window._unit_text_cache_by_uid = {}
+    window._loaded_current_runes_compare_by_mode = {}
     window._lazy_view_dirty = {
         "siege_raw": True,
         "rta_overview": True,

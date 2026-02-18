@@ -156,6 +156,9 @@ class BuildDialog(QDialog):
         self._team_effect_controls: Dict[Tuple[int, int], Tuple[QCheckBox, QCheckBox, QSpinBox]] = {}
         self._team_speed_lead_combo_by_team: Dict[int, QComboBox] = {}
         self._team_speed_lead_pct_spin_by_team: Dict[int, QSpinBox] = {}
+        self._syncing_focus_selection = False
+        self._loaded_current_runes = False
+        self._loaded_current_runes_snapshot: Dict[str, Any] = {}
 
         if show_order_sections:
             order_box = QGroupBox(tr("group.turn_order"))
@@ -309,6 +312,9 @@ class BuildDialog(QDialog):
                     it.setSizeHint(row_widget.sizeHint())
                     lw.setItemWidget(it, row_widget)
                 self._team_order_lists.append(lw)
+                lw.currentItemChanged.connect(
+                    lambda current, _prev, _lw=lw: self._on_team_list_current_item_changed(_lw, current)
+                )
                 return lw
 
             if teams and self._order_teams:
@@ -402,7 +408,7 @@ class BuildDialog(QDialog):
         list_layout = QVBoxLayout(list_box)
         list_layout.setContentsMargins(8, 8, 8, 8)
         list_layout.addWidget(self._unit_list, 1)
-        if str(self.mode).strip().lower() == "arena_rush":
+        if self._can_load_current_runes():
             btn_load_runes = QPushButton(tr("btn.load_current_runes"))
             btn_load_runes.setToolTip(tr("tooltip.load_current_runes"))
             btn_load_runes.clicked.connect(self._on_load_current_runes)
@@ -460,6 +466,40 @@ class BuildDialog(QDialog):
         stack_idx = self._uid_to_stack_index.get(uid, row)
         if 0 <= stack_idx < self._unit_editor_stack.count():
             self._unit_editor_stack.setCurrentIndex(stack_idx)
+
+    def _row_for_uid_in_unit_list(self, uid: int) -> int:
+        target = int(uid or 0)
+        if target <= 0:
+            return -1
+        for row in range(self._unit_list.count()):
+            item = self._unit_list.item(row)
+            if int(item.data(Qt.UserRole) or 0) == target:
+                return int(row)
+        return -1
+
+    def _on_team_list_current_item_changed(self, source_list: QListWidget, current: QListWidgetItem | None) -> None:
+        if self._syncing_focus_selection:
+            return
+        if source_list not in self._team_order_lists:
+            return
+        if current is None:
+            return
+        uid = int(current.data(Qt.UserRole) or 0)
+        if uid <= 0:
+            return
+        self._syncing_focus_selection = True
+        try:
+            for lw in self._team_order_lists:
+                if lw is source_list:
+                    continue
+                if lw.currentRow() >= 0:
+                    lw.setCurrentRow(-1)
+                lw.clearSelection()
+            row = self._row_for_uid_in_unit_list(int(uid))
+            if row >= 0 and self._unit_list.currentRow() != row:
+                self._unit_list.setCurrentRow(int(row))
+        finally:
+            self._syncing_focus_selection = False
 
     def _load_skill_icon(self, icon_filename: str) -> QIcon | None:
         if not icon_filename or not self._skill_icons_dir:
@@ -850,14 +890,7 @@ class BuildDialog(QDialog):
         """Load currently equipped rune sets and mainstats for all units."""
         if not self._account:
             return
-        # Arena Rush should preload current PvE equips (occupied_id), not siege/rta snapshots.
-        mode_key = str(self.mode or "").strip().lower()
-        if mode_key == "rta":
-            rune_mode = "rta"
-        elif mode_key == "arena_rush":
-            rune_mode = "pve"
-        else:
-            rune_mode = "siege"
+        rune_mode = self._rune_mode_for_load_current_runes()
         for unit_id in list(self._set1_combo.keys()):
             equipped = self._account.equipped_runes_for(int(unit_id), rune_mode)
             if not equipped:
@@ -918,6 +951,120 @@ class BuildDialog(QDialog):
                     cmb = self._ms6_combo.get(unit_id)
                 if cmb:
                     cmb.set_checked_values([ms_key])
+        self._loaded_current_runes = True
+        self._loaded_current_runes_snapshot = self._capture_current_runes_snapshot(rune_mode)
+
+    def _can_load_current_runes(self) -> bool:
+        mode_key = str(self.mode or "").strip().lower()
+        return bool(self._account) and mode_key in ("siege", "wgb", "rta", "arena_rush")
+
+    def _rune_mode_for_load_current_runes(self) -> str:
+        mode_key = str(self.mode or "").strip().lower()
+        if mode_key == "rta":
+            return "rta"
+        if mode_key in ("siege", "wgb"):
+            # PvP/Siege equips from guild_rune_equip.
+            return "siege"
+        if mode_key == "arena_rush":
+            # Arena Rush preloads current PvE equips.
+            return "pve"
+        return "pve"
+
+    def _capture_current_runes_snapshot(self, rune_mode: str) -> Dict[str, Any]:
+        if not self._account:
+            return {}
+        runes_by_unit: Dict[int, Dict[int, int]] = {}
+        artifacts_by_unit: Dict[int, Dict[int, int]] = {}
+        for unit_id in [int(uid) for uid in self._unit_rows_by_uid.keys() if int(uid) > 0]:
+            equipped = self._account.equipped_runes_for(int(unit_id), str(rune_mode))
+            slot_map: Dict[int, int] = {}
+            for rune in (equipped or []):
+                slot = int(getattr(rune, "slot_no", 0) or 0)
+                rid = int(getattr(rune, "rune_id", 0) or 0)
+                if 1 <= slot <= 6 and rid > 0:
+                    slot_map[int(slot)] = int(rid)
+            if slot_map:
+                runes_by_unit[int(unit_id)] = slot_map
+
+            art_map = self._equipped_artifacts_for_unit(int(unit_id), str(rune_mode))
+            if art_map:
+                artifacts_by_unit[int(unit_id)] = art_map
+
+        return {
+            "mode": str(rune_mode),
+            "runes_by_unit": runes_by_unit,
+            "artifacts_by_unit": artifacts_by_unit,
+        }
+
+    def _equipped_artifacts_for_unit(self, unit_id: int, rune_mode: str) -> Dict[int, int]:
+        if not self._account:
+            return {}
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return {}
+
+        by_id = {int(a.artifact_id): a for a in (self._account.artifacts or [])}
+        out: Dict[int, int] = {}
+
+        if str(rune_mode).strip().lower() == "rta":
+            for aid in (self._account.rta_artifact_equip.get(int(uid), []) or []):
+                art = by_id.get(int(aid))
+                if art is None:
+                    continue
+                art_type = int(getattr(art, "type_", 0) or 0)
+                if art_type in (1, 2) and art_type not in out:
+                    out[int(art_type)] = int(aid)
+            if len(out) >= 2:
+                return out
+
+        for art in (self._account.artifacts or []):
+            if int(getattr(art, "occupied_id", 0) or 0) != int(uid):
+                continue
+            art_type = int(getattr(art, "type_", 0) or 0)
+            aid = int(getattr(art, "artifact_id", 0) or 0)
+            if art_type in (1, 2) and aid > 0 and art_type not in out:
+                out[int(art_type)] = int(aid)
+        return out
+
+    def loaded_current_runes_snapshot(self) -> Dict[str, Any] | None:
+        if not bool(self._loaded_current_runes):
+            return None
+        snap = dict(self._loaded_current_runes_snapshot or {})
+        if not snap:
+            return None
+        runes_raw = dict(snap.get("runes_by_unit") or {})
+        artifacts_raw = dict(snap.get("artifacts_by_unit") or {})
+        runes_by_unit: Dict[int, Dict[int, int]] = {}
+        artifacts_by_unit: Dict[int, Dict[int, int]] = {}
+        for uid, by_slot in runes_raw.items():
+            ui = int(uid or 0)
+            if ui <= 0:
+                continue
+            clean_slots: Dict[int, int] = {}
+            for slot, rid in dict(by_slot or {}).items():
+                s = int(slot or 0)
+                r = int(rid or 0)
+                if 1 <= s <= 6 and r > 0:
+                    clean_slots[int(s)] = int(r)
+            if clean_slots:
+                runes_by_unit[int(ui)] = clean_slots
+        for uid, by_type in artifacts_raw.items():
+            ui = int(uid or 0)
+            if ui <= 0:
+                continue
+            clean_types: Dict[int, int] = {}
+            for art_type, aid in dict(by_type or {}).items():
+                t = int(art_type or 0)
+                a = int(aid or 0)
+                if t in (1, 2) and a > 0:
+                    clean_types[int(t)] = int(a)
+            if clean_types:
+                artifacts_by_unit[int(ui)] = clean_types
+        return {
+            "mode": str(snap.get("mode", "")),
+            "runes_by_unit": runes_by_unit,
+            "artifacts_by_unit": artifacts_by_unit,
+        }
 
     def _optimize_order_by_unit(self) -> Dict[int, int]:
         source = self._opt_order_list or self._unit_list
@@ -1145,12 +1292,12 @@ class BuildDialog(QDialog):
             seen_opts: Set[Tuple[int, ...]] = set()
             for opt in option_ids:
                 cleaned: List[int] = []
-                seen_local: Set[int] = set()
                 for sid in opt:
                     sid_i = int(sid)
-                    if sid_i <= 0 or sid_i not in SET_NAMES or sid_i in seen_local:
+                    if sid_i <= 0 or sid_i not in SET_NAMES:
                         continue
-                    seen_local.add(sid_i)
+                    # Keep duplicates (e.g. Shield+Shield+Shield).
+                    # Deduplicating here would collapse valid 2-set stacks to one set.
                     cleaned.append(sid_i)
                 if not cleaned:
                     continue

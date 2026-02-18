@@ -9,7 +9,17 @@ from app.domain.presets import BuildStore, Build, EFFECT_ID_TO_MAINSTAT_KEY
 from app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
 from app.engine.efficiency import rune_efficiency, artifact_efficiency
 from app.engine.greedy_optimizer import (
+    ACC_OVERCAP_PENALTY_PER_POINT,
+    ARENA_RUSH_DEF_ART_WEIGHT,
+    ARENA_RUSH_DEF_EFFICIENCY_SCALE,
+    ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT,
+    ARENA_RUSH_DEF_QUALITY_WEIGHT,
+    ARENA_RUSH_DEF_RUNE_WEIGHT,
     ARENA_RUSH_ATK_EFFICIENCY_SCALE,
+    BASELINE_REGRESSION_GUARD_WEIGHT,
+    CR_OVERCAP_PENALTY_PER_POINT,
+    RES_OVERCAP_PENALTY_PER_POINT,
+    STAT_OVERCAP_LIMIT,
     INTANGIBLE_SET_ID,
     GreedyRequest,
     GreedyResult,
@@ -20,15 +30,27 @@ from app.engine.greedy_optimizer import (
     _artifact_substat_ids,
     _count_required_set_pieces,
     _rune_flat_spd,
+    _rune_stat_total,
     _rune_quality_score,
     _artifact_quality_score,
     _artifact_damage_score_proxy,
+    _artifact_defensive_score_proxy,
+    _artifact_quality_score_defensive,
+    _baseline_guard_artifact_coef,
+    _baseline_guard_rune_coef,
     _force_swift_speed_priority,
     _is_attack_type_unit,
+    _is_attack_archetype,
+    _is_defensive_archetype,
     _rune_damage_score_proxy,
+    _rune_quality_score_defensive,
+    _rune_defensive_score_proxy,
     _run_greedy_pass,
 )
 from app.i18n import tr
+
+GLOBAL_SOLVER_OVERCAP_PENALTY_SCALE = 100
+GLOBAL_BASELINE_REGRESSION_GUARD_WEIGHT = 1500
 
 
 def optimize_global(account: AccountData, presets: BuildStore, req: GreedyRequest) -> GreedyResult:
@@ -62,7 +84,12 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
     final_speed_raw_expr: Dict[int, cp_model.LinearExpr] = {}
     force_speed_uids: Set[int] = set()
     swift_active_by_uid: Dict[int, cp_model.IntVar] = {}
+    speed_tiebreak_weight_by_uid: Dict[int, int] = {}
     favor_damage_by_uid: Dict[int, bool] = {}
+    favor_defense_by_uid: Dict[int, bool] = {}
+    archetype_by_uid: Dict[int, str] = {}
+    overcap_penalty_expr_by_uid: Dict[int, cp_model.LinearExpr] = {}
+    baseline_guard_shortfall_by_uid: Dict[int, cp_model.IntVar] = {}
 
     # Keep deterministic build order
     builds_by_uid: Dict[int, List[Build]] = {}
@@ -86,15 +113,19 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         base_cd = int(unit.crit_dmg or 50) if unit else 50
         base_res = int(unit.base_res or 15) if unit else 15
         base_acc = int(unit.base_acc or 0) if unit else 0
-        favor_damage_by_uid[int(uid)] = bool(
+        unit_arch = str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
+        archetype_by_uid[int(uid)] = str(unit_arch)
+        is_arena_offense = bool(
             str(req.mode or "").strip().lower() == "arena_rush"
             and str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
-            and _is_attack_type_unit(
-                base_hp=base_hp,
-                base_atk=base_atk,
-                base_def=base_def,
-                archetype=str((req.unit_archetype_by_uid or {}).get(int(uid), "") or ""),
-            )
+        )
+        favor_damage_by_uid[int(uid)] = bool(
+            is_arena_offense
+            and _is_attack_archetype(unit_arch)
+        )
+        favor_defense_by_uid[int(uid)] = bool(
+            is_arena_offense
+            and _is_defensive_archetype(unit_arch)
         )
         fixed_runes_by_slot = {
             int(slot): int(rid)
@@ -183,6 +214,9 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         # speed expression
         speed_terms: List[cp_model.LinearExpr] = []
         swift_piece_vars: List[cp_model.IntVar] = []
+        cr_terms_all: List[cp_model.LinearExpr] = []
+        res_terms_all: List[cp_model.LinearExpr] = []
+        acc_terms_all: List[cp_model.LinearExpr] = []
         swift_bonus_value = int(int(base_spd or 0) * 25 / 100)
         for slot in range(1, 7):
             for r in rune_candidates_by_slot[slot]:
@@ -190,6 +224,15 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                 spd = _rune_flat_spd(r)
                 if spd:
                     speed_terms.append(spd * xv)
+                cr = int(_rune_stat_total(r, 9) or 0)
+                if cr:
+                    cr_terms_all.append(cr * xv)
+                rs = int(_rune_stat_total(r, 11) or 0)
+                if rs:
+                    res_terms_all.append(rs * xv)
+                ac = int(_rune_stat_total(r, 12) or 0)
+                if ac:
+                    acc_terms_all.append(ac * xv)
                 if int(r.set_id or 0) == 3:
                     swift_piece_vars.append(xv)
         swift_set_active = model.NewBoolVar(f"swift_set_u{uid}")
@@ -210,6 +253,17 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         final_spd = final_spd_raw + int(base_spd_bonus_flat or 0)
         final_speed_raw_expr[uid] = final_spd_raw
         final_speed_expr[uid] = final_spd
+        speed_tie_raw = (req.unit_speed_tiebreak_weight or {}).get(int(uid), None)
+        speed_tiebreak_weight_by_uid[int(uid)] = 1 if speed_tie_raw is None else int(speed_tie_raw)
+
+        # Request-level final combat speed bounds (used by Arena Rush coordination
+        # between defense and offense contexts, e.g. shared-unit tick guarantees).
+        req_min_final = int((dict(req.unit_min_final_speed or {})).get(int(uid), 0) or 0)
+        req_max_final = int((dict(req.unit_max_final_speed or {})).get(int(uid), 0) or 0)
+        if req_min_final > 0:
+            model.Add(final_spd >= int(req_min_final))
+        if req_max_final > 0:
+            model.Add(final_spd <= int(req_max_final))
 
         # Safety floor (global mode):
         # - min SPD is raw SPD (without tower/leader)
@@ -230,6 +284,152 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             model.Add(final_spd_raw - int(base_spd or 0) >= int(unit_min_spd_floor_no_base))
         if unit_min_tick_floor > 0:
             model.Add(final_spd >= int(unit_min_tick_floor))
+
+        # Soft-penalty for wasted capped stats (CR/RES/ACC above 100).
+        cr_total_var = model.NewIntVar(0, 500, f"stat_cr_total_u{uid}")
+        model.Add(cr_total_var == int(base_cr or 0) + (sum(cr_terms_all) if cr_terms_all else 0))
+        cr_over_var = model.NewIntVar(0, 400, f"stat_cr_overcap_u{uid}")
+        model.Add(cr_over_var >= cr_total_var - int(STAT_OVERCAP_LIMIT))
+
+        res_total_var = model.NewIntVar(0, 500, f"stat_res_total_u{uid}")
+        model.Add(res_total_var == int(base_res or 0) + (sum(res_terms_all) if res_terms_all else 0))
+        res_over_var = model.NewIntVar(0, 400, f"stat_res_overcap_u{uid}")
+        model.Add(res_over_var >= res_total_var - int(STAT_OVERCAP_LIMIT))
+
+        acc_total_var = model.NewIntVar(0, 500, f"stat_acc_total_u{uid}")
+        model.Add(acc_total_var == int(base_acc or 0) + (sum(acc_terms_all) if acc_terms_all else 0))
+        acc_over_var = model.NewIntVar(0, 400, f"stat_acc_overcap_u{uid}")
+        model.Add(acc_over_var >= acc_total_var - int(STAT_OVERCAP_LIMIT))
+
+        overcap_penalty_expr_by_uid[int(uid)] = (
+            (int(CR_OVERCAP_PENALTY_PER_POINT) * cr_over_var)
+            + (int(RES_OVERCAP_PENALTY_PER_POINT) * res_over_var)
+            + (int(ACC_OVERCAP_PENALTY_PER_POINT) * acc_over_var)
+        )
+
+        baseline_guard_weight = int(
+            getattr(req, "baseline_regression_guard_weight", BASELINE_REGRESSION_GUARD_WEIGHT) or 0
+        )
+        if baseline_guard_weight > 0:
+            baseline_slots = {
+                int(slot): int(rid)
+                for slot, rid in (((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {}).items())
+                if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+            }
+            baseline_arts = {
+                int(t): int(aid)
+                for t, aid in (((req.unit_baseline_artifacts_by_type or {}).get(int(uid), {}) or {}).items())
+                if int(t or 0) in (1, 2) and int(aid or 0) > 0
+            }
+            if len(baseline_slots) == 6 and len(baseline_arts) == 2:
+                guard_role = str(archetype_by_uid.get(int(uid), "") or "").strip().lower()
+                if guard_role in ("rueckhalt", "rückhalt"):
+                    guard_role = "support"
+                if guard_role == "":
+                    guard_role = "attack" if _is_attack_type_unit(base_hp, base_atk, base_def, archetype="") else "support"
+                if guard_role not in ("attack", "defense", "hp", "support"):
+                    guard_role = "attack" if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=guard_role) else "support"
+
+                baseline_rune_refs: List[Rune] = []
+                baseline_ok = True
+                for slot in range(1, 7):
+                    rid = int(baseline_slots.get(int(slot), 0) or 0)
+                    if rid <= 0 or (uid, slot, rid) not in x:
+                        baseline_ok = False
+                        break
+                    rr = next(
+                        (r for r in rune_candidates_by_slot[int(slot)] if int(r.rune_id or 0) == int(rid)),
+                        None,
+                    )
+                    if rr is None:
+                        baseline_ok = False
+                        break
+                    baseline_rune_refs.append(rr)
+                baseline_art_refs: List[Artifact] = []
+                if baseline_ok:
+                    for art_type in (1, 2):
+                        aid = int(baseline_arts.get(int(art_type), 0) or 0)
+                        if aid <= 0 or (uid, art_type, aid) not in xa:
+                            baseline_ok = False
+                            break
+                        aa = next(
+                            (a for a in artifacts_by_type_global[int(art_type)] if int(a.artifact_id or 0) == int(aid)),
+                            None,
+                        )
+                        if aa is None:
+                            baseline_ok = False
+                            break
+                        baseline_art_refs.append(aa)
+                if baseline_ok:
+                    guard_terms: List[cp_model.LinearExpr] = []
+                    for slot in range(1, 7):
+                        for r in rune_candidates_by_slot[slot]:
+                            coef = int(
+                                _baseline_guard_rune_coef(
+                                    r,
+                                    uid=int(uid),
+                                    base_hp=int(base_hp or 0),
+                                    base_atk=int(base_atk or 0),
+                                    base_def=int(base_def or 0),
+                                    role=str(guard_role),
+                                    rta_rune_ids_for_unit=None,
+                                )
+                            )
+                            if coef != 0:
+                                guard_terms.append(coef * x[(uid, slot, int(r.rune_id))])
+                    for art_type in (1, 2):
+                        for a in artifacts_by_type_global[art_type]:
+                            coef = int(
+                                _baseline_guard_artifact_coef(
+                                    a,
+                                    uid=int(uid),
+                                    role=str(guard_role),
+                                    rta_artifact_ids_for_unit=None,
+                                )
+                            )
+                            if coef != 0:
+                                guard_terms.append(coef * xa[(uid, art_type, int(a.artifact_id))])
+                    guard_expr = (sum(guard_terms) if guard_terms else 0) - (
+                        int(GLOBAL_SOLVER_OVERCAP_PENALTY_SCALE) * overcap_penalty_expr_by_uid[int(uid)]
+                    )
+                    baseline_score = 0
+                    baseline_cr = int(base_cr or 0)
+                    baseline_res = int(base_res or 0)
+                    baseline_acc = int(base_acc or 0)
+                    for r in baseline_rune_refs:
+                        baseline_score += int(
+                            _baseline_guard_rune_coef(
+                                r,
+                                uid=int(uid),
+                                base_hp=int(base_hp or 0),
+                                base_atk=int(base_atk or 0),
+                                base_def=int(base_def or 0),
+                                role=str(guard_role),
+                                rta_rune_ids_for_unit=None,
+                            )
+                        )
+                        baseline_cr += int(_rune_stat_total(r, 9) or 0)
+                        baseline_res += int(_rune_stat_total(r, 11) or 0)
+                        baseline_acc += int(_rune_stat_total(r, 12) or 0)
+                    for a in baseline_art_refs:
+                        baseline_score += int(
+                            _baseline_guard_artifact_coef(
+                                a,
+                                uid=int(uid),
+                                role=str(guard_role),
+                                rta_artifact_ids_for_unit=None,
+                            )
+                        )
+                    baseline_over = (
+                        (int(CR_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_cr) - int(STAT_OVERCAP_LIMIT)))
+                        + (int(RES_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_res) - int(STAT_OVERCAP_LIMIT)))
+                        + (int(ACC_OVERCAP_PENALTY_PER_POINT) * max(0, int(baseline_acc) - int(STAT_OVERCAP_LIMIT)))
+                    )
+                    baseline_score -= int(GLOBAL_SOLVER_OVERCAP_PENALTY_SCALE) * int(baseline_over)
+                    shortfall_cap = max(300000, abs(int(baseline_score)) + 300000)
+                    shortfall = model.NewIntVar(0, int(shortfall_cap), f"baseline_guard_shortfall_u{uid}")
+                    model.Add(shortfall >= int(baseline_score) - guard_expr)
+                    baseline_guard_shortfall_by_uid[int(uid)] = shortfall
 
         # build-conditioned constraints
         for b_idx, b in enumerate(builds):
@@ -312,7 +512,6 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     for r in rune_candidates_by_slot[slot]:
                         xv = x[(uid, slot, int(r.rune_id))]
                         # stat totals from runes
-                        from app.engine.greedy_optimizer import _rune_stat_total  # local import keeps module-level clean
                         cr = _rune_stat_total(r, 9)
                         cd = _rune_stat_total(r, 10)
                         rs = _rune_stat_total(r, 11)
@@ -448,6 +647,23 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     + (dmg_score * 140)
                 ) * vv
             )
+        elif bool(favor_defense_by_uid.get(int(uid), False)):
+            unit = account.units_by_id.get(int(uid))
+            base_hp = int((unit.base_con or 0) * 15) if unit else 0
+            base_def = int(unit.base_def or 0) if unit else 0
+            base_atk = int(unit.base_atk or 0) if unit else 0
+            unit_arch = str(archetype_by_uid.get(int(uid), ""))
+            qual_score = int(_rune_quality_score_defensive(r, uid, None))
+            def_score = int(_rune_defensive_score_proxy(r, base_hp, base_def, unit_arch))
+            dmg_penalty = int(_rune_damage_score_proxy(r, base_atk))
+            obj_terms.append(
+                (
+                    eff_score * int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
+                    + (int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * qual_score)
+                    + (int(ARENA_RUSH_DEF_RUNE_WEIGHT) * def_score)
+                    - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * dmg_penalty)
+                ) * vv
+            )
         else:
             obj_terms.append((eff_score * 100 + qual_score) * vv)
     for (uid, t, aid), vv in xa.items():
@@ -465,10 +681,36 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     + (dmg_score * 120)
                 ) * vv
             )
+        elif bool(favor_defense_by_uid.get(int(uid), False)):
+            unit_arch = str(archetype_by_uid.get(int(uid), ""))
+            qual_score = int(_artifact_quality_score_defensive(a, uid, None, archetype=unit_arch))
+            def_score = int(_artifact_defensive_score_proxy(a, unit_arch))
+            dmg_penalty = int(_artifact_damage_score_proxy(a))
+            obj_terms.append(
+                (
+                    eff_score * int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
+                    + (int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * qual_score)
+                    + (int(ARENA_RUSH_DEF_ART_WEIGHT) * def_score)
+                    - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * dmg_penalty)
+                ) * vv
+            )
         else:
             obj_terms.append((eff_score * 80 + qual_score) * vv)
     for uid in unit_ids:
-        obj_terms.append(final_speed_expr[uid])  # minor tie-break
+        tie_raw = speed_tiebreak_weight_by_uid.get(int(uid), None)
+        tie_w = 1 if tie_raw is None else int(tie_raw)
+        if tie_w != 0:
+            obj_terms.append(int(tie_w) * final_speed_expr[uid])
+        over_expr = overcap_penalty_expr_by_uid.get(int(uid), None)
+        if over_expr is not None:
+            obj_terms.append((-int(GLOBAL_SOLVER_OVERCAP_PENALTY_SCALE)) * over_expr)
+        shortfall_var = baseline_guard_shortfall_by_uid.get(int(uid), None)
+        if shortfall_var is not None:
+            guard_w = int(
+                getattr(req, "baseline_regression_guard_weight", GLOBAL_BASELINE_REGRESSION_GUARD_WEIGHT)
+                or GLOBAL_BASELINE_REGRESSION_GUARD_WEIGHT
+            )
+            obj_terms.append((-int(guard_w)) * shortfall_var)
 
     objective_expr = sum(obj_terms)
     solver = cp_model.CpSolver()
@@ -523,12 +765,72 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     best_forced_speed = int(solver.Value(forced_speed_expr))
                     model.Add(forced_speed_expr >= int(best_forced_speed))
 
-    model.Maximize(objective_expr)
-    status = solver.Solve(model)
-    if req.is_cancelled and req.is_cancelled():
-        return GreedyResult(False, tr("opt.cancelled"), [])
+    run_count = int(max(1, int(req.multi_pass_count or 1))) if bool(req.multi_pass_enabled) else 1
+    best_obj: Optional[int] = None
+    best_x_assign: Set[Tuple[int, int, int]] = set()
+    best_xa_assign: Set[Tuple[int, int, int]] = set()
+    best_build_by_uid: Dict[int, int] = {}
+    best_speed_by_uid: Dict[int, int] = {}
+    seen_solution_signatures: Set[Tuple[Tuple[Tuple[int, int, int], ...], Tuple[Tuple[int, int, int], ...]]] = set()
+    unique_solution_count = 0
 
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+    for run_idx in range(int(run_count)):
+        try:
+            seed_offset = int(getattr(req, "global_seed_offset", 0) or 0)
+            solver.parameters.random_seed = int(101 + int(seed_offset) + (run_idx * 977))
+            solver.parameters.randomize_search = bool(run_idx > 0)
+        except Exception:
+            pass
+        model.Maximize(objective_expr)
+        status = solver.Solve(model)
+        if req.is_cancelled and req.is_cancelled():
+            return GreedyResult(False, tr("opt.cancelled"), [])
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            break
+
+        cur_x_assign: Set[Tuple[int, int, int]] = set()
+        cur_xa_assign: Set[Tuple[int, int, int]] = set()
+        cur_build_by_uid: Dict[int, int] = {}
+        cur_speed_by_uid: Dict[int, int] = {}
+        selected_vars: List[cp_model.IntVar] = []
+
+        for key, vv in x.items():
+            if int(solver.Value(vv)) == 1:
+                cur_x_assign.add((int(key[0]), int(key[1]), int(key[2])))
+                selected_vars.append(vv)
+        for key, vv in xa.items():
+            if int(solver.Value(vv)) == 1:
+                cur_xa_assign.add((int(key[0]), int(key[1]), int(key[2])))
+                selected_vars.append(vv)
+        for uid in unit_ids:
+            for b_idx, _b in enumerate(builds_by_uid[uid]):
+                bv = use_build[(uid, b_idx)]
+                if int(solver.Value(bv)) == 1:
+                    cur_build_by_uid[int(uid)] = int(b_idx)
+                    selected_vars.append(bv)
+                    break
+            cur_speed_by_uid[int(uid)] = int(solver.Value(final_speed_expr[int(uid)]))
+
+        sig = (
+            tuple(sorted(cur_x_assign)),
+            tuple(sorted(cur_xa_assign)),
+        )
+        if sig not in seen_solution_signatures:
+            seen_solution_signatures.add(sig)
+            unique_solution_count += 1
+
+        cur_obj = int(solver.Value(objective_expr))
+        if best_obj is None or int(cur_obj) > int(best_obj):
+            best_obj = int(cur_obj)
+            best_x_assign = set(cur_x_assign)
+            best_xa_assign = set(cur_xa_assign)
+            best_build_by_uid = dict(cur_build_by_uid)
+            best_speed_by_uid = dict(cur_speed_by_uid)
+
+        if run_idx + 1 < int(run_count) and selected_vars:
+            model.Add(sum(selected_vars) <= int(len(selected_vars) - 1))
+
+    if best_obj is None:
         fallback = _run_greedy_pass(
             account=account,
             presets=presets,
@@ -550,7 +852,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             picked = 0
             for r in runes_by_slot_global[slot]:
                 key = (uid, slot, int(r.rune_id))
-                if key in x and solver.Value(x[key]) == 1:
+                if key in best_x_assign:
                     picked = int(r.rune_id)
                     break
             if picked <= 0:
@@ -567,7 +869,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             picked_a = 0
             for a in artifacts_by_type_global[t]:
                 akey = (uid, t, int(a.artifact_id))
-                if akey in xa and solver.Value(xa[akey]) == 1:
+                if akey in best_xa_assign:
                     picked_a = int(a.artifact_id)
                     break
             if picked_a <= 0:
@@ -577,7 +879,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
 
         chosen_build = builds_by_uid[uid][0]
         for b_idx, b in enumerate(builds_by_uid[uid]):
-            if solver.Value(use_build[(uid, b_idx)]) == 1:
+            if int(best_build_by_uid.get(int(uid), -1)) == int(b_idx):
                 chosen_build = b
                 break
 
@@ -596,9 +898,12 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             floor_spd_raw = max(floor_spd_raw, cfg_min)
             floor_spd_no_base = max(floor_spd_no_base, cfg_min_no_base)
             floor_tick_spd = max(floor_tick_spd, tick_min)
-        solved_spd = int(solver.Value(final_speed_expr[uid]))
-        solved_spd_raw = int(solver.Value(final_speed_raw_expr[uid]))
         unit = account.units_by_id.get(int(uid))
+        solved_spd = int(best_speed_by_uid.get(int(uid), 0))
+        base_spd_u = int(unit.base_spd or 0) if unit else 0
+        totem_spd_bonus_u = int(base_spd_u * int(account.sky_tribe_totem_spd_pct or 0) / 100)
+        leader_spd_bonus_u = int((req.unit_spd_leader_bonus_flat or {}).get(int(uid), 0) or 0)
+        solved_spd_raw = int(solved_spd - int(totem_spd_bonus_u) - int(leader_spd_bonus_u))
         solved_spd_no_base = solved_spd_raw - int(unit.base_spd or 0) if unit else solved_spd_raw
         if floor_spd_raw > 0 and solved_spd_raw < floor_spd_raw:
             results.append(
@@ -644,5 +949,6 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         )
 
     ok_all = len(results) == len(unit_ids) and all(r.ok for r in results)
-    msg = "Global optimization finished." if ok_all else "Global optimization partial."
+    msg_base = "Global optimization finished." if ok_all else "Global optimization partial."
+    msg = f"{msg_base} runs={int(run_count)}, unique={int(max(1, unique_solution_count))}."
     return GreedyResult(ok_all, msg, results)

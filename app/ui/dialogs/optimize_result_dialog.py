@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
     QFrame,
     QGridLayout,
@@ -67,6 +68,8 @@ class OptimizeResultDialog(QDialog):
         mode_rune_owner: Optional[Dict[int, int]] = None,
         team_header_by_index: Optional[Dict[int, str]] = None,
         group_size: int = 3,
+        baseline_runes_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
+        baseline_artifacts_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -93,6 +96,18 @@ class OptimizeResultDialog(QDialog):
         self._mode_rune_owner = mode_rune_owner or {}
         self._team_header_by_index = dict(team_header_by_index or {})
         self._group_size = max(1, int(group_size))
+        self._baseline_runes_by_unit: Dict[int, Dict[int, int]] = {
+            int(uid): {int(slot): int(rid) for slot, rid in dict(by_slot or {}).items()}
+            for uid, by_slot in dict(baseline_runes_by_unit or {}).items()
+            if int(uid or 0) > 0
+        }
+        self._baseline_artifacts_by_unit: Dict[int, Dict[int, int]] = {
+            int(uid): {int(t): int(aid) for t, aid in dict(by_type or {}).items()}
+            for uid, by_type in dict(baseline_artifacts_by_unit or {}).items()
+            if int(uid or 0) > 0
+        }
+        self._has_baseline_compare = bool(self._baseline_runes_by_unit or self._baseline_artifacts_by_unit)
+        self._compare_checkbox: QCheckBox | None = None
         self.saved = False
         self._stats_detailed = True
         self._runes_detailed = True
@@ -103,6 +118,14 @@ class OptimizeResultDialog(QDialog):
             lbl = QLabel(summary)
             lbl.setWordWrap(True)
             root.addWidget(lbl)
+
+        if self._has_baseline_compare:
+            compare_row = QHBoxLayout()
+            self._compare_checkbox = QCheckBox(tr("result.compare_before_after"))
+            self._compare_checkbox.toggled.connect(self._on_compare_toggle)
+            compare_row.addWidget(self._compare_checkbox)
+            compare_row.addStretch(1)
+            root.addLayout(compare_row)
 
         body = QHBoxLayout()
         root.addLayout(body, 1)
@@ -292,13 +315,33 @@ class OptimizeResultDialog(QDialog):
         leader_bonus = self._unit_leader_bonus_fn(unit_id, team_unit_ids)
         totem_bonus = self._unit_totem_bonus_fn(unit_id)
         spd_buff_bonus = self._unit_spd_buff_bonus_fn(unit_id, team_unit_ids, artifacts_by_unit)
+        before_stats: Dict[str, int] | None = None
+        if self._compare_enabled():
+            has_unit_baseline = bool(self._baseline_runes_by_unit.get(int(unit_id), {}))
+            has_unit_baseline = has_unit_baseline or bool(self._baseline_artifacts_by_unit.get(int(unit_id), {}))
+            if has_unit_baseline:
+                before_stats = self._unit_stats_fn(
+                    unit_id,
+                    team_unit_ids,
+                    self._baseline_runes_by_unit,
+                    self._baseline_artifacts_by_unit,
+                )
 
         self.detail_layout.addWidget(
-            self._build_stats_tab(unit_id, result, base_stats, total_stats, leader_bonus, totem_bonus, spd_buff_bonus)
+            self._build_stats_tab(
+                unit_id,
+                result,
+                base_stats,
+                total_stats,
+                leader_bonus,
+                totem_bonus,
+                spd_buff_bonus,
+                before_stats=before_stats,
+            )
         )
 
         if result.ok and result.runes_by_slot:
-            self.detail_layout.addWidget(self._build_runes_tab(result))
+            self.detail_layout.addWidget(self._build_runes_tab(result, unit_id))
         if result.ok and result.artifacts_by_type:
             self.detail_layout.addWidget(self._build_artifacts_tab(result))
 
@@ -311,6 +354,7 @@ class OptimizeResultDialog(QDialog):
         leader_bonus: Dict[str, int],
         totem_bonus: Dict[str, int],
         spd_buff_bonus: Dict[str, int],
+        before_stats: Optional[Dict[str, int]] = None,
     ) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
@@ -349,7 +393,33 @@ class OptimizeResultDialog(QDialog):
         table.verticalHeader().setVisible(False)
         table.setRowCount(len(stat_keys))
 
-        if self._stats_detailed:
+        if before_stats is not None:
+            table.setColumnCount(4)
+            table.setHorizontalHeaderLabels(
+                [tr("header.stat"), tr("header.before"), tr("header.after"), tr("header.delta")]
+            )
+            for i, key in enumerate(stat_keys):
+                before_val = int(before_stats.get(key, 0) or 0)
+                after_val = int(total_stats.get(key, 0) or 0)
+                delta = int(after_val - before_val)
+                delta_text = f"+{delta}" if delta > 0 else str(delta)
+                table.setItem(i, 0, QTableWidgetItem(_stat_label_tr(key)))
+                it_before = QTableWidgetItem(str(before_val))
+                it_before.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(i, 1, it_before)
+                it_after = QTableWidgetItem(str(after_val))
+                it_after.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(i, 2, it_after)
+                it_delta = QTableWidgetItem(delta_text)
+                it_delta.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if delta > 0:
+                    it_delta.setForeground(QColor("#2ecc71"))
+                elif delta < 0:
+                    it_delta.setForeground(QColor("#e74c3c"))
+                else:
+                    it_delta.setForeground(QColor("#aaaaaa"))
+                table.setItem(i, 3, it_delta)
+        elif self._stats_detailed:
             headers = [tr("header.stat"), tr("header.base"), tr("header.runes")]
             if has_totem:
                 headers.append(tr("header.totem"))
@@ -415,7 +485,7 @@ class OptimizeResultDialog(QDialog):
         v.addStretch()
         return w
 
-    def _build_runes_tab(self, result: GreedyUnitResult) -> QWidget:
+    def _build_runes_tab(self, result: GreedyUnitResult, unit_id: int) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(8, 8, 8, 8)
@@ -567,3 +637,15 @@ class OptimizeResultDialog(QDialog):
         self.saved = True
         self.btn_save.setEnabled(False)
         self.btn_save.setText(tr("btn.saved"))
+
+    def _compare_enabled(self) -> bool:
+        if not self._has_baseline_compare:
+            return False
+        if self._compare_checkbox is None:
+            return False
+        return bool(self._compare_checkbox.isChecked())
+
+    def _on_compare_toggle(self, _checked: bool) -> None:
+        if self._current_uid is None:
+            return
+        self._render_details(int(self._current_uid))

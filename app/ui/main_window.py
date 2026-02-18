@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
         self._populated_unit_combo_ids: set[int] = set()
         self._unit_combos_by_tab: Dict[str, List[QComboBox]] = {}
         self._unit_combo_registration_tab = ""
+        self._loaded_current_runes_compare_by_mode: Dict[str, Dict[str, Dict[int, Dict[int, int]]]] = {}
 
         # paths
         self.project_root = Path(__file__).resolve().parents[2]

@@ -40,6 +40,19 @@ def show_optimize_results(
                 mode_rune_owner[rid] = uid
     prev_result_mode_ctx = getattr(window, "_result_mode_context", "")
     window._result_mode_context = str(mode or "").strip().lower()
+    mode_key = str(mode or "").strip().lower()
+    compare_store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    compare_snapshot = dict(compare_store.get(mode_key, {}) or {})
+    baseline_runes_by_unit: Dict[int, Dict[int, int]] = {
+        int(uid): {int(slot): int(rid) for slot, rid in dict(by_slot or {}).items()}
+        for uid, by_slot in dict(compare_snapshot.get("runes_by_unit") or {}).items()
+        if int(uid or 0) > 0
+    }
+    baseline_artifacts_by_unit: Dict[int, Dict[int, int]] = {
+        int(uid): {int(t): int(aid) for t, aid in dict(by_type or {}).items()}
+        for uid, by_type in dict(compare_snapshot.get("artifacts_by_unit") or {}).items()
+        if int(uid or 0) > 0
+    }
     try:
         dlg = OptimizeResultDialog(
             window,
@@ -62,6 +75,8 @@ def show_optimize_results(
             mode_rune_owner=mode_rune_owner,
             team_header_by_index=team_header_by_index,
             group_size=int(group_size),
+            baseline_runes_by_unit=baseline_runes_by_unit,
+            baseline_artifacts_by_unit=baseline_artifacts_by_unit,
         )
         dlg.exec()
     finally:

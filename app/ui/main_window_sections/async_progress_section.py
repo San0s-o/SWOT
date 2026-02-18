@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any, Callable, Dict
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool, QEventLoop
@@ -42,6 +43,10 @@ def run_with_busy_progress(
     active_solvers: list[Any] = []
     progress_lock = threading.Lock()
     progress_state: Dict[str, int] = {"current": 0, "total": 0}
+    done_event = threading.Event()
+    start_ts = float(time.monotonic())
+    last_progress_ts = float(start_ts)
+    last_progress_current = 0
 
     def _is_cancelled() -> bool:
         return bool(cancel_event.is_set())
@@ -56,6 +61,7 @@ def run_with_busy_progress(
             progress_state["total"] = max(0, int(total or 0))
 
     def _refresh_progress() -> None:
+        nonlocal last_progress_ts, last_progress_current
         if cancel_event.is_set():
             return
         with progress_lock:
@@ -67,8 +73,26 @@ def run_with_busy_progress(
             dlg.setRange(0, 100)
             dlg.setValue(0)
         pct = max(0, min(100, int(round((float(current) / float(total)) * 100.0))))
+        if int(current) != int(last_progress_current):
+            last_progress_current = int(current)
+            last_progress_ts = float(time.monotonic())
+        # Avoid showing "100%" while work is still running; this looks stuck.
+        if not done_event.is_set() and pct >= 100:
+            pct = 99
         dlg.setValue(pct)
-        label_text = f"{text} ({pct}%)"
+        elapsed_s = max(0, int(round(float(time.monotonic()) - float(start_ts))))
+        elapsed_txt = f"{elapsed_s // 60:02d}:{elapsed_s % 60:02d}"
+        if not done_event.is_set() and int(current) >= int(total):
+            stale_s = max(0, int(round(float(time.monotonic()) - float(last_progress_ts))))
+            stale_txt = f"{stale_s // 60:02d}:{stale_s % 60:02d}"
+            label_text = f"{text} (Finalisierung, {current}/{total}, Laufzeit {elapsed_txt}, ohne Update {stale_txt})"
+        else:
+            eta_txt = "--:--"
+            if int(current) > 0 and int(total) > int(current):
+                avg_per_step = float(elapsed_s) / float(max(1, int(current)))
+                eta_s = max(0, int(round(avg_per_step * float(int(total) - int(current)))))
+                eta_txt = f"{eta_s // 60:02d}:{eta_s % 60:02d}"
+            label_text = f"{text} ({pct}%, {current}/{total}, ETA {eta_txt}, Laufzeit {elapsed_txt})"
         dlg.setLabelText(label_text)
         window.statusBar().showMessage(label_text)
 
@@ -99,10 +123,12 @@ def run_with_busy_progress(
 
     def _on_finished(result: Any) -> None:
         out["result"] = result
+        done_event.set()
         wait_loop.quit()
 
     def _on_failed(msg: str) -> None:
         err["msg"] = str(msg)
+        done_event.set()
         wait_loop.quit()
 
     worker.signals.finished.connect(_on_finished)
