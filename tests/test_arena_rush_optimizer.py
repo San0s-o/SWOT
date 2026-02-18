@@ -298,7 +298,85 @@ def test_optimize_arena_rush_repairs_when_global_has_failed_unit_without_penalty
     assert int(result.offenses[0].opening_penalty) == 0
 
 
-def test_optimize_arena_rush_uses_capped_rune_pool_by_default(monkeypatch) -> None:
+def test_optimize_arena_rush_defense_uses_rescue_pass_when_initial_defense_fails(monkeypatch) -> None:
+    calls: list[GreedyRequest] = []
+
+    defense_failed = GreedyResult(
+        ok=False,
+        message="def-fail",
+        results=[
+            GreedyUnitResult(
+                unit_id=101,
+                ok=False,
+                message="infeasible",
+                runes_by_slot={},
+                artifacts_by_type={},
+                final_speed=0,
+            )
+        ],
+    )
+    defense_ok = GreedyResult(
+        ok=True,
+        message="def-ok",
+        results=[
+            GreedyUnitResult(
+                unit_id=101,
+                ok=True,
+                message="OK",
+                runes_by_slot=_slots(9000),
+                artifacts_by_type={1: 8001, 2: 8002},
+                final_speed=300,
+            )
+        ],
+    )
+    offense_ok = GreedyResult(
+        ok=True,
+        message="off-ok",
+        results=[
+            GreedyUnitResult(
+                unit_id=201,
+                ok=True,
+                message="OK",
+                runes_by_slot=_slots(1000),
+                artifacts_by_type={1: 7001, 2: 7002},
+                final_speed=220,
+            )
+        ],
+    )
+
+    def _fake_optimize(_account, _presets, greedy_req: GreedyRequest) -> GreedyResult:
+        calls.append(greedy_req)
+        idx = len(calls)
+        if idx == 1:
+            return defense_failed
+        if idx == 2:
+            assert float(greedy_req.time_limit_per_unit_s) >= 5.0
+            assert bool(greedy_req.multi_pass_enabled) is True
+            assert int(greedy_req.rune_top_per_set or 0) == 0
+            return defense_ok
+        if idx == 3:
+            return offense_ok
+        raise AssertionError("unexpected optimize_greedy call")
+
+    monkeypatch.setattr("app.engine.arena_rush_optimizer.optimize_greedy", _fake_optimize)
+
+    result = optimize_arena_rush(
+        account=AccountData(),
+        presets=BuildStore(),
+        req=ArenaRushRequest(
+            mode="arena_rush",
+            defense_unit_ids=[101],
+            offense_teams=[ArenaRushOffenseTeam(unit_ids=[201], expected_opening_order=[201])],
+        ),
+    )
+
+    assert len(calls) == 3
+    assert bool(result.defense.ok) is True
+    assert len(result.offenses) == 1
+    assert bool(result.offenses[0].optimization.ok) is True
+
+
+def test_optimize_arena_rush_uses_full_rune_pool_by_default(monkeypatch) -> None:
     calls: list[GreedyRequest] = []
 
     defense_result = GreedyResult(
@@ -343,7 +421,7 @@ def test_optimize_arena_rush_uses_capped_rune_pool_by_default(monkeypatch) -> No
     )
 
     assert len(calls) >= 2
-    assert all(int(getattr(c, "rune_top_per_set", -1)) == 300 for c in calls)
+    assert all(int(getattr(c, "rune_top_per_set", -1)) == 0 for c in calls)
 
 
 def test_optimize_arena_rush_selects_best_defense_candidate(monkeypatch) -> None:
@@ -528,6 +606,39 @@ def test_optimize_arena_rush_respects_max_runtime_budget(monkeypatch) -> None:
     assert int(calls["n"]) < 20
 
 
+def test_optimize_arena_rush_parallel_keeps_first_finished_candidate_after_deadline(monkeypatch) -> None:
+    def _fake_single(*_args, **_kwargs):  # noqa: ANN001
+        time.sleep(0.03)
+        seed = int(_kwargs.get("defense_global_seed_offset", 0) or 0)
+        return ArenaRushResult(
+            ok=True,
+            message=f"cand-{seed}",
+            defense=GreedyResult(
+                ok=True,
+                message="def",
+                results=[GreedyUnitResult(unit_id=101, ok=True, message="OK", runes_by_slot=_slots(9000), artifacts_by_type={1: 8001, 2: 8002}, final_speed=300)],
+            ),
+            offenses=[],
+        )
+
+    monkeypatch.setattr("app.engine.arena_rush_optimizer._optimize_arena_rush_single", _fake_single)
+
+    result = optimize_arena_rush(
+        account=AccountData(),
+        presets=BuildStore(),
+        req=ArenaRushRequest(
+            mode="arena_rush",
+            defense_unit_ids=[101],
+            defense_candidate_count=2,
+            workers=2,
+            max_runtime_s=0.01,
+        ),
+    )
+
+    assert result.defense.ok
+    assert "evaluated=1" in str(result.message)
+
+
 def test_min_speed_floor_from_effects_uses_atb_and_spd_buff() -> None:
     atb_floor = min_speed_floor_by_unit_from_effects(
         expected_order=[1, 2],
@@ -606,6 +717,76 @@ def test_optimize_arena_rush_refines_with_effect_speed_floor(monkeypatch) -> Non
     assert len(calls) == 3
     assert len(result.offenses) == 1
     assert result.offenses[0].optimization.message == "off-refined"
+
+
+def test_optimize_arena_rush_runs_global_rescue_when_compare_guard_blocks_opening_order(monkeypatch) -> None:
+    calls: list[GreedyRequest] = []
+
+    defense_result = GreedyResult(
+        ok=True,
+        message="defense",
+        results=[GreedyUnitResult(unit_id=901, ok=True, message="OK", runes_by_slot=_slots(9100), artifacts_by_type={1: 9901, 2: 9902}, final_speed=260)],
+    )
+    offense_blocked = GreedyResult(
+        ok=True,
+        message="off-blocked",
+        results=[
+            GreedyUnitResult(unit_id=1001, ok=True, message="OK", runes_by_slot=_slots(1000), artifacts_by_type={1: 7001, 2: 7002}, final_speed=300),
+            GreedyUnitResult(unit_id=1002, ok=True, message="OK", runes_by_slot=_slots(2000), artifacts_by_type={1: 7003, 2: 7004}, final_speed=301),
+        ],
+    )
+    offense_rescue = GreedyResult(
+        ok=True,
+        message="off-rescue",
+        results=[
+            GreedyUnitResult(unit_id=1001, ok=True, message="OK", runes_by_slot=_slots(1000), artifacts_by_type={1: 7001, 2: 7002}, final_speed=300),
+            GreedyUnitResult(unit_id=1002, ok=True, message="OK", runes_by_slot=_slots(2001), artifacts_by_type={1: 7005, 2: 7006}, final_speed=299),
+        ],
+    )
+
+    def _fake_optimize(_account, _presets, greedy_req: GreedyRequest) -> GreedyResult:
+        calls.append(greedy_req)
+        call_idx = len(calls)
+        if call_idx == 1:
+            return defense_result
+        if call_idx == 2:
+            # Global offense with compare guard.
+            assert int(greedy_req.baseline_regression_guard_weight or 0) == 3000
+            return offense_blocked
+        if call_idx == 3:
+            # Refined global retry can still stay blocked.
+            assert int(greedy_req.baseline_regression_guard_weight or 0) == 3000
+            return offense_blocked
+        if call_idx == 4:
+            # Global rescue must relax compare guard.
+            assert int(greedy_req.baseline_regression_guard_weight or 0) == 0
+            assert str(greedy_req.quality_profile or "") == "fast"
+            assert int(greedy_req.rune_top_per_set or 0) == 0
+            return offense_rescue
+        raise AssertionError("unexpected optimize_greedy call")
+
+    monkeypatch.setattr("app.engine.arena_rush_optimizer.optimize_greedy", _fake_optimize)
+
+    result = optimize_arena_rush(
+        account=AccountData(),
+        presets=BuildStore(),
+        req=ArenaRushRequest(
+            defense_unit_ids=[901],
+            offense_teams=[
+                ArenaRushOffenseTeam(
+                    unit_ids=[1001, 1002],
+                    expected_opening_order=[1001, 1002],
+                ),
+            ],
+            baseline_regression_guard_weight=3000,
+        ),
+    )
+
+    assert len(calls) == 4
+    assert len(result.offenses) == 1
+    assert int(result.offenses[0].opening_penalty or 0) == 0
+    assert result.offenses[0].optimization.ok
+    assert str(result.offenses[0].optimization.message) == "off-rescue"
 
 
 def test_optimize_arena_rush_reuses_defense_assignments_for_overlapping_offense_unit(monkeypatch) -> None:

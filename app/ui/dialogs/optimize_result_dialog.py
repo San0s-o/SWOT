@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.domain.artifact_effects import artifact_effect_text
+from app.domain.artifact_effects import artifact_effect_text, ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID
 from app.domain.models import Artifact, Rune
 from app.domain.presets import EFFECT_ID_TO_MAINSTAT_KEY, SET_NAMES
 from app.engine.efficiency import rune_efficiency
@@ -527,7 +527,11 @@ class OptimizeResultDialog(QDialog):
             fv.setSpacing(2)
 
             kind = _artifact_kind_label(art_type)
-            fv.addWidget(QLabel(f"<b>{kind}</b> | +{int(art.level or 0)}"))
+            focus = ""
+            if art.pri_effect:
+                focus = ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID.get(int(art.pri_effect[0] or 0), "")
+            header_text = f"<b>{kind}</b> | {focus} | +{int(art.level or 0)}" if focus else f"<b>{kind}</b> | +{int(art.level or 0)}"
+            fv.addWidget(QLabel(header_text))
 
             owner_uid = int(art.occupied_id or 0)
             if owner_uid > 0:
@@ -565,6 +569,10 @@ class OptimizeResultDialog(QDialog):
         main_v.setSpacing(2)
         main_v.setContentsMargins(6, 4, 6, 4)
 
+        owner_uid = self._mode_rune_owner.get(rune.rune_id)
+        if not owner_uid and rune.occupied_type == 1 and rune.occupied_id:
+            owner_uid = int(rune.occupied_id)
+
         header = QHBoxLayout()
         header.setSpacing(4)
         set_icon = self._set_icon_fn(rune.set_id)
@@ -577,11 +585,14 @@ class OptimizeResultDialog(QDialog):
         set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
         header.addWidget(QLabel(f"<b>{tr('ui.slot')} {slot}</b> | {set_name} | +{rune.upgrade_curr}"))
         header.addStretch()
+        if owner_uid:
+            monster_icon = self._unit_icon_fn(owner_uid)
+            if not monster_icon.isNull():
+                monster_icon_lbl = QLabel()
+                monster_icon_lbl.setPixmap(monster_icon.pixmap(32, 32))
+                header.addWidget(monster_icon_lbl)
         main_v.addLayout(header)
 
-        owner_uid = self._mode_rune_owner.get(rune.rune_id)
-        if not owner_uid and rune.occupied_type == 1 and rune.occupied_id:
-            owner_uid = int(rune.occupied_id)
         if owner_uid:
             owner = self._unit_label_fn(owner_uid)
             src = QLabel(tr("ui.current_on", owner=owner))

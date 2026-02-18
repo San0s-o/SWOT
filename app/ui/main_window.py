@@ -272,7 +272,10 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tab_rune_optimization, tr("tab.rune_optimization"))
         rov = QVBoxLayout(self.tab_rune_optimization)
         rov.setContentsMargins(0, 0, 0, 0)
-        self.rune_optimization_widget = RuneOptimizationWidget(rune_set_icon_fn=self._rune_set_icon)
+        self.rune_optimization_widget = RuneOptimizationWidget(
+            rune_set_icon_fn=self._rune_set_icon,
+            monster_name_fn=self._monster_name_for_unit_id,
+        )
         rov.addWidget(self.rune_optimization_widget)
 
         # Siege Builder
@@ -522,6 +525,14 @@ class MainWindow(QMainWindow):
             team_header_by_index=team_header_by_index,
             group_size=group_size,
         )
+
+    def _monster_name_for_unit_id(self, unit_id: int) -> str:
+        if not self.account:
+            return ""
+        unit = self.account.units_by_id.get(int(unit_id or 0))
+        if unit is None:
+            return ""
+        return self.monster_db.name_for(unit.unit_master_id)
 
     def _unit_icon_for_unit_id(self, unit_id: int) -> QIcon:
         if not self.account:

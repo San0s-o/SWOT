@@ -915,7 +915,7 @@ def on_optimize_arena_rush(window) -> None:
         # Runtime-tuned defaults to keep Arena Rush practical.
         time_limit_per_unit_s = 2.0
         offense_pass_count = 1
-        rune_top_per_set = 0 if profile_key == "ultra_quality" else 300
+        rune_top_per_set = 0
         arena_req = ArenaRushRequest(
             mode="arena_rush",
             defense_unit_ids=list(defense_ids),

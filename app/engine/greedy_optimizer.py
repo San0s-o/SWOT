@@ -586,6 +586,9 @@ def _allowed_runes_for_mode(
     if top_n <= 0:
         return all_runes
 
+    mode_key = str(getattr(req, "mode", "") or "").strip().lower()
+    arena_rush_pool_by_set_size = mode_key == "arena_rush"
+
     by_set: Dict[int, List[Rune]] = {}
     for r in all_runes:
         sid = int(r.set_id or 0)
@@ -593,12 +596,19 @@ def _allowed_runes_for_mode(
 
     pruned: List[Rune] = []
     for sid, runes in by_set.items():
+        per_set_cap = int(top_n)
+        if arena_rush_pool_by_set_size:
+            set_size = int(SET_SIZES.get(int(sid), 2) or 2)
+            if int(set_size) == 4:
+                per_set_cap = 500
+            elif int(set_size) == 2:
+                per_set_cap = 300
         ranked = sorted(
             runes,
             key=lambda rr: (_rune_pool_rank_score(rr), int(rr.slot_no or 0), -int(rr.rune_id or 0)),
             reverse=True,
         )
-        pruned.extend(ranked[:top_n])
+        pruned.extend(ranked[:max(0, int(per_set_cap))])
     return pruned
 
 
@@ -2221,18 +2231,20 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
     strategy = str(getattr(req, "multi_pass_strategy", "greedy_refine") or "greedy_refine").strip().lower()
     if strategy not in ("greedy_only", "greedy_refine"):
         strategy = "greedy_refine"
+    requested_top_n_raw = int(getattr(req, "rune_top_per_set", 200) or 200)
+    use_full_rune_pool = int(requested_top_n_raw) <= 0
     if profile == "fast":
         strategy = "greedy_only"
         no_improve_patience = 2
-        rune_top_per_set_effective = min(int(getattr(req, "rune_top_per_set", 200) or 200), 120)
+        rune_top_per_set_effective = 0 if use_full_rune_pool else min(int(requested_top_n_raw), 120)
         speed_slack_effective = 0
     elif profile == "max_quality":
         no_improve_patience = 6 if strategy == "greedy_refine" else 3
-        rune_top_per_set_effective = max(int(getattr(req, "rune_top_per_set", 200) or 200), 300)
+        rune_top_per_set_effective = 0 if use_full_rune_pool else max(int(requested_top_n_raw), 300)
         speed_slack_effective = max(2, int(getattr(req, "speed_slack_for_quality", DEFAULT_SPEED_SLACK_FOR_QUALITY) or 2))
     else:
         no_improve_patience = 4 if strategy == "greedy_refine" else 2
-        rune_top_per_set_effective = int(getattr(req, "rune_top_per_set", 200) or 200)
+        rune_top_per_set_effective = 0 if use_full_rune_pool else int(requested_top_n_raw)
         speed_slack_effective = int(getattr(req, "speed_slack_for_quality", DEFAULT_SPEED_SLACK_FOR_QUALITY) or DEFAULT_SPEED_SLACK_FOR_QUALITY)
 
     outcomes: List[_PassOutcome] = []

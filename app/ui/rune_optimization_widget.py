@@ -19,12 +19,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtGui import QTextDocument, QAbstractTextDocumentLayout, QPainter
+from PySide6.QtGui import QTextDocument, QAbstractTextDocumentLayout, QPainter, QStandardItemModel, QStandardItem
 
 from app.domain.models import AccountData, Rune
 from app.domain.presets import SET_NAMES, EFFECT_ID_TO_MAINSTAT_KEY
 from app.engine.efficiency import rune_efficiency, rune_efficiency_max
 from app.i18n import tr
+from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 _QUALITY_BASE_NAME = {
     1: "Normal",
@@ -190,10 +191,12 @@ class RuneOptimizationWidget(QWidget):
         self,
         parent: Optional[QWidget] = None,
         rune_set_icon_fn: Callable[[int], QIcon] | None = None,
+        monster_name_fn: Callable[[int], str] | None = None,
     ):
         super().__init__(parent)
         self._account: Optional[AccountData] = None
         self._rune_set_icon_fn = rune_set_icon_fn
+        self._monster_name_fn = monster_name_fn
         self._updating_filters = False
 
         layout = QVBoxLayout(self)
@@ -216,13 +219,19 @@ class RuneOptimizationWidget(QWidget):
         self.combo_filter_slot.setMinimumWidth(90)
         self.combo_filter_slot.currentIndexChanged.connect(self._on_filters_changed)
         top.addWidget(self.combo_filter_slot)
+        self.lbl_filter_monster = QLabel("")
+        top.addWidget(self.lbl_filter_monster)
+        self.combo_filter_monster = _UnitSearchComboBox()
+        self.combo_filter_monster.setMinimumWidth(200)
+        self.combo_filter_monster.currentIndexChanged.connect(self._on_filters_changed)
+        top.addWidget(self.combo_filter_monster)
         self.btn_reset_filters = QPushButton("")
         self.btn_reset_filters.clicked.connect(self._on_reset_filters)
         top.addWidget(self.btn_reset_filters)
         top.addStretch(1)
         layout.addLayout(top)
 
-        self.table = QTableWidget(0, 12)
+        self.table = QTableWidget(0, 13)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -238,6 +247,7 @@ class RuneOptimizationWidget(QWidget):
     def retranslate(self) -> None:
         self.lbl_filter_set.setText(tr("rune_opt.filter_set"))
         self.lbl_filter_slot.setText(tr("rune_opt.filter_slot"))
+        self.lbl_filter_monster.setText(tr("rune_opt.filter_monster"))
         self.btn_reset_filters.setText(tr("rune_opt.filter_reset"))
         self.table.setHorizontalHeaderLabels(
             [
@@ -248,6 +258,7 @@ class RuneOptimizationWidget(QWidget):
                 tr("rune_opt.col.upgrade"),
                 tr("rune_opt.col.substats"),
                 tr("rune_opt.col.gem_grind"),
+                tr("rune_opt.col.monster"),
                 tr("rune_opt.col.current_eff"),
                 tr("rune_opt.col.hero_max_eff"),
                 tr("rune_opt.col.legend_max_eff"),
@@ -270,24 +281,49 @@ class RuneOptimizationWidget(QWidget):
         self._updating_filters = True
         self.combo_filter_set.blockSignals(True)
         self.combo_filter_slot.blockSignals(True)
+        self.combo_filter_monster.blockSignals(True)
         try:
             self.combo_filter_set.setCurrentIndex(0)
             self.combo_filter_slot.setCurrentIndex(0)
+            self.combo_filter_monster.set_filter_suspended(True)
+            self.combo_filter_monster.setCurrentIndex(0)
+            self.combo_filter_monster.set_filter_suspended(False)
+            self.combo_filter_monster._reset_search_field()
         finally:
             self.combo_filter_set.blockSignals(False)
             self.combo_filter_slot.blockSignals(False)
+            self.combo_filter_monster.blockSignals(False)
             self._updating_filters = False
         self.refresh()
 
     def _populate_filters(self, runes: list[Rune]) -> None:
         current_set = int(self.combo_filter_set.currentData() or 0)
         current_slot = int(self.combo_filter_slot.currentData() or 0)
+        current_monster_uid = int(self.combo_filter_monster.currentData(Qt.UserRole) or 0)
         set_ids = sorted({int(r.set_id or 0) for r in runes if int(r.set_id or 0) > 0})
         slot_nos = sorted({int(r.slot_no or 0) for r in runes if int(r.slot_no or 0) > 0})
+
+        # Build monster model: collect unique unit_ids from equipped runes
+        monster_model = QStandardItemModel()
+        all_item = QStandardItem(tr("rune_opt.filter_all"))
+        all_item.setData(0, Qt.UserRole)
+        monster_model.appendRow(all_item)
+        if self._monster_name_fn:
+            seen_uids: dict[int, str] = {}
+            for r in runes:
+                if int(r.occupied_type or 0) == 1:
+                    uid = int(r.occupied_id or 0)
+                    if uid > 0 and uid not in seen_uids:
+                        seen_uids[uid] = self._monster_name_fn(uid)
+            for uid, name in sorted(seen_uids.items(), key=lambda x: x[1]):
+                item = QStandardItem(name)
+                item.setData(uid, Qt.UserRole)
+                monster_model.appendRow(item)
 
         self._updating_filters = True
         self.combo_filter_set.blockSignals(True)
         self.combo_filter_slot.blockSignals(True)
+        self.combo_filter_monster.blockSignals(True)
         try:
             self.combo_filter_set.clear()
             self.combo_filter_set.addItem(tr("rune_opt.filter_all"), 0)
@@ -302,9 +338,17 @@ class RuneOptimizationWidget(QWidget):
                 self.combo_filter_slot.addItem(str(slot), slot)
             idx_slot = self.combo_filter_slot.findData(current_slot)
             self.combo_filter_slot.setCurrentIndex(idx_slot if idx_slot >= 0 else 0)
+
+            self.combo_filter_monster.set_filter_suspended(True)
+            self.combo_filter_monster.set_source_model(monster_model)
+            idx_monster = self.combo_filter_monster.findData(current_monster_uid, role=Qt.UserRole)
+            self.combo_filter_monster.setCurrentIndex(idx_monster if idx_monster >= 0 else 0)
+            self.combo_filter_monster.set_filter_suspended(False)
+            self.combo_filter_monster._sync_line_edit_to_current()
         finally:
             self.combo_filter_set.blockSignals(False)
             self.combo_filter_slot.blockSignals(False)
+            self.combo_filter_monster.blockSignals(False)
             self._updating_filters = False
 
     def refresh(self) -> None:
@@ -328,10 +372,12 @@ class RuneOptimizationWidget(QWidget):
 
         selected_set = int(self.combo_filter_set.currentData() or 0)
         selected_slot = int(self.combo_filter_slot.currentData() or 0)
+        selected_uid = int(self.combo_filter_monster.currentData(Qt.UserRole) or 0)
         runes = [
             r for r in all_runes
             if (selected_set <= 0 or int(r.set_id or 0) == selected_set)
             and (selected_slot <= 0 or int(r.slot_no or 0) == selected_slot)
+            and (selected_uid <= 0 or int(r.occupied_id or 0) == selected_uid)
         ]
 
         if not runes:
@@ -369,15 +415,20 @@ class RuneOptimizationWidget(QWidget):
             sub_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row, 5, sub_item)
             self.table.setItem(row, 6, QTableWidgetItem(_gem_grind_status(rune)))
-            self.table.setItem(row, 7, _numeric_item(current, "%"))
-            self.table.setItem(row, 8, _numeric_item(hero_max, "%"))
-            self.table.setItem(row, 9, _numeric_item(legend_max, "%"))
-            self.table.setItem(row, 10, _numeric_item(hero_potential, "%"))
-            self.table.setItem(row, 11, _numeric_item(legend_potential, "%"))
+            monster_name = ""
+            if int(rune.occupied_type or 0) == 1 and self._monster_name_fn:
+                monster_name = self._monster_name_fn(int(rune.occupied_id or 0))
+            self.table.setItem(row, 7, QTableWidgetItem(monster_name))
+            self.table.setItem(row, 8, _numeric_item(current, "%"))
+            self.table.setItem(row, 9, _numeric_item(hero_max, "%"))
+            self.table.setItem(row, 10, _numeric_item(legend_max, "%"))
+            self.table.setItem(row, 11, _numeric_item(hero_potential, "%"))
+            self.table.setItem(row, 12, _numeric_item(legend_potential, "%"))
 
         self.table.resizeColumnsToContents()
         self.table.setColumnWidth(0, 44)
         self.table.setColumnWidth(2, max(140, self.table.columnWidth(2)))
         self.table.setColumnWidth(5, max(560, self.table.columnWidth(5)))
         self.table.setColumnWidth(6, max(130, self.table.columnWidth(6)))
+        self.table.setColumnWidth(7, max(120, self.table.columnWidth(7)))
         self.table.setSortingEnabled(True)
