@@ -117,7 +117,7 @@ def init_arena_rush_builder_ui(
     window.spin_multi_pass_arena_rush.setToolTip(tr("tooltip.passes"))
     window.spin_multi_pass_arena_rush.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
     btn_row.addWidget(window.spin_multi_pass_arena_rush)
-    # Arena Rush uses fixed max-quality/global optimization; pass control is not applicable in UI.
+    # Arena Rush uses global optimization; pass control is not applicable in UI.
     window.lbl_arena_rush_passes.setVisible(False)
     window.spin_multi_pass_arena_rush.setVisible(False)
 
@@ -131,8 +131,9 @@ def init_arena_rush_builder_ui(
     btn_row.addWidget(window.lbl_arena_rush_profile)
     window.combo_quality_profile_arena_rush = QComboBox()
     window.combo_quality_profile_arena_rush.addItem("Max Qualität", "max_quality")
+    window.combo_quality_profile_arena_rush.addItem("Ultra (langsam)", "ultra_quality")
     window.combo_quality_profile_arena_rush.setCurrentIndex(0)
-    window.combo_quality_profile_arena_rush.setEnabled(False)
+    window.combo_quality_profile_arena_rush.setEnabled(True)
     window.combo_quality_profile_arena_rush.currentIndexChanged.connect(window._sync_worker_controls)
     btn_row.addWidget(window.combo_quality_profile_arena_rush)
     window._sync_worker_controls()

@@ -9,7 +9,7 @@ from app.i18n import tr
 
 def max_solver_workers() -> int:
     total = max(1, int(os.cpu_count() or 8))
-    return max(1, int(total * 0.9))
+    return int(total)
 
 
 def default_solver_workers() -> int:
@@ -39,7 +39,7 @@ def populate_worker_combo(window, combo: QComboBox) -> None:
 
 def effective_workers(window, quality_profile: str, combo: QComboBox) -> int:
     prof = str(quality_profile or "").strip().lower()
-    if prof in ("max_quality", "gpu_search_max"):
+    if prof in ("max_quality", "ultra_quality", "gpu_search_max"):
         return int(combo.currentData() or default_solver_workers())
     return int(default_solver_workers())
 
@@ -50,7 +50,7 @@ def sync_worker_controls(window) -> None:
         workers = getattr(window, workers_combo_attr, None)
         if prof is None or workers is None:
             return
-        is_max = str(prof.currentData() or "").strip().lower() in ("max_quality", "gpu_search_max")
+        is_max = str(prof.currentData() or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max")
         workers.setEnabled(bool(is_max))
 
     _apply("combo_quality_profile_siege", "combo_workers_siege")

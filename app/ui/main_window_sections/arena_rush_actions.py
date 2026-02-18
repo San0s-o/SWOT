@@ -804,6 +804,20 @@ def _arena_speed_leader_bonus_map(
     return out
 
 
+def _arena_rush_defense_candidate_budget(
+    quality_profile: str,
+    offense_team_count: int,
+) -> int:
+    profile = str(quality_profile or "").strip().lower()
+    team_count = max(0, int(offense_team_count or 0))
+    if profile == "ultra_quality":
+        # Keep within practical runtime budget.
+        return max(2, min(8, int(4 + min(4, team_count))))
+    if profile == "max_quality":
+        return max(1, min(3, int(1 + min(2, team_count // 2))))
+    return 1
+
+
 def on_optimize_arena_rush(window) -> None:
     if not window.account:
         return
@@ -892,6 +906,16 @@ def on_optimize_arena_rush(window) -> None:
         register_solver,
         progress_cb,
     ):
+        profile_key = str(quality_profile).strip().lower()
+        solver_quality_profile = "max_quality" if profile_key in ("max_quality", "ultra_quality") else profile_key
+        defense_candidate_count = _arena_rush_defense_candidate_budget(
+            quality_profile=profile_key,
+            offense_team_count=len(offense_payload),
+        )
+        # Runtime-tuned defaults to keep Arena Rush practical.
+        time_limit_per_unit_s = 2.0
+        offense_pass_count = 1
+        rune_top_per_set = 0 if profile_key == "ultra_quality" else 300
         arena_req = ArenaRushRequest(
             mode="arena_rush",
             defense_unit_ids=list(defense_ids),
@@ -907,11 +931,14 @@ def on_optimize_arena_rush(window) -> None:
             ),
             offense_teams=offense_payload,
             workers=workers,
-            time_limit_per_unit_s=5.0,
+            time_limit_per_unit_s=float(time_limit_per_unit_s),
             defense_pass_count=1,
-            offense_pass_count=max(1, int(pass_count)),
+            offense_pass_count=int(max(1, int(offense_pass_count))),
             defense_quality_profile="max_quality",
-            offense_quality_profile=quality_profile,
+            offense_quality_profile=str(solver_quality_profile),
+            defense_candidate_count=int(defense_candidate_count),
+            rune_top_per_set=int(rune_top_per_set),
+            max_runtime_s=300.0,
             progress_callback=progress_cb,
             is_cancelled=is_cancelled,
             register_solver=register_solver,

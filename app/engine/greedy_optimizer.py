@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
+import threading
 from typing import Dict, List, Tuple, Set, Optional, Callable
 
 from ortools.sat.python import cp_model
@@ -275,6 +276,22 @@ def _is_good_even_slot_mainstat(eff_id: int, slot_no: int) -> bool:
     return int(eff_id or 0) in (2, 4, 6, 8, 9, 10, 11, 12)
 
 
+def _projected_rune_mainstat_value(r: Rune) -> int:
+    try:
+        raw = int((r.pri_eff or (0, 0))[1] or 0)
+    except Exception:
+        return 0
+    if raw <= 0:
+        return 0
+    upgrade = int(getattr(r, "upgrade_curr", 0) or 0)
+    # Requested behavior: allow +12 runes and project their main stat to +15.
+    # Keep lower upgrades untouched to avoid over-projecting unfinished runes.
+    if upgrade < 12 or upgrade >= 15:
+        return int(raw)
+    factor = float(15.0 / max(1.0, float(upgrade)))
+    return int(round(float(raw) * factor))
+
+
 def _rune_quality_score(r: Rune, uid: int,
                         rta_rune_ids_for_unit: Optional[Set[int]] = None) -> int:
     score = 0
@@ -284,7 +301,7 @@ def _rune_quality_score(r: Rune, uid: int,
     score += int(SET_SCORE_BONUS.get(int(r.set_id or 0), 0))
 
     # Main stat and prefix stat
-    score += _score_stat(int(r.pri_eff[0] or 0), int(r.pri_eff[1] or 0))
+    score += _score_stat(int(r.pri_eff[0] or 0), int(_projected_rune_mainstat_value(r)))
     score += _score_stat(int(r.prefix_eff[0] or 0), int(r.prefix_eff[1] or 0))
 
     # Penalize flat mains on even slots when no build mainstat forces it
@@ -321,7 +338,7 @@ def _rune_quality_score_defensive(
     score += int(r.rank or 0) * 6
     score += int(r.rune_class or 0) * 10
 
-    score += _score_stat_defensive(int(r.pri_eff[0] or 0), int(r.pri_eff[1] or 0))
+    score += _score_stat_defensive(int(r.pri_eff[0] or 0), int(_projected_rune_mainstat_value(r)))
     score += _score_stat_defensive(int(r.prefix_eff[0] or 0), int(r.prefix_eff[1] or 0))
 
     for sec in (r.sec_eff or []):
@@ -616,7 +633,7 @@ def _rune_flat_spd(r: Rune) -> int:
     total = 0
     try:
         if int(r.pri_eff[0] or 0) == 8:
-            total += int(r.pri_eff[1] or 0)
+            total += int(_projected_rune_mainstat_value(r))
     except Exception:
         pass
     try:
@@ -635,14 +652,14 @@ def _rune_flat_spd(r: Rune) -> int:
                 total += int(sec[3] or 0)
         except Exception:
             continue
-    return total
+    return int(total)
 
 
 def _rune_stat_total(r: Rune, eff_id_target: int) -> int:
     total = 0
     try:
         if int(r.pri_eff[0] or 0) == eff_id_target:
-            total += int(r.pri_eff[1] or 0)
+            total += int(_projected_rune_mainstat_value(r))
     except Exception:
         pass
     try:
@@ -661,7 +678,7 @@ def _rune_stat_total(r: Rune, eff_id_target: int) -> int:
                 total += int(sec[3] or 0)
         except Exception:
             continue
-    return total
+    return int(total)
 
 
 def _build_allows_swift(b: Build) -> bool:
@@ -2129,23 +2146,46 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
 
         completed = 0
         run_results: List[tuple[int, GreedyResult]] = []
-        with ThreadPoolExecutor(max_workers=int(parallel_runs)) as ex:
-            futures = [ex.submit(_run_global_once, int(i)) for i in range(int(run_count))]
-            for fut in as_completed(futures):
-                if req.is_cancelled and req.is_cancelled():
-                    for ff in futures:
-                        ff.cancel()
-                    break
+        heartbeat_stop = threading.Event()
+        heartbeat_lock = threading.Lock()
+        heartbeat_state: Dict[str, int] = {"completed": 0}
+
+        def _heartbeat() -> None:
+            if not req.progress_callback:
+                return
+            while not heartbeat_stop.wait(1.0):
                 try:
-                    run_results.append(fut.result())
+                    with heartbeat_lock:
+                        current = int(heartbeat_state.get("completed", 0))
+                    req.progress_callback(int(current), int(run_count))
                 except Exception:
                     continue
-                completed += 1
-                if req.progress_callback:
+
+        hb_thread = threading.Thread(target=_heartbeat, daemon=True)
+        hb_thread.start()
+        try:
+            with ThreadPoolExecutor(max_workers=int(parallel_runs)) as ex:
+                futures = [ex.submit(_run_global_once, int(i)) for i in range(int(run_count))]
+                for fut in as_completed(futures):
+                    if req.is_cancelled and req.is_cancelled():
+                        for ff in futures:
+                            ff.cancel()
+                        break
                     try:
-                        req.progress_callback(int(completed), int(run_count))
+                        run_results.append(fut.result())
                     except Exception:
-                        pass
+                        continue
+                    completed += 1
+                    with heartbeat_lock:
+                        heartbeat_state["completed"] = int(completed)
+                    if req.progress_callback:
+                        try:
+                            req.progress_callback(int(completed), int(run_count))
+                        except Exception:
+                            pass
+        finally:
+            heartbeat_stop.set()
+            hb_thread.join(timeout=0.5)
 
         if not run_results:
             return GreedyResult(False, tr("opt.cancelled"), [])

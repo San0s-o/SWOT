@@ -173,6 +173,9 @@ def retranslate_ui(window) -> None:
     idx_arena_max = window.combo_quality_profile_arena_rush.findData("max_quality")
     if idx_arena_max >= 0:
         window.combo_quality_profile_arena_rush.setItemText(idx_arena_max, "Max Qualität")
+    idx_arena_ultra = window.combo_quality_profile_arena_rush.findData("ultra_quality")
+    if idx_arena_ultra >= 0:
+        window.combo_quality_profile_arena_rush.setItemText(idx_arena_ultra, "Ultra (langsam)")
 
     window.lbl_team.setText(tr("label.team"))
     window.btn_new_team.setText(tr("btn.new_team"))

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field, replace
 from math import ceil
+import time
 from typing import Dict, List
 
 from app.domain.models import AccountData, Artifact
 from app.domain.presets import BuildStore, Build
 from app.domain.speed_ticks import LEO_LOW_SPD_TICK, min_spd_for_tick, max_spd_for_tick
+from app.engine.efficiency import artifact_efficiency, rune_efficiency
 from app.engine.arena_rush_timing import (
     OpeningTurnEffect,
     effective_spd_buff_pct_for_unit,
@@ -47,6 +50,9 @@ class ArenaRushRequest:
     offense_pass_count: int = 3
     defense_quality_profile: str = "max_quality"
     offense_quality_profile: str = "balanced"
+    defense_candidate_count: int = 1
+    rune_top_per_set: int = 300
+    max_runtime_s: float = 300.0
     is_cancelled: object | None = None
     register_solver: object | None = None
     progress_callback: object | None = None
@@ -324,11 +330,55 @@ def _preflight_defense_shared_speed_bounds_from_offense_ticks(
 def _max_speed_cap_by_unit_from_expected_order(
     expected_order: List[int],
     combat_speed_by_unit: Dict[int, int],
+    turn_effects_by_unit: Dict[int, OpeningTurnEffect] | None = None,
+    spd_buff_increase_pct_by_unit: Dict[int, float] | None = None,
 ) -> Dict[int, int]:
     out: Dict[int, int] = {}
     order = [int(uid) for uid in (expected_order or []) if int(uid) > 0]
     if not order:
         return out
+    effects = dict(turn_effects_by_unit or {})
+    buff_inc = {int(uid): float(v) for uid, v in dict(spd_buff_increase_pct_by_unit or {}).items()}
+
+    def _first_unique_opening(sim_order: List[int]) -> List[int]:
+        out: List[int] = []
+        seen: set[int] = set()
+        for uid in sim_order:
+            ui = int(uid)
+            if ui in seen:
+                continue
+            seen.add(ui)
+            out.append(ui)
+            if len(out) >= len(order):
+                break
+        return out
+
+    def _pair_is_ordered(prev_uid: int, cur_uid: int, speed_map: Dict[int, int]) -> bool:
+        sim_raw = simulate_opening_order(
+            ordered_unit_ids=list(order),
+            combat_speed_by_unit=dict(speed_map),
+            turn_effects_by_unit=dict(effects),
+            spd_buff_increase_pct_by_unit=dict(buff_inc),
+            max_actions=max(int(len(order) * 6), int(len(order))),
+        )
+        sim = _first_unique_opening(list(sim_raw))
+        if int(prev_uid) not in sim or int(cur_uid) not in sim:
+            return False
+        return bool(int(sim.index(int(prev_uid))) < int(sim.index(int(cur_uid))))
+
+    def _initiative_coeff(uid: int) -> float:
+        speed_factor = 1.0
+        if _has_spd_buff_before_turn(order, int(uid), effects):
+            eff_buff_pct = effective_spd_buff_pct_for_unit(
+                buff_inc.get(int(uid), 0.0),
+                base_spd_buff_pct=30.0,
+            )
+            speed_factor += max(0.0, float(eff_buff_pct)) / 100.0
+        atb_boost_before = _atb_boost_pct_before_turn(order, int(uid), effects)
+        atb_factor = 1.0 - (max(0.0, float(atb_boost_before)) / 100.0)
+        atb_factor = max(0.05, min(1.0, atb_factor))
+        return float(speed_factor / atb_factor)
+
     for idx, uid in enumerate(order):
         if idx <= 0:
             continue
@@ -336,7 +386,39 @@ def _max_speed_cap_by_unit_from_expected_order(
         prev_spd = int((combat_speed_by_unit or {}).get(prev_uid, 0) or 0)
         if prev_spd <= 1:
             continue
-        out[int(uid)] = int(prev_spd - 1)
+        prev_coeff = _initiative_coeff(int(prev_uid))
+        cur_coeff = _initiative_coeff(int(uid))
+        if float(cur_coeff) <= 0.0:
+            continue
+        # Keep successor initiative slightly below predecessor initiative.
+        # This tightens caps when successor gains more speed from buff scaling.
+        cap_raw = int((float(prev_spd) * float(prev_coeff)) / float(cur_coeff))
+        cap = int(cap_raw - 1)
+        if cap <= 0:
+            continue
+        if effects:
+            # Refine the cap against the actual opening simulation (discrete ATB ticks).
+            # This is tighter than pure ratio math and prevents edge cases where a unit
+            # with slightly lower raw SPD still overtakes due to buff scaling.
+            lo = 1
+            hi = max(1, int(prev_spd) - 1)
+            best = 0
+            base_speed_map = {
+                int(oid): int((combat_speed_by_unit or {}).get(int(oid), 0) or 0)
+                for oid in order
+            }
+            while lo <= hi:
+                mid = int((lo + hi) // 2)
+                trial = dict(base_speed_map)
+                trial[int(uid)] = int(mid)
+                if _pair_is_ordered(int(prev_uid), int(uid), trial):
+                    best = int(mid)
+                    lo = int(mid + 1)
+                else:
+                    hi = int(mid - 1)
+            if best > 0:
+                cap = int(best)
+        out[int(uid)] = int(cap)
     return out
 
 
@@ -417,7 +499,87 @@ def _evaluate_opening(
     return list(simulated_order), int(penalty), speed_by_uid, spd_buff_inc_by_uid
 
 
-def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRushRequest) -> ArenaRushResult:
+def _greedy_result_signature(results: List[GreedyUnitResult]) -> tuple[tuple[object, ...], ...]:
+    rows: List[tuple[object, ...]] = []
+    for res in list(results or []):
+        runes = tuple(
+            (int(slot), int(rid))
+            for slot, rid in sorted(dict(res.runes_by_slot or {}).items(), key=lambda x: int(x[0]))
+            if int(rid or 0) > 0
+        )
+        arts = tuple(
+            (int(kind), int(aid))
+            for kind, aid in sorted(dict(res.artifacts_by_type or {}).items(), key=lambda x: int(x[0]))
+            if int(aid or 0) > 0
+        )
+        rows.append(
+            (
+                int(res.unit_id),
+                bool(res.ok),
+                runes,
+                arts,
+                int(res.final_speed or 0),
+                str(res.chosen_build_id or ""),
+            )
+        )
+    rows.sort(key=lambda x: int(x[0]))
+    return tuple(rows)
+
+
+def _arena_rush_all_results(res: ArenaRushResult) -> List[GreedyUnitResult]:
+    out: List[GreedyUnitResult] = []
+    out.extend(list(res.defense.results or []))
+    for off in list(res.offenses or []):
+        out.extend(list((off.optimization.results or [])))
+    return out
+
+
+def _arena_rush_efficiency_score(account: AccountData, res: ArenaRushResult) -> int:
+    runes_by_id = account.runes_by_id()
+    artifacts_by_id: Dict[int, Artifact] = {int(a.artifact_id): a for a in account.artifacts}
+    total = 0
+    for row in _arena_rush_all_results(res):
+        if not bool(getattr(row, "ok", False)):
+            continue
+        for rid in dict(row.runes_by_slot or {}).values():
+            rune = runes_by_id.get(int(rid or 0))
+            if rune is None:
+                continue
+            total += int(round(float(rune_efficiency(rune)) * 1000.0))
+        for aid in dict(row.artifacts_by_type or {}).values():
+            art = artifacts_by_id.get(int(aid or 0))
+            if art is None:
+                continue
+            total += int(round(float(artifact_efficiency(art)) * 1000.0))
+    return int(total)
+
+
+def _arena_rush_candidate_score(account: AccountData, res: ArenaRushResult) -> tuple[int, int, int, int, int, int, int, int]:
+    offense_count = int(len(res.offenses or []))
+    offense_ok_count = int(sum(1 for off in list(res.offenses or []) if bool(off.optimization.ok)))
+    total_penalty = int(sum(int(off.opening_penalty or 0) for off in list(res.offenses or [])))
+    all_results = _arena_rush_all_results(res)
+    ok_unit_count = int(sum(1 for row in all_results if bool(getattr(row, "ok", False))))
+    speed_sum = int(sum(int(getattr(row, "final_speed", 0) or 0) for row in all_results if bool(getattr(row, "ok", False))))
+    return (
+        int(bool(res.defense.ok)),
+        int(offense_ok_count == offense_count),
+        int(total_penalty == 0),
+        int(offense_ok_count),
+        int(-total_penalty),
+        int(ok_unit_count),
+        int(_arena_rush_efficiency_score(account, res)),
+        int(speed_sum),
+    )
+
+
+def _optimize_arena_rush_single(
+    account: AccountData,
+    presets: BuildStore,
+    req: ArenaRushRequest,
+    defense_global_seed_offset: int = 0,
+    offense_global_seed_offset: int = 0,
+) -> ArenaRushResult:
     defense_unit_ids = _unique_unit_ids(list(req.defense_unit_ids or []))
     if not defense_unit_ids:
         empty = GreedyResult(False, "Arena Rush: no defense units selected.", [])
@@ -463,6 +625,8 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
             multi_pass_count=max(1, int(req.defense_pass_count)),
             multi_pass_strategy="greedy_refine",
             quality_profile=str(req.defense_quality_profile),
+            rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+            global_seed_offset=int(defense_global_seed_offset or 0),
             progress_callback=req.progress_callback if callable(req.progress_callback) else None,
             is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
             register_solver=req.register_solver if callable(req.register_solver) else None,
@@ -484,7 +648,6 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
     offense_results: List[ArenaRushOffenseResult] = []
     offense_cfg_rows: List[Dict[str, object]] = []
     seen_offense_units: set[int] = set()
-    duplicate_units: set[int] = set()
     unit_occurrences: Dict[int, int] = {}
     for team_index, team in enumerate(list(req.offense_teams or [])):
         unit_ids = _unique_unit_ids(list(team.unit_ids or []))
@@ -525,11 +688,13 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
         )
         for uid in unit_ids:
             unit_occurrences[int(uid)] = int(unit_occurrences.get(int(uid), 0) or 0) + 1
-            if int(uid) in seen_offense_units:
-                duplicate_units.add(int(uid))
             seen_offense_units.add(int(uid))
 
-    has_duplicate_units = bool(duplicate_units)
+    # Keep global turn-order constraints active even when duplicate units exist
+    # across offense teams. The global map already stores first occurrence per uid,
+    # which is enough to enforce ordering for unique units inside each team and
+    # reduces expensive post-repair mismatches.
+    global_enforce_turn_order = True
     defense_ok_by_uid = _ok_results_by_uid(defense_result.results)
     defense_overlap_uids: set[int] = {
         int(uid) for uid in seen_offense_units
@@ -646,10 +811,12 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
             multi_pass_count=max(1, int(req.offense_pass_count)),
             multi_pass_strategy="greedy_refine",
             quality_profile=str(req.offense_quality_profile),
+            rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+            global_seed_offset=int(offense_global_seed_offset or 0),
             progress_callback=req.progress_callback if callable(req.progress_callback) else None,
             is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
             register_solver=req.register_solver if callable(req.register_solver) else None,
-            enforce_turn_order=not bool(has_duplicate_units),
+            enforce_turn_order=bool(global_enforce_turn_order),
             unit_team_index=dict(all_team_index_by_uid),
             unit_team_turn_order=dict(all_turn_order_by_uid),
             unit_spd_leader_bonus_flat=dict(all_spd_leader_bonus_by_uid),
@@ -665,6 +832,7 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
 
     ok_by_uid_global = _ok_results_by_uid(global_offense_result.results)
     refined_floor_by_uid = dict(base_tick_floor_by_uid)
+    refined_order_cap_by_uid: Dict[int, int] = {}
     for row in offense_cfg_rows:
         expected_order = list(row["expected_order"] or [])
         team_effects = dict(row["turn_effects_by_unit"] or {})
@@ -677,6 +845,23 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
         _ = (simulated_order, penalty)
         if not speed_by_uid or len(speed_by_uid) != len(expected_order):
             continue
+        if int(penalty) > 0:
+            mismatch_caps = _max_speed_cap_by_unit_from_expected_order(
+                expected_order=list(expected_order),
+                combat_speed_by_unit=dict(speed_by_uid),
+                turn_effects_by_unit=team_effects,
+                spd_buff_increase_pct_by_unit=dict(spd_buff_inc_by_uid),
+            )
+            for uid, cap in mismatch_caps.items():
+                ui = int(uid or 0)
+                cv = int(cap or 0)
+                if ui <= 0 or cv <= 0:
+                    continue
+                prev = int(refined_order_cap_by_uid.get(ui, 0) or 0)
+                if prev <= 0:
+                    refined_order_cap_by_uid[ui] = int(cv)
+                else:
+                    refined_order_cap_by_uid[ui] = min(int(prev), int(cv))
         effect_floor = min_speed_floor_by_unit_from_effects(
             expected_order=list(expected_order),
             combat_speed_by_unit=speed_by_uid,
@@ -697,7 +882,7 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
             if int(floor) > prev:
                 refined_floor_by_uid[int(uid)] = int(floor)
 
-    if refined_floor_by_uid:
+    if refined_floor_by_uid or refined_order_cap_by_uid:
         global_offense_result = optimize_greedy(
             account,
             presets,
@@ -726,10 +911,12 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
                 multi_pass_count=max(1, int(req.offense_pass_count)),
                 multi_pass_strategy="greedy_refine",
                 quality_profile=str(req.offense_quality_profile),
+                rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+                global_seed_offset=int(offense_global_seed_offset or 0),
                 progress_callback=req.progress_callback if callable(req.progress_callback) else None,
                 is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
                 register_solver=req.register_solver if callable(req.register_solver) else None,
-                enforce_turn_order=not bool(has_duplicate_units),
+                enforce_turn_order=bool(global_enforce_turn_order),
                 unit_team_index=dict(all_team_index_by_uid),
                 unit_team_turn_order=dict(all_turn_order_by_uid),
                 unit_spd_leader_bonus_flat=dict(all_spd_leader_bonus_by_uid),
@@ -739,7 +926,10 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
                 unit_fixed_runes_by_slot=(defense_fixed_runes_by_uid or None),
                 unit_fixed_artifacts_by_type=(defense_fixed_artifacts_by_uid or None),
                 unit_min_final_speed=(refined_floor_by_uid or None),
-                unit_max_final_speed=(base_tick_cap_by_uid or None),
+                unit_max_final_speed=(
+                    _merge_speed_caps_min(base_tick_cap_by_uid, refined_order_cap_by_uid)
+                    or None
+                ),
             ),
         )
         ok_by_uid_global = _ok_results_by_uid(global_offense_result.results)
@@ -763,7 +953,9 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
             ok_by_uid=ok_by_uid_global,
             artifact_lookup=artifact_lookup,
         )
-        if int(penalty) > 0:
+        current_ok_count = int(sum(1 for r in team_res_list if bool(r.ok)))
+        needs_repair = bool(int(penalty) > 0 or int(current_ok_count) < int(len(unit_ids)))
+        if needs_repair:
             fixed_shared_uids = [int(uid) for uid in unit_ids if int(unit_occurrences.get(int(uid), 0) or 0) > 1]
             fixed_defense_overlap_uids = [int(uid) for uid in unit_ids if int(uid) in defense_overlap_uids]
             fixed_uids = sorted(set(fixed_shared_uids) | set(fixed_defense_overlap_uids))
@@ -832,6 +1024,8 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
                 multi_pass_count=max(1, int(req.offense_pass_count)),
                 multi_pass_strategy="greedy_refine",
                 quality_profile=str(req.offense_quality_profile),
+                rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+                global_seed_offset=(int(offense_global_seed_offset or 0) + (int(team_index) * 1009) + 1),
                 progress_callback=req.progress_callback if callable(req.progress_callback) else None,
                 is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
                 register_solver=req.register_solver if callable(req.register_solver) else None,
@@ -899,6 +1093,8 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
                 cap_map = _max_speed_cap_by_unit_from_expected_order(
                     expected_order=list(expected_order),
                     combat_speed_by_unit=dict(rep_speed_by_uid),
+                    turn_effects_by_unit=team_effects,
+                    spd_buff_increase_pct_by_unit=dict(rep_spd_inc_by_uid),
                 )
                 if cap_map:
                     repair_kwargs3 = dict(repair_kwargs)
@@ -920,7 +1116,48 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
                         rep_sim = list(rep_sim3)
                         rep_speed_by_uid = dict(rep_speed_by_uid3)
                         rep_spd_inc_by_uid = dict(rep_spd_inc_by_uid3)
-            if int(rep_pen) < int(penalty):
+            rep_ok_count = int(sum(1 for r in (repair_result.results or []) if bool(getattr(r, "ok", False))))
+            if int(rep_pen) > 0 or int(rep_ok_count) < int(len(unit_ids)):
+                deep_kwargs = dict(repair_kwargs)
+                deep_kwargs["time_limit_per_unit_s"] = max(5.0, float(req.time_limit_per_unit_s) * 2.5)
+                deep_kwargs["multi_pass_enabled"] = True
+                deep_kwargs["multi_pass_count"] = max(3, int(req.offense_pass_count or 1))
+                deep_kwargs["rune_top_per_set"] = 0
+                if rep_speed_by_uid and len(rep_speed_by_uid) == len(expected_order):
+                    deep_cap_map = _max_speed_cap_by_unit_from_expected_order(
+                        expected_order=list(expected_order),
+                        combat_speed_by_unit=dict(rep_speed_by_uid),
+                        turn_effects_by_unit=team_effects,
+                        spd_buff_increase_pct_by_unit=dict(rep_spd_inc_by_uid),
+                    )
+                    deep_kwargs["unit_max_final_speed"] = (
+                        _merge_speed_caps_min(base_tick_cap, deep_cap_map) or None
+                    )
+                if active_floor:
+                    deep_kwargs["unit_min_final_speed"] = (dict(active_floor) or None)
+                deep_result = optimize_greedy(account, presets, GreedyRequest(**deep_kwargs))
+                deep_ok_by_uid = _ok_results_by_uid(deep_result.results)
+                deep_sim, deep_pen, deep_speed_by_uid, deep_spd_inc_by_uid = _evaluate_opening(
+                    expected_order=list(expected_order),
+                    turn_effects_by_unit=team_effects,
+                    ok_by_uid=deep_ok_by_uid,
+                    artifact_lookup=artifact_lookup,
+                )
+                deep_ok_count = int(sum(1 for r in (deep_result.results or []) if bool(getattr(r, "ok", False))))
+                if int(deep_ok_count) > int(rep_ok_count) or (
+                    int(deep_ok_count) == int(rep_ok_count) and int(deep_pen) < int(rep_pen)
+                ):
+                    repair_result = deep_result
+                    rep_pen = int(deep_pen)
+                    rep_sim = list(deep_sim)
+                    rep_speed_by_uid = dict(deep_speed_by_uid)
+                    rep_spd_inc_by_uid = dict(deep_spd_inc_by_uid)
+                    rep_ok_count = int(deep_ok_count)
+            should_accept_repair = bool(
+                int(rep_ok_count) > int(current_ok_count)
+                or (int(rep_ok_count) == int(current_ok_count) and int(rep_pen) < int(penalty))
+            )
+            if should_accept_repair:
                 team_res_list = list(repair_result.results or [])
                 simulated_order = list(rep_sim)
                 penalty = int(rep_pen)
@@ -982,3 +1219,137 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
         f"offense_ok={int(offense_ok)}, opening_penalty={int(total_penalty)}."
     )
     return ArenaRushResult(ok=ok_all, message=msg, defense=defense_result, offenses=offense_results)
+
+
+def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRushRequest) -> ArenaRushResult:
+    candidate_count = max(1, int(req.defense_candidate_count or 1))
+    max_runtime_s = max(0.0, float(req.max_runtime_s or 0.0))
+    deadline_ts = (float(time.monotonic()) + float(max_runtime_s)) if float(max_runtime_s) > 0.0 else 0.0
+
+    def _deadline_reached() -> bool:
+        return bool(float(deadline_ts) > 0.0 and float(time.monotonic()) >= float(deadline_ts))
+
+    base_cancel = req.is_cancelled if callable(req.is_cancelled) else None
+    if candidate_count <= 1:
+        def _single_cancel() -> bool:
+            if callable(base_cancel) and bool(base_cancel()):
+                return True
+            return bool(_deadline_reached())
+
+        single_req = replace(req, is_cancelled=_single_cancel)
+        return _optimize_arena_rush_single(
+            account=account,
+            presets=presets,
+            req=single_req,
+            defense_global_seed_offset=0,
+            offense_global_seed_offset=0,
+        )
+
+    max_workers = max(1, int(req.workers or 1))
+    parallel_candidates = max(1, min(int(candidate_count), int(max_workers)))
+    # Keep per-candidate work stable; scaling workers should increase parallel
+    # candidate throughput, not inflate work inside each candidate solve.
+    workers_per_candidate = 1
+
+    best_result: ArenaRushResult | None = None
+    best_score: tuple[int, int, int, int, int, int, int, int] | None = None
+    best_idx = 10**9
+    seen_defense_signatures: set[tuple[tuple[object, ...], ...]] = set()
+    evaluated = 0
+    unique_defense = 0
+
+    def _run_candidate(idx: int) -> tuple[int, ArenaRushResult]:
+        seed_offset = int(idx * 100003)
+        def _sub_cancel() -> bool:
+            if callable(base_cancel) and bool(base_cancel()):
+                return True
+            return bool(_deadline_reached())
+
+        sub_req = replace(
+            req,
+            workers=int(workers_per_candidate),
+            progress_callback=None,
+            is_cancelled=_sub_cancel,
+        )
+        candidate = _optimize_arena_rush_single(
+            account=account,
+            presets=presets,
+            req=sub_req,
+            defense_global_seed_offset=seed_offset,
+            offense_global_seed_offset=(seed_offset + 50021),
+        )
+        return int(idx), candidate
+
+    if parallel_candidates <= 1:
+        for idx in range(int(candidate_count)):
+            if (callable(base_cancel) and bool(base_cancel())) or bool(_deadline_reached()):
+                break
+            ridx, candidate = _run_candidate(int(idx))
+            evaluated += 1
+            if callable(req.progress_callback):
+                try:
+                    req.progress_callback(int(evaluated), int(candidate_count))
+                except Exception:
+                    pass
+            defense_sig = _greedy_result_signature(list(candidate.defense.results or []))
+            if defense_sig not in seen_defense_signatures:
+                seen_defense_signatures.add(defense_sig)
+                unique_defense += 1
+            cand_score = _arena_rush_candidate_score(account, candidate)
+            if best_score is None or cand_score > best_score or (cand_score == best_score and int(ridx) < int(best_idx)):
+                best_score = cand_score
+                best_result = candidate
+                best_idx = int(ridx)
+    else:
+        with ThreadPoolExecutor(max_workers=int(parallel_candidates)) as ex:
+            futures = {
+                ex.submit(_run_candidate, int(idx)): int(idx)
+                for idx in range(int(candidate_count))
+            }
+            for fut in as_completed(futures):
+                if (callable(base_cancel) and bool(base_cancel())) or bool(_deadline_reached()):
+                    for ff in futures:
+                        ff.cancel()
+                    break
+                try:
+                    ridx, candidate = fut.result()
+                except Exception:
+                    continue
+                evaluated += 1
+                if callable(req.progress_callback):
+                    try:
+                        req.progress_callback(int(evaluated), int(candidate_count))
+                    except Exception:
+                        pass
+                defense_sig = _greedy_result_signature(list(candidate.defense.results or []))
+                if defense_sig not in seen_defense_signatures:
+                    seen_defense_signatures.add(defense_sig)
+                    unique_defense += 1
+                cand_score = _arena_rush_candidate_score(account, candidate)
+                if best_score is None or cand_score > best_score or (cand_score == best_score and int(ridx) < int(best_idx)):
+                    best_score = cand_score
+                    best_result = candidate
+                    best_idx = int(ridx)
+
+    if best_result is None:
+        def _fallback_cancel() -> bool:
+            if callable(base_cancel) and bool(base_cancel()):
+                return True
+            return bool(_deadline_reached())
+
+        fallback_req = replace(req, is_cancelled=_fallback_cancel)
+        best_result = _optimize_arena_rush_single(
+            account=account,
+            presets=presets,
+            req=fallback_req,
+            defense_global_seed_offset=0,
+            offense_global_seed_offset=0,
+        )
+
+    msg_suffix = f" Defense candidates: unique={int(unique_defense)}/{int(candidate_count)}, evaluated={int(evaluated)}."
+    return ArenaRushResult(
+        ok=bool(best_result.ok),
+        message=f"{str(best_result.message)}{msg_suffix}",
+        defense=best_result.defense,
+        offenses=list(best_result.offenses),
+    )
