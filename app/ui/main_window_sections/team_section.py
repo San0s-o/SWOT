@@ -15,9 +15,49 @@ from PySide6.QtWidgets import (
 )
 
 from app.domain.presets import Build
-from app.engine.greedy_optimizer import GreedyRequest, optimize_greedy
+from app.engine.greedy_optimizer import (
+    BASELINE_REGRESSION_GUARD_WEIGHT,
+    GreedyRequest,
+    optimize_greedy,
+)
 from app.i18n import tr
 from app.ui.dialogs.team_editor_dialog import TeamEditorDialog
+
+
+def _baseline_assignments_for_mode(window, mode: str, unit_ids: List[int]) -> tuple[Dict[int, Dict[int, int]], Dict[int, Dict[int, int]]]:
+    mode_key = str(mode or "").strip().lower()
+    if not mode_key:
+        return {}, {}
+    unit_set = {int(uid) for uid in (unit_ids or []) if int(uid) > 0}
+    if not unit_set:
+        return {}, {}
+    compare_store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    snap = dict(compare_store.get(mode_key, {}) or {})
+    runes_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_slot in dict(snap.get("runes_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        slots = {
+            int(slot): int(rid)
+            for slot, rid in dict(by_slot or {}).items()
+            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+        }
+        if slots:
+            runes_by_unit[int(ui)] = slots
+    arts_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_type in dict(snap.get("artifacts_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        types = {
+            int(t): int(aid)
+            for t, aid in dict(by_type or {}).items()
+            if int(t or 0) in (1, 2) and int(aid or 0) > 0
+        }
+        if types:
+            arts_by_unit[int(ui)] = types
+    return runes_by_unit, arts_by_unit
 
 
 def init_team_tab_ui(window) -> None:
@@ -225,6 +265,9 @@ def optimize_team(window) -> None:
         builds = window.presets.get_unit_builds("siege", int(uid))
         b0 = builds[0] if builds else Build.default_any()
         team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
+    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+        window, "siege", ordered_unit_ids
+    )
     res = window._run_with_busy_progress(
         running_text,
         lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -246,6 +289,13 @@ def optimize_team(window) -> None:
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
                 unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+                unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+                baseline_regression_guard_weight=(
+                    int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                    if (baseline_runes_by_unit or baseline_arts_by_unit)
+                    else 0
+                ),
             ),
         ),
     )

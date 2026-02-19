@@ -116,8 +116,22 @@ def retranslate_ui(window) -> None:
     window.btn_delete_saved_arena_rush.setText(tr("btn.delete"))
 
     window.box_siege_select.setTitle(tr("group.siege_select"))
+    window.box_siege_select.setToolTip(tr("tooltip.team_slot_leader"))
     for idx, lbl in enumerate(window.lbl_siege_defense, start=1):
         lbl.setText(tr("label.defense", n=idx))
+    if hasattr(window, "lbl_siege_leader_hint"):
+        window.lbl_siege_leader_hint.setText(tr("label.team_leader_hint"))
+        window.lbl_siege_leader_hint.setToolTip(tr("tooltip.team_slot_leader"))
+    if hasattr(window, "lbl_siege_slot_headers"):
+        keys = ("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3")
+        for i, lbl in enumerate(window.lbl_siege_slot_headers):
+            if i < len(keys):
+                lbl.setText(tr(keys[i]))
+            if i == 0:
+                lbl.setToolTip(tr("tooltip.team_slot_leader"))
+    for row in getattr(window, "siege_team_combos", []):
+        if row:
+            row[0].setToolTip(tr("tooltip.team_slot_leader"))
     window.btn_take_current_siege.setText(tr("btn.take_siege"))
     window.btn_validate_siege.setText(tr("btn.validate_pools"))
     window.btn_edit_presets_siege.setText(tr("btn.builds"))
@@ -129,8 +143,22 @@ def retranslate_ui(window) -> None:
     window.combo_workers_siege.setToolTip(tr("tooltip.workers"))
 
     window.box_wgb_select.setTitle(tr("group.wgb_select"))
+    window.box_wgb_select.setToolTip(tr("tooltip.team_slot_leader"))
     for idx, lbl in enumerate(window.lbl_wgb_defense, start=1):
         lbl.setText(tr("label.defense", n=idx))
+    if hasattr(window, "lbl_wgb_leader_hint"):
+        window.lbl_wgb_leader_hint.setText(tr("label.team_leader_hint"))
+        window.lbl_wgb_leader_hint.setToolTip(tr("tooltip.team_slot_leader"))
+    if hasattr(window, "lbl_wgb_slot_headers"):
+        keys = ("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3")
+        for i, lbl in enumerate(window.lbl_wgb_slot_headers):
+            if i < len(keys):
+                lbl.setText(tr(keys[i]))
+            if i == 0:
+                lbl.setToolTip(tr("tooltip.team_slot_leader"))
+    for row in getattr(window, "wgb_team_combos", []):
+        if row:
+            row[0].setToolTip(tr("tooltip.team_slot_leader"))
     window.btn_validate_wgb.setText(tr("btn.validate_pools"))
     window.btn_edit_presets_wgb.setText(tr("btn.builds"))
     window.btn_optimize_wgb.setText(tr("btn.optimize"))
@@ -194,9 +222,15 @@ def retranslate_ui(window) -> None:
         if le is not None:
             le.setPlaceholderText(tr("main.search_placeholder"))
 
+    # Retranslate inner subtab labels for Runen & Artefakte
+    if hasattr(window, "rune_art_inner_tabs"):
+        window.rune_art_inner_tabs.setTabText(0, tr("rune_opt.subtab_runes"))
+        window.rune_art_inner_tabs.setTabText(1, tr("rune_opt.subtab_artifacts"))
+
     window.overview_widget.retranslate()
     window.rta_overview.retranslate()
     window.rune_optimization_widget.retranslate()
+    window.artifact_optimization_widget.retranslate()
     if window.account:
         window._render_siege_raw()
         window._refresh_rune_optimization()

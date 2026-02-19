@@ -14,6 +14,44 @@ def _safe_int(x: Any, default: int = 0) -> int:
         return default
 
 
+def _safe_float(x: Any, default: float = 0.0) -> float:
+    try:
+        if isinstance(x, str):
+            txt = x.strip().replace("%", "").replace(",", ".")
+            return float(txt)
+        return float(x)
+    except Exception:
+        return default
+
+
+def _extract_artifact_score(a: Dict[str, Any]) -> float:
+    candidates = [
+        a.get("efficiency"),
+        a.get("score"),
+        a.get("efficiency_current"),
+        a.get("efficiency_score"),
+        a.get("current_efficiency"),
+        a.get("artifact_efficiency"),
+    ]
+    for c in candidates:
+        if isinstance(c, dict):
+            nested = [
+                c.get("current"),
+                c.get("score"),
+                c.get("value"),
+                c.get("efficiency"),
+            ]
+            for n in nested:
+                v = _safe_float(n, 0.0)
+                if v > 0.0:
+                    return v
+            continue
+        v = _safe_float(c, 0.0)
+        if v > 0.0:
+            return v
+    return 0.0
+
+
 _RUNE_CLASS_IDS = {1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16}
 _SKY_TRIBE_TOTEM_DECO_MASTER_ID = 6
 _SKY_TRIBE_TOTEM_MAX_LEVEL = 20
@@ -56,6 +94,8 @@ def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) 
         or a.get("orig_rank")
         or 0
     )
+    # Vorberechneter Score aus dem Export (Format variiert je nach Tool)
+    json_score = _extract_artifact_score(a)
     return Artifact(
         artifact_id=art_id,
         occupied_id=occ,
@@ -67,6 +107,7 @@ def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) 
         original_rank=original_rank,
         pri_effect=tuple(raw_pri) if raw_pri else (),
         sec_effects=[list(s) for s in raw_sec],
+        json_score=json_score,
     )
 
 
@@ -189,8 +230,26 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
     for a in (data.get("artifacts") or []):
         try:
             art = _parse_artifact(a)
-            if art:
+            if not art:
+                continue
+            prev = full_arts_by_id.get(int(art.artifact_id))
+            if prev is None:
                 full_arts_by_id[art.artifact_id] = art
+                continue
+
+            full_arts_by_id[art.artifact_id] = Artifact(
+                artifact_id=prev.artifact_id,
+                occupied_id=int(art.occupied_id or 0) if int(art.occupied_id or 0) > 0 else prev.occupied_id,
+                slot=int(art.slot or 0) if int(art.slot or 0) in (1, 2) else prev.slot,
+                type_=int(art.type_ or 0) if int(art.type_ or 0) in (1, 2) else prev.type_,
+                attribute=int(art.attribute or 0) if int(art.attribute or 0) > 0 else prev.attribute,
+                rank=int(art.rank or 0) if int(art.rank or 0) > 0 else prev.rank,
+                level=int(art.level or 0) if int(art.level or 0) > 0 else prev.level,
+                original_rank=int(art.original_rank or 0) if int(art.original_rank or 0) > 0 else prev.original_rank,
+                pri_effect=art.pri_effect if art.pri_effect and len(art.pri_effect) >= 2 else prev.pri_effect,
+                sec_effects=art.sec_effects if len(art.sec_effects or []) >= len(prev.sec_effects or []) else prev.sec_effects,
+                json_score=float(art.json_score or 0.0) if float(art.json_score or 0.0) > 0.0 else prev.json_score,
+            )
         except Exception:
             continue
 
@@ -222,6 +281,7 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                         original_rank=prev.original_rank,
                         pri_effect=prev.pri_effect,
                         sec_effects=prev.sec_effects,
+                        json_score=prev.json_score,
                     )
                 else:
                     full_arts_by_id[art_id] = Artifact(

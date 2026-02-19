@@ -826,7 +826,6 @@ def on_optimize_arena_rush(window) -> None:
         QMessageBox.critical(window, tr("val.title_arena"), tr("dlg.validate_first", msg=msg))
         return
 
-    pass_count = int(window.spin_multi_pass_arena_rush.value())
     quality_profile = str(window.combo_quality_profile_arena_rush.currentData() or "balanced")
     workers = window._effective_workers(quality_profile, window.combo_workers_arena_rush)
     running_text = tr("result.opt_running", mode=tr("arena_rush.mode"))

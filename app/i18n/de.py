@@ -20,7 +20,9 @@ STRINGS: dict[str, str] = {
     "tab.overview": "Übersicht",
     "tab.siege_current": "Siege Verteidigungen (aktuell)",
     "tab.rta_current": "RTA (aktuell)",
-    "tab.rune_optimization": "Runen Optimierung",
+    "tab.rune_optimization": "Runen & Artefakte",
+    "rune_opt.subtab_runes": "Runen",
+    "rune_opt.subtab_artifacts": "Artefakte",
     "tab.siege_builder": "Siege Builder (Custom)",
     "tab.siege_saved": "Siege Optimierungen (gespeichert)",
     "tab.wgb_builder": "WGB Builder (Custom)",
@@ -64,6 +66,10 @@ STRINGS: dict[str, str] = {
     "label.team_name": "Team-Name",
     "label.units": "Monster",
     "label.defense": "Verteidigung {n}",
+    "label.team_slot_1_leader": "Slot 1 (Leader)",
+    "label.team_slot_2": "Slot 2",
+    "label.team_slot_3": "Slot 3",
+    "label.team_leader_hint": "Hinweis: Slot 1 bestimmt den Leader-Skill des Teams.",
     "label.arena_defense": "Arena Defense",
     "label.arena_offense": "Arena Offense {n}",
     "label.offense": "Offense {n}",
@@ -94,6 +100,12 @@ STRINGS: dict[str, str] = {
     "tooltip.spd_tick": "Optionaler SPD-Tick pro Monster. Erzwingt den passenden SPD-Breakpoint.",
     "tooltip.effect_spd_buff": "Wenn aktiv, wird nach diesem Zug ein SPD-Buff beruecksichtigt.",
     "tooltip.effect_atb_boost": "Wenn aktiv, wird ein Angriffsbalken-Push in % beruecksichtigt.",
+    "tooltip.team_slot_leader": "Bei Siege/WGB bestimmt das erste Monster (Slot 1) die Leader-Fertigkeit des Teams.",
+    "tooltip.optimize_order_priority": (
+        "Drag & Drop Reihenfolge = Optimierungsreihenfolge. "
+        "Bei Fast/Balanced besonders wichtig, weil vordere Monster zuerst "
+        "aus dem gemeinsamen Runen-/Artefaktpool waehlen."
+    ),
 
     # -- Group Boxes ---------------------------------------------
     "group.opt_order": "Optimierungsreihenfolge (Drag & Drop)",
@@ -169,6 +181,27 @@ STRINGS: dict[str, str] = {
     "rune_opt.hint_no_filter_rows": "Keine Runen für den gewählten Set-/Slot-/Monster-Filter gefunden.",
     "rune_opt.count": "Runen ab +12: {n}",
     "rune_opt.count_filtered": "Runen ab +12: {shown} / {total}",
+
+    # -- Artefakt-Übersicht --------------------------------------
+    "art_opt.col.type": "Typ",
+    "art_opt.col.quality": "Qualität",
+    "art_opt.col.level": "Level",
+    "art_opt.col.slot": "Slot",
+    "art_opt.col.mainstat": "Hauptstat",
+    "art_opt.col.substats": "Substats",
+    "art_opt.col.monster": "Monster",
+    "art_opt.col.efficiency": "Effizienz",
+    "art_opt.filter_type": "Typ:",
+    "art_opt.filter_monster": "Monster:",
+    "art_opt.filter_all": "Alle",
+    "art_opt.filter_reset": "Zurücksetzen",
+    "art_opt.type_attribute": "Attribut",
+    "art_opt.type_type": "Typ",
+    "art_opt.hint_no_import": "Bitte zuerst einen Import laden.",
+    "art_opt.hint_no_rows": "Keine Artefakte gefunden.",
+    "art_opt.hint_no_filter_rows": "Keine Artefakte für den gewählten Filter gefunden.",
+    "art_opt.count": "Artefakte: {n}",
+    "art_opt.count_filtered": "Artefakte: {shown} / {total}",
 
     # -- Status / Validation -------------------------------------
     "status.siege_ready": "Bereit. Siege auswählen/übernehmen -> Validieren -> Builds -> Optimieren.",
@@ -356,6 +389,9 @@ STRINGS: dict[str, str] = {
         "(z.B. Tick 6 = SPD 239 bis 285). "
         "Mit Profil <b>Fast</b> läuft ein schneller Greedy-Durchlauf. "
         "<b>Balanced</b> nutzt Greedy plus Verfeinerung ab Pass 2. "
+        "Bei <b>Fast</b>/<b>Balanced</b> ist die Optimierungsreihenfolge "
+        "(Drag & Drop in der Monsterliste) besonders wichtig, weil fruehere "
+        "Monster zuerst aus dem gemeinsamen Pool bedienen. "
         "<b>Max Qualität</b> nutzt eine globale Optimierung über alle gewählten Monster "
         "gleichzeitig (effizienzfokussiert). "
         "Nutze <b>Passes</b> für 1–10 Multi-Pass-Durchläufe bei Fast/Balanced; "

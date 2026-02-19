@@ -45,6 +45,7 @@ class Artifact:
     original_rank: int = 0    # Ausgangsqualität (natural_rank aus Export)
     pri_effect: Tuple[int, ...] = ()          # [effect_id, value, ...]
     sec_effects: List[List] = field(default_factory=list)  # [[eff_id, value, upgrades, ...], ...]
+    json_score: float = 0.0   # Vorberechneter Score aus dem JSON-Export (0.0 = nicht vorhanden)
 
 @dataclass
 class AccountData:

@@ -2240,11 +2240,11 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
         speed_slack_effective = 0
     elif profile == "max_quality":
         no_improve_patience = 6 if strategy == "greedy_refine" else 3
-        rune_top_per_set_effective = 0 if use_full_rune_pool else max(int(requested_top_n_raw), 300)
+        rune_top_per_set_effective = 0
         speed_slack_effective = max(2, int(getattr(req, "speed_slack_for_quality", DEFAULT_SPEED_SLACK_FOR_QUALITY) or 2))
     else:
         no_improve_patience = 4 if strategy == "greedy_refine" else 2
-        rune_top_per_set_effective = 0 if use_full_rune_pool else int(requested_top_n_raw)
+        rune_top_per_set_effective = 0 if use_full_rune_pool else max(int(requested_top_n_raw), 300)
         speed_slack_effective = int(getattr(req, "speed_slack_for_quality", DEFAULT_SPEED_SLACK_FOR_QUALITY) or DEFAULT_SPEED_SLACK_FOR_QUALITY)
 
     outcomes: List[_PassOutcome] = []

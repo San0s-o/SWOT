@@ -1,6 +1,7 @@
 """Rune and artifact efficiency calculations."""
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Literal
 
 from app.domain.models import Rune, Artifact
@@ -174,10 +175,14 @@ def rune_efficiency_max(rune: Rune, tier: Literal["hero", "legend"]) -> float:
 # Artifact efficiency
 # ============================================================
 # Formula:
-#   Score = (SUM(4%Based)/20 + SUM(5%Based)/25 + SUM(6%Based)/30
-#           + LifeDrain/40 + CDbad/60 + AddSPD/200
-#           + AddHP/1.5 + (AddATK+AddDEF)/20) / 1.6
-#   Efficiency = clamp(Score * 100, 0..100)
+#   inner = SUM(4%Based)/20 + SUM(5%Based)/25 + SUM(6%Based)/30
+#         + LifeDrain/40 + CDbad/60 + AddSPD/200
+#         + AddHP/1.5 + (AddATK+AddDEF)/20
+#   Efficiency% = inner / 1.6
+#
+# Optional score representation:
+#   score = ROUND(inner * 125)
+#   Eff% ~= score / 2
 
 # Explicit effect IDs
 _EFF_LIFEDRAIN = 215
@@ -186,9 +191,6 @@ _EFF_ADD_SPD = 221
 _EFF_ADD_HP = 218
 _EFF_ADD_ATK = 219
 _EFF_ADD_DEF = 220
-
-_EXPLICIT_EFFECTS = {_EFF_LIFEDRAIN, _EFF_CDBAD, _EFF_ADD_SPD,
-                     _EFF_ADD_HP, _EFF_ADD_ATK, _EFF_ADD_DEF}
 
 # Auto-categorized by observed max-per-roll from account data analysis.
 # max_per_roll <= 5 → 4%Based (/20)
@@ -200,6 +202,7 @@ _FOUR_PCT: set[int] = {
     211,  # Reflected DMG (+max ~3/roll)
     212,  # Crushing Hit DMG (+max ~4/roll)
     213,  # DMG recv under inability (-max ~5/roll)
+    224,  # Single-target CRIT DMG (+max ~4/roll)
 }
 
 _FIVE_PCT: set[int] = {
@@ -211,7 +214,6 @@ _FIVE_PCT: set[int] = {
     214,  # Received Crit DMG
     216,  # HP when Revived
     217,  # ATK Bar when Revived
-    224,  # Single-target CRIT DMG
     225,  # Counter/Coop DMG
     405,  # Skill recovery (observed ~6/roll)
 }
@@ -221,6 +223,10 @@ _FIVE_PCT: set[int] = {
 
 
 def artifact_efficiency(art: Artifact) -> float:
+    json_score = float(getattr(art, "json_score", 0.0) or 0.0)
+    if json_score > 0.0:
+        return round(json_score / 2.0, 2)
+
     if not art.sec_effects:
         return 0.0
 
@@ -255,7 +261,7 @@ def artifact_efficiency(art: Artifact) -> float:
         else:
             sum_6 += val
 
-    score = (
+    inner = (
         sum_4 / 20
         + sum_5 / 25
         + sum_6 / 30
@@ -264,11 +270,10 @@ def artifact_efficiency(art: Artifact) -> float:
         + add_spd / 200
         + add_hp / 1.5
         + (add_atk + add_def) / 20
-    ) / 1.6
-
-    # Normalize to percentage scale and keep values bounded.
-    efficiency = max(0.0, min(100.0, score * 100))
-    return round(efficiency, 2)
+    )
+    # ROUND semantics should be half-up for score parity with spreadsheet tools.
+    score = int(math.floor(inner * 125.0 + 0.5))
+    return round(score / 2.0, 2)
 
 
 # ============================================================

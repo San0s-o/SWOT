@@ -149,6 +149,7 @@ from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.overview_widget import OverviewWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
 from app.ui.rune_optimization_widget import RuneOptimizationWidget
+from app.ui.artifact_optimization_widget import ArtifactOptimizationWidget
 from app.i18n import tr
 
 
@@ -267,16 +268,34 @@ class MainWindow(QMainWindow):
         self.rta_overview = RtaOverviewWidget()
         rv.addWidget(self.rta_overview)
 
-        # Rune optimization overview
+        # Runen & Artefakte (inner subtabs)
         self.tab_rune_optimization = QWidget()
         self.tabs.addTab(self.tab_rune_optimization, tr("tab.rune_optimization"))
         rov = QVBoxLayout(self.tab_rune_optimization)
         rov.setContentsMargins(0, 0, 0, 0)
+        rov.setSpacing(0)
+        self.rune_art_inner_tabs = QTabWidget()
+        self.rune_art_inner_tabs.setDocumentMode(True)
+        rov.addWidget(self.rune_art_inner_tabs)
+
+        _sub_runes = QWidget()
+        self.rune_art_inner_tabs.addTab(_sub_runes, tr("rune_opt.subtab_runes"))
+        _runes_layout = QVBoxLayout(_sub_runes)
+        _runes_layout.setContentsMargins(0, 0, 0, 0)
         self.rune_optimization_widget = RuneOptimizationWidget(
             rune_set_icon_fn=self._rune_set_icon,
             monster_name_fn=self._monster_name_for_unit_id,
         )
-        rov.addWidget(self.rune_optimization_widget)
+        _runes_layout.addWidget(self.rune_optimization_widget)
+
+        _sub_artifacts = QWidget()
+        self.rune_art_inner_tabs.addTab(_sub_artifacts, tr("rune_opt.subtab_artifacts"))
+        _artifacts_layout = QVBoxLayout(_sub_artifacts)
+        _artifacts_layout.setContentsMargins(0, 0, 0, 0)
+        self.artifact_optimization_widget = ArtifactOptimizationWidget(
+            monster_name_fn=self._monster_name_for_unit_id,
+        )
+        _artifacts_layout.addWidget(self.artifact_optimization_widget)
 
         # Siege Builder
         self.tab_siege_builder = QWidget()
@@ -452,6 +471,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_rune_optimization(self) -> None:
         self.rune_optimization_widget.set_account(self.account)
+        self.artifact_optimization_widget.set_account(self.account)
 
     # ============================================================
     # Custom Builders UI

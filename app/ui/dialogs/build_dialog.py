@@ -399,12 +399,14 @@ class BuildDialog(QDialog):
         self._unit_list.setIconSize(QSize(34, 34))
         self._unit_list.setDragDropMode(QAbstractItemView.InternalMove)
         self._unit_list.setDefaultDropAction(Qt.MoveAction)
+        self._unit_list.setToolTip(tr("tooltip.optimize_order_priority"))
 
         editor_split = QSplitter(Qt.Horizontal)
         editor_split.setChildrenCollapsible(False)
         editor_split.setHandleWidth(8)
 
         list_box = QGroupBox(tr("group.build_monster_list"))
+        list_box.setToolTip(tr("tooltip.optimize_order_priority"))
         list_layout = QVBoxLayout(list_box)
         list_layout.setContentsMargins(8, 8, 8, 8)
         list_layout.addWidget(self._unit_list, 1)

@@ -134,6 +134,13 @@ def init_siege_builder_ui(window) -> None:
     window._all_unit_combos: List[QComboBox] = []
     window._unit_combos_by_tab = {}
     window.lbl_siege_defense: List[QLabel] = []
+    window.lbl_siege_slot_headers: List[QLabel] = []
+    for col, key in enumerate(("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3"), start=1):
+        hdr = QLabel(tr(key))
+        if col == 1:
+            hdr.setToolTip(tr("tooltip.team_slot_leader"))
+        window.lbl_siege_slot_headers.append(hdr)
+        grid.addWidget(hdr, 0, col)
 
     window.siege_team_combos: List[List[QComboBox]] = []
     window._unit_combo_registration_tab = "siege"
@@ -141,11 +148,13 @@ def init_siege_builder_ui(window) -> None:
         for t in range(10):
             lbl = QLabel(tr("label.defense", n=t + 1))
             window.lbl_siege_defense.append(lbl)
-            grid.addWidget(lbl, t, 0)
+            grid.addWidget(lbl, t + 1, 0)
             row: List[QComboBox] = []
             for s in range(3):
                 cmb = new_unit_search_combo(window, min_width=300)
-                grid.addWidget(cmb, t, 1 + s)
+                if s == 0:
+                    cmb.setToolTip(tr("tooltip.team_slot_leader"))
+                grid.addWidget(cmb, t + 1, 1 + s)
                 row.append(cmb)
             window.siege_team_combos.append(row)
     finally:
@@ -217,16 +226,25 @@ def init_wgb_builder_ui(window) -> None:
 
     window.wgb_team_combos: List[List[QComboBox]] = []
     window.lbl_wgb_defense: List[QLabel] = []
+    window.lbl_wgb_slot_headers: List[QLabel] = []
+    for col, key in enumerate(("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3"), start=1):
+        hdr = QLabel(tr(key))
+        if col == 1:
+            hdr.setToolTip(tr("tooltip.team_slot_leader"))
+        window.lbl_wgb_slot_headers.append(hdr)
+        grid.addWidget(hdr, 0, col)
     window._unit_combo_registration_tab = "wgb"
     try:
         for t in range(5):
             lbl = QLabel(tr("label.defense", n=t + 1))
             window.lbl_wgb_defense.append(lbl)
-            grid.addWidget(lbl, t, 0)
+            grid.addWidget(lbl, t + 1, 0)
             row: List[QComboBox] = []
             for s in range(3):
                 cmb = new_unit_search_combo(window, min_width=300)
-                grid.addWidget(cmb, t, 1 + s)
+                if s == 0:
+                    cmb.setToolTip(tr("tooltip.team_slot_leader"))
+                grid.addWidget(cmb, t + 1, 1 + s)
                 row.append(cmb)
             window.wgb_team_combos.append(row)
     finally:

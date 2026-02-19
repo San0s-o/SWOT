@@ -20,7 +20,9 @@ STRINGS: dict[str, str] = {
     "tab.overview": "Overview",
     "tab.siege_current": "Siege Defenses (current)",
     "tab.rta_current": "RTA (current)",
-    "tab.rune_optimization": "Rune Optimization",
+    "tab.rune_optimization": "Runes & Artifacts",
+    "rune_opt.subtab_runes": "Runes",
+    "rune_opt.subtab_artifacts": "Artifacts",
     "tab.siege_builder": "Siege Builder (Custom)",
     "tab.siege_saved": "Siege Optimizations (saved)",
     "tab.wgb_builder": "GWB Builder (Custom)",
@@ -64,6 +66,10 @@ STRINGS: dict[str, str] = {
     "label.team_name": "Team Name",
     "label.units": "units",
     "label.defense": "Defense {n}",
+    "label.team_slot_1_leader": "Slot 1 (Leader)",
+    "label.team_slot_2": "Slot 2",
+    "label.team_slot_3": "Slot 3",
+    "label.team_leader_hint": "Note: Slot 1 defines the team's leader skill.",
     "label.arena_defense": "Arena Defense",
     "label.arena_offense": "Arena Offense {n}",
     "label.offense": "Offense {n}",
@@ -94,6 +100,12 @@ STRINGS: dict[str, str] = {
     "tooltip.spd_tick": "Optional SPD tick per monster. Enforces the corresponding SPD breakpoint.",
     "tooltip.effect_spd_buff": "When enabled, an SPD buff after this unit's turn is considered.",
     "tooltip.effect_atb_boost": "When enabled, an attack bar push in % is considered.",
+    "tooltip.team_slot_leader": "In Siege/GWB, the first monster (slot 1) defines the team's leader skill.",
+    "tooltip.optimize_order_priority": (
+        "Drag & Drop order = optimization order. "
+        "Especially important for Fast/Balanced, because earlier monsters "
+        "pick first from the shared rune/artifact pool."
+    ),
 
     # -- Group Boxes ---------------------------------------------
     "group.opt_order": "Optimization Order (Drag & Drop)",
@@ -169,6 +181,27 @@ STRINGS: dict[str, str] = {
     "rune_opt.hint_no_filter_rows": "No runes match the selected set/slot/monster filter.",
     "rune_opt.count": "Runes at +12 or higher: {n}",
     "rune_opt.count_filtered": "Runes at +12 or higher: {shown} / {total}",
+
+    # -- Artifact overview ---------------------------------------
+    "art_opt.col.type": "Type",
+    "art_opt.col.quality": "Quality",
+    "art_opt.col.level": "Level",
+    "art_opt.col.slot": "Slot",
+    "art_opt.col.mainstat": "Main Stat",
+    "art_opt.col.substats": "Substats",
+    "art_opt.col.monster": "Monster",
+    "art_opt.col.efficiency": "Efficiency",
+    "art_opt.filter_type": "Type:",
+    "art_opt.filter_monster": "Monster:",
+    "art_opt.filter_all": "All",
+    "art_opt.filter_reset": "Reset",
+    "art_opt.type_attribute": "Attribute",
+    "art_opt.type_type": "Type",
+    "art_opt.hint_no_import": "Please import an account first.",
+    "art_opt.hint_no_rows": "No artifacts found.",
+    "art_opt.hint_no_filter_rows": "No artifacts match the selected filter.",
+    "art_opt.count": "Artifacts: {n}",
+    "art_opt.count_filtered": "Artifacts: {shown} / {total}",
 
     # -- Status / Validation -------------------------------------
     "status.siege_ready": "Ready. Select/load Siege teams -> Validate -> Builds -> Optimize.",
@@ -350,6 +383,9 @@ STRINGS: dict[str, str] = {
         "(e.g. Tick 6 = SPD 239 to 285). "
         "With profile <b>Fast</b> it runs a quick greedy pass. "
         "<b>Balanced</b> uses greedy plus refinement from pass 2 onward. "
+        "For <b>Fast</b>/<b>Balanced</b>, optimization order "
+        "(Drag & Drop in the monster list) is especially important, because "
+        "earlier monsters pick first from the shared pool. "
         "<b>Max Qualität</b> uses a global optimization over all selected monsters "
         "at once (efficiency-focused). "
         "Use <b>Passes</b> for 1-10 multi-pass runs in Fast/Balanced; "
