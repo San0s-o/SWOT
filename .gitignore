@@ -61,3 +61,16 @@ tests/
 tests/*
 !tests/test_arena_rush_optimizer.py
 app/services/license_service.py
+
+# Lokale App-Config / Caches (nicht oeffentlich relevant)
+app/config/app_settings.json
+app/config/arena_archetype_cache.json
+app/config/arena_rush_selection.json
+app/config/arena_speed_lead_cache.json
+app/config/swdb_pages_cache.json
+app/config/monster_artifact_preferences.json
+
+# Lokale Script-Artefakte
+scripts/__pycache__/
+app/config/artifact_scoring.json
+scripts/

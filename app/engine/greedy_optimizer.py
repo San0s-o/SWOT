@@ -2,11 +2,15 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
+from functools import lru_cache
+import json
+from pathlib import Path
 import threading
-from typing import Dict, List, Tuple, Set, Optional, Callable
+from typing import Dict, List, Tuple, Set, Optional, Callable, Any
 
 from ortools.sat.python import cp_model
 
+from app.domain.artifact_effects import artifact_effect_is_legacy
 from app.domain.models import AccountData, Rune, Artifact
 from app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
 from app.engine.efficiency import rune_efficiency, artifact_efficiency
@@ -89,6 +93,98 @@ RES_OVERCAP_PENALTY_PER_POINT = 16
 ACC_OVERCAP_PENALTY_PER_POINT = 16
 SINGLE_SOLVER_OVERCAP_PENALTY_SCALE = 10
 BASELINE_REGRESSION_GUARD_WEIGHT = 1200
+ARTIFACT_ROLE_CONTEXT_WEIGHT = 4
+ARTIFACT_HINT_BOMB_VALUE_WEIGHT = 12
+ARTIFACT_HINT_SKILL_MATCH_BONUS = 180
+ARTIFACT_HINT_SKILL_MISMATCH_PENALTY = 120
+ARTIFACT_HINT_ACC_MATCH_BONUS = 110
+ARTIFACT_HINT_RECOVERY_MATCH_BONUS = 95
+ARTIFACT_HINT_SKILL_PREFERRED_BONUS = 90
+ARTIFACT_HINT_ACC_PREFERRED_BONUS = 70
+ARTIFACT_HINT_RECOVERY_PREFERRED_BONUS = 70
+ARTIFACT_HINT_EFFECT_MATCH_BONUS = 130
+ARTIFACT_HINT_EFFECT_VALUE_WEIGHT = 6
+ARTIFACT_HINT_TOP1_MATCH_BONUS = 320
+ARTIFACT_HINT_TOP2_MATCH_BONUS = 240
+ARTIFACT_HINT_TOP3_MATCH_BONUS = 170
+ARTIFACT_HINT_TOP1_VALUE_WEIGHT = 11
+ARTIFACT_HINT_TOP2_VALUE_WEIGHT = 9
+ARTIFACT_HINT_TOP3_VALUE_WEIGHT = 7
+
+_ARTIFACT_SCORING_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "artifact_scoring.json"
+_ARTIFACT_PROFILE_KEYS = {"attack", "defense", "hp", "support", "unknown"}
+_ADDITIONAL_DAMAGE_EFFECT_IDS = {218, 219, 220, 221}
+
+_DEFAULT_ARTIFACT_SCORING_CONFIG: Dict[str, Any] = {
+    "legacy_multiplier": 0.72,
+    "additional_damage_baseline": {
+        "218": 12000.0,  # HP
+        "219": 850.0,    # ATK
+        "220": 700.0,    # DEF
+        "221": 100.0,    # SPD
+    },
+    "additional_damage_factor_min": 0.70,
+    "additional_damage_factor_max": 2.00,
+    "profiles": {
+        "attack": {
+            "main_focus": {"HP": 15, "ATK": 130, "DEF": 10},
+            "effects": {
+                "204": 16, "210": 12, "212": 12, "222": 12, "223": 12, "224": 13, "225": 12,
+                "300": 11, "301": 11, "302": 11, "303": 11, "304": 11,
+                "400": 15, "401": 15, "402": 15, "403": 15, "410": 15, "411": 12,
+                "218": 18, "219": 26, "220": 16, "221": 18,
+                "206": 5, "407": 5, "408": 5, "409": 5,
+            },
+        },
+        "defense": {
+            "main_focus": {"HP": 95, "ATK": -110, "DEF": 140},
+            "effects": {
+                "201": 14, "205": 14, "226": 13,
+                "213": 13, "214": 13, "305": 12, "306": 12, "307": 12, "308": 12, "309": 12,
+                "404": 8, "405": 8, "406": 8,
+                "206": 8, "203": 8,
+                "218": 8, "219": 4, "220": 10, "221": 8,
+                "407": 5, "408": 5, "409": 5,
+            },
+        },
+        "hp": {
+            "main_focus": {"HP": 145, "ATK": -110, "DEF": 90},
+            "effects": {
+                "201": 12, "205": 10, "226": 11,
+                "213": 13, "214": 12, "305": 12, "306": 12, "307": 12, "308": 12, "309": 12,
+                "404": 9, "405": 9, "406": 9,
+                "206": 8, "203": 8,
+                "218": 14, "219": 5, "220": 8, "221": 8,
+                "407": 6, "408": 6, "409": 6,
+            },
+        },
+        "support": {
+            "main_focus": {"HP": 125, "ATK": -120, "DEF": 125},
+            "effects": {
+                "201": 10, "205": 10, "226": 10,
+                "213": 15, "214": 15, "305": 14, "306": 14, "307": 14, "308": 14, "309": 14,
+                "404": 14, "405": 14, "406": 13,
+                "206": 12, "203": 10,
+                "218": 10, "219": 3, "220": 8, "221": 9,
+                "407": 12, "408": 12, "409": 12,
+            },
+        },
+        "unknown": {
+            "main_focus": {"HP": 25, "ATK": 25, "DEF": 25},
+            "effects": {
+                "201": 8, "205": 8, "226": 8,
+                "203": 6, "206": 7,
+                "210": 6, "212": 6, "222": 7, "223": 7, "224": 8, "225": 7,
+                "300": 7, "301": 7, "302": 7, "303": 7, "304": 7,
+                "305": 7, "306": 7, "307": 7, "308": 7, "309": 7,
+                "400": 8, "401": 8, "402": 8, "403": 8, "410": 8, "411": 7,
+                "404": 7, "405": 7, "406": 7,
+                "407": 7, "408": 7, "409": 7,
+                "218": 10, "219": 10, "220": 10, "221": 10,
+            },
+        },
+    },
+}
 
 # Artifact main focus mapping (HP/ATK/DEF).
 # Supports both rune-like stat IDs and commonly seen artifact main IDs.
@@ -103,6 +199,373 @@ _ARTIFACT_FOCUS_BY_EFFECT_ID: Dict[int, str] = {
     101: "ATK",
     102: "DEF",
 }
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _clamp_float(value: float, lo: float, hi: float) -> float:
+    return max(float(lo), min(float(hi), float(value)))
+
+
+def _new_profile_template() -> Dict[str, Dict[Any, float]]:
+    return {
+        "main_focus": {"HP": 0.0, "ATK": 0.0, "DEF": 0.0},
+        "effects": {},
+    }
+
+
+def _default_artifact_scoring_copy() -> Dict[str, Any]:
+    src = dict(_DEFAULT_ARTIFACT_SCORING_CONFIG or {})
+    profiles_src = dict(src.get("profiles") or {})
+    profiles: Dict[str, Dict[str, Dict[Any, float]]] = {}
+    for key in _ARTIFACT_PROFILE_KEYS:
+        psrc = dict(profiles_src.get(key) or {})
+        p = _new_profile_template()
+        for focus, val in dict(psrc.get("main_focus") or {}).items():
+            f = str(focus).upper()
+            if f in ("HP", "ATK", "DEF"):
+                p["main_focus"][f] = _to_float(val, p["main_focus"].get(f, 0.0))
+        for eid, weight in dict(psrc.get("effects") or {}).items():
+            ei = _to_int(eid, 0)
+            if ei > 0:
+                p["effects"][ei] = _to_float(weight, 0.0)
+        profiles[key] = p
+    return {
+        "legacy_multiplier": _to_float(src.get("legacy_multiplier"), 1.0),
+        "additional_damage_baseline": {
+            int(_to_int(k, 0)): _to_float(v, 0.0)
+            for k, v in dict(src.get("additional_damage_baseline") or {}).items()
+            if int(_to_int(k, 0)) in _ADDITIONAL_DAMAGE_EFFECT_IDS
+        },
+        "additional_damage_factor_min": _to_float(src.get("additional_damage_factor_min"), 0.7),
+        "additional_damage_factor_max": _to_float(src.get("additional_damage_factor_max"), 2.0),
+        "profiles": profiles,
+    }
+
+
+@lru_cache(maxsize=1)
+def _artifact_scoring_config() -> Dict[str, Any]:
+    cfg = _default_artifact_scoring_copy()
+    p = Path(_ARTIFACT_SCORING_CONFIG_PATH)
+    if not p.exists():
+        return cfg
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return cfg
+    if not isinstance(raw, dict):
+        return cfg
+
+    cfg["legacy_multiplier"] = _to_float(raw.get("legacy_multiplier"), cfg["legacy_multiplier"])
+    cfg["additional_damage_factor_min"] = _to_float(
+        raw.get("additional_damage_factor_min"),
+        cfg["additional_damage_factor_min"],
+    )
+    cfg["additional_damage_factor_max"] = _to_float(
+        raw.get("additional_damage_factor_max"),
+        cfg["additional_damage_factor_max"],
+    )
+    if float(cfg["additional_damage_factor_min"]) > float(cfg["additional_damage_factor_max"]):
+        cfg["additional_damage_factor_min"], cfg["additional_damage_factor_max"] = (
+            cfg["additional_damage_factor_max"],
+            cfg["additional_damage_factor_min"],
+        )
+
+    baseline_raw = raw.get("additional_damage_baseline")
+    if isinstance(baseline_raw, dict):
+        for eid, val in baseline_raw.items():
+            ei = int(_to_int(eid, 0))
+            if ei in _ADDITIONAL_DAMAGE_EFFECT_IDS:
+                cfg["additional_damage_baseline"][ei] = _to_float(val, cfg["additional_damage_baseline"].get(ei, 0.0))
+
+    profiles_raw = raw.get("profiles")
+    if isinstance(profiles_raw, dict):
+        for role_raw, role_cfg in profiles_raw.items():
+            role = _arena_role_from_archetype(str(role_raw or ""))
+            if role not in _ARTIFACT_PROFILE_KEYS:
+                continue
+            if not isinstance(role_cfg, dict):
+                continue
+            dest = cfg["profiles"].setdefault(role, _new_profile_template())
+            main_raw = role_cfg.get("main_focus")
+            if isinstance(main_raw, dict):
+                for focus, val in main_raw.items():
+                    f = str(focus).upper()
+                    if f in ("HP", "ATK", "DEF"):
+                        dest["main_focus"][f] = _to_float(val, dest["main_focus"].get(f, 0.0))
+            effects_raw = role_cfg.get("effects")
+            if isinstance(effects_raw, dict):
+                for eid, weight in effects_raw.items():
+                    ei = int(_to_int(eid, 0))
+                    if ei > 0:
+                        dest["effects"][ei] = _to_float(weight, 0.0)
+
+    return cfg
+
+
+def _artifact_scaled_effect_value(
+    effect_id: int,
+    raw_value: float,
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+    base_spd: int = 0,
+) -> float:
+    eid = int(effect_id or 0)
+    val = max(0.0, float(raw_value or 0.0))
+    if eid not in _ADDITIONAL_DAMAGE_EFFECT_IDS:
+        return val
+
+    cfg = _artifact_scoring_config()
+    baseline_map: Dict[int, float] = dict(cfg.get("additional_damage_baseline") or {})
+    baseline = float(baseline_map.get(eid, 0.0) or 0.0)
+    factor_min = float(cfg.get("additional_damage_factor_min", 0.7))
+    factor_max = float(cfg.get("additional_damage_factor_max", 2.0))
+    if factor_min > factor_max:
+        factor_min, factor_max = factor_max, factor_min
+
+    stat_value = 0.0
+    if eid == 218:
+        stat_value = float(max(0, int(base_hp or 0)))
+    elif eid == 219:
+        stat_value = float(max(0, int(base_atk or 0)))
+    elif eid == 220:
+        stat_value = float(max(0, int(base_def or 0)))
+    elif eid == 221:
+        stat_value = float(max(0, int(base_spd or 0)))
+
+    stat_factor = 1.0
+    if baseline > 0.0 and stat_value > 0.0:
+        stat_factor = _clamp_float(float(stat_value) / float(baseline), factor_min, factor_max)
+    return float(val * 100.0 * stat_factor)
+
+
+def _artifact_profile_score(
+    art: Artifact,
+    role: str = "unknown",
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+    base_spd: int = 0,
+) -> int:
+    cfg = _artifact_scoring_config()
+    role_key = str(role or "").strip().lower()
+    profiles: Dict[str, Dict[str, Dict[Any, float]]] = dict(cfg.get("profiles") or {})
+    profile = profiles.get(role_key) or profiles.get("unknown") or _new_profile_template()
+
+    score = 0.0
+    focus_key = str(_artifact_focus_key(art) or "").upper()
+    if focus_key:
+        score += float((profile.get("main_focus") or {}).get(focus_key, 0.0))
+
+    legacy_mult = float(cfg.get("legacy_multiplier", 1.0))
+    effect_weights: Dict[int, float] = dict(profile.get("effects") or {})
+    for sec in (art.sec_effects or []):
+        if not sec or len(sec) < 2:
+            continue
+        try:
+            eid = int(sec[0] or 0)
+            val = float(sec[1] or 0)
+        except Exception:
+            continue
+        weight = float(effect_weights.get(int(eid), 0.0))
+        if weight == 0.0:
+            continue
+        scaled_val = _artifact_scaled_effect_value(
+            int(eid),
+            val,
+            base_hp=base_hp,
+            base_atk=base_atk,
+            base_def=base_def,
+            base_spd=base_spd,
+        )
+        line = float(weight) * float(scaled_val)
+        if artifact_effect_is_legacy(int(eid)):
+            line *= float(legacy_mult)
+        score += float(line)
+    return int(round(score))
+
+
+def _skill_line_effect_id_for_slot(slot: int, kind: str) -> int:
+    s = int(slot or 0)
+    if s < 1 or s > 4:
+        return 0
+    if kind == "crit":
+        return 399 + s
+    if kind == "acc":
+        # only skill 1..3 exist for ACC lines
+        return 406 + s if s <= 3 else 0
+    if kind == "recovery":
+        # only skill 1..3 exist for Recovery lines
+        return 403 + s if s <= 3 else 0
+    return 0
+
+
+def _artifact_hint_score(
+    art: Artifact,
+    hints: Dict[str, Any] | None = None,
+) -> int:
+    if not hints:
+        return 0
+
+    bomb_slots = {
+        int(x)
+        for x in (hints.get("bomb_slots") or [])
+        if 1 <= int(x or 0) <= 4
+    }
+    guaranteed_crit_slots = {
+        int(x)
+        for x in (hints.get("guaranteed_crit_slots") or [])
+        if 1 <= int(x or 0) <= 4
+    }
+    recovery_slots = {
+        int(x)
+        for x in (hints.get("recovery_slots") or [])
+        if 1 <= int(x or 0) <= 3
+    }
+    debuff_slots = {
+        int(x)
+        for x in (hints.get("debuff_slots") or [])
+        if 1 <= int(x or 0) <= 3
+    }
+    preferred_crit_slots = {
+        int(x)
+        for x in (hints.get("preferred_crit_slots") or [])
+        if 1 <= int(x or 0) <= 4
+    }
+    preferred_recovery_slots = {
+        int(x)
+        for x in (hints.get("preferred_recovery_slots") or [])
+        if 1 <= int(x or 0) <= 3
+    }
+    preferred_debuff_slots = {
+        int(x)
+        for x in (hints.get("preferred_debuff_slots") or [])
+        if 1 <= int(x or 0) <= 3
+    }
+    preferred_effect_ids = {
+        int(x)
+        for x in (hints.get("preferred_effect_ids") or [])
+        if int(x or 0) > 0
+    }
+    top_sub_effect_ids: List[int] = []
+    top_seen: Set[int] = set()
+    for x in (hints.get("top_sub_effect_ids") or []):
+        try:
+            eid = int(x or 0)
+        except Exception:
+            continue
+        if eid <= 0 or eid in top_seen:
+            continue
+        top_seen.add(int(eid))
+        top_sub_effect_ids.append(int(eid))
+        if len(top_sub_effect_ids) >= 3:
+            break
+
+    score = 0
+    present_eids: Set[int] = set()
+    for sec in (art.sec_effects or []):
+        if not sec or len(sec) < 2:
+            continue
+        try:
+            eid = int(sec[0] or 0)
+            val = float(sec[1] or 0)
+        except Exception:
+            continue
+        present_eids.add(int(eid))
+        if bomb_slots and int(eid) == 210:
+            score += int(round(max(0.0, float(val)) * float(ARTIFACT_HINT_BOMB_VALUE_WEIGHT) * 10.0))
+
+    if guaranteed_crit_slots:
+        preferred: Set[int] = set()
+        for slot in guaranteed_crit_slots:
+            eff = _skill_line_effect_id_for_slot(int(slot), "crit")
+            if eff > 0:
+                preferred.add(int(eff))
+            if int(slot) in (3, 4):
+                preferred.add(410)
+        all_crit_skill_lines = {400, 401, 402, 403, 410}
+        non_preferred = all_crit_skill_lines.difference(preferred)
+        for eff in preferred:
+            if eff in present_eids:
+                score += int(ARTIFACT_HINT_SKILL_MATCH_BONUS)
+        for eff in non_preferred:
+            if eff in present_eids:
+                score -= int(ARTIFACT_HINT_SKILL_MISMATCH_PENALTY)
+
+    if preferred_crit_slots:
+        preferred: Set[int] = set()
+        for slot in preferred_crit_slots:
+            eff = _skill_line_effect_id_for_slot(int(slot), "crit")
+            if eff > 0:
+                preferred.add(int(eff))
+            if int(slot) in (3, 4):
+                preferred.add(410)
+        for eff in preferred:
+            if eff in present_eids:
+                score += int(ARTIFACT_HINT_SKILL_PREFERRED_BONUS)
+
+    if recovery_slots:
+        for slot in recovery_slots:
+            eff = _skill_line_effect_id_for_slot(int(slot), "recovery")
+            if eff > 0 and eff in present_eids:
+                score += int(ARTIFACT_HINT_RECOVERY_MATCH_BONUS)
+
+    if preferred_recovery_slots:
+        for slot in preferred_recovery_slots:
+            eff = _skill_line_effect_id_for_slot(int(slot), "recovery")
+            if eff > 0 and eff in present_eids:
+                score += int(ARTIFACT_HINT_RECOVERY_PREFERRED_BONUS)
+
+    if debuff_slots:
+        for slot in debuff_slots:
+            eff = _skill_line_effect_id_for_slot(int(slot), "acc")
+            if eff > 0 and eff in present_eids:
+                score += int(ARTIFACT_HINT_ACC_MATCH_BONUS)
+
+    if preferred_debuff_slots:
+        for slot in preferred_debuff_slots:
+            eff = _skill_line_effect_id_for_slot(int(slot), "acc")
+            if eff > 0 and eff in present_eids:
+                score += int(ARTIFACT_HINT_ACC_PREFERRED_BONUS)
+
+    if top_sub_effect_ids:
+        top_bonus = [
+            int(ARTIFACT_HINT_TOP1_MATCH_BONUS),
+            int(ARTIFACT_HINT_TOP2_MATCH_BONUS),
+            int(ARTIFACT_HINT_TOP3_MATCH_BONUS),
+        ]
+        top_weight = [
+            int(ARTIFACT_HINT_TOP1_VALUE_WEIGHT),
+            int(ARTIFACT_HINT_TOP2_VALUE_WEIGHT),
+            int(ARTIFACT_HINT_TOP3_VALUE_WEIGHT),
+        ]
+        for idx, eff_id in enumerate(top_sub_effect_ids[:3]):
+            val_scaled = int(_artifact_effect_value_scaled(art, int(eff_id)))
+            if val_scaled <= 0:
+                continue
+            score += int(top_bonus[int(idx)]) + int(val_scaled * int(top_weight[int(idx)]))
+
+    if preferred_effect_ids:
+        non_top_effect_ids = set(preferred_effect_ids).difference(set(top_sub_effect_ids))
+        for eff_id in non_top_effect_ids:
+            val_scaled = int(_artifact_effect_value_scaled(art, int(eff_id)))
+            if val_scaled > 0:
+                score += int(ARTIFACT_HINT_EFFECT_MATCH_BONUS) + int(val_scaled * int(ARTIFACT_HINT_EFFECT_VALUE_WEIGHT))
+
+    return int(score)
 
 
 def _score_stat(eff_id: int, value: int) -> int:
@@ -136,13 +599,19 @@ def _arena_role_from_archetype(archetype: str = "") -> str:
     arch = str(archetype or "").strip().lower()
     if not arch:
         return "unknown"
-    if arch in ("attack", "atk", "angriff"):
+    if arch in (
+        "attack", "atk", "angriff", "offense", "offensive",
+        "dd", "dps", "nuker", "sniper", "damage",
+    ):
         return "attack"
-    if arch in ("defense", "def", "abwehr"):
+    if arch in ("defense", "def", "abwehr", "bruiser"):
         return "defense"
-    if arch in ("hp", "leben"):
+    if arch in ("hp", "leben", "tank"):
         return "hp"
-    if arch in ("support", "rueckhalt", "rückhalt"):
+    if arch in (
+        "support", "rueckhalt", "rückhalt",
+        "cc", "stripper", "control", "healer", "buffer", "debuffer",
+    ):
         return "support"
     if arch == "unknown":
         return "unknown"
@@ -213,61 +682,70 @@ def _rune_defensive_score_proxy(r: Rune, base_hp: int, base_def: int, archetype:
     return 0
 
 
-def _artifact_damage_score_proxy(art: Artifact) -> int:
-    score = 0
-    for sec in (art.sec_effects or []):
-        if not sec or len(sec) < 2:
-            continue
-        try:
-            eid = int(sec[0] or 0)
-            val = float(sec[1] or 0)
-        except Exception:
-            continue
-        if eid in (204, 226, 219):
-            score += int(round(val * 28.0))
-        elif eid in (210, 212, 222, 223, 224, 225, 400, 401, 402, 403, 410, 411):
-            score += int(round(val * 18.0))
-    return int(score)
+def _artifact_damage_score_proxy(
+    art: Artifact,
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+    base_spd: int = 0,
+) -> int:
+    # Offensive profile for damage dealers.
+    return int(
+        _artifact_profile_score(
+            art,
+            role="attack",
+            base_hp=base_hp,
+            base_atk=base_atk,
+            base_def=base_def,
+            base_spd=base_spd,
+        )
+    )
 
 
-def _artifact_defensive_score_proxy(art: Artifact, archetype: str = "") -> int:
+def _artifact_defensive_score_proxy(
+    art: Artifact,
+    archetype: str = "",
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+    base_spd: int = 0,
+) -> int:
     role = _arena_role_from_archetype(archetype)
     if role not in ("defense", "hp", "support"):
         return 0
+    return int(
+        _artifact_profile_score(
+            art,
+            role=role,
+            base_hp=base_hp,
+            base_atk=base_atk,
+            base_def=base_def,
+            base_spd=base_spd,
+        )
+    )
 
-    score = 0
-    # Main stat is a decisive signal for defensive archetypes:
-    # HP/DEF mains are strongly preferred, ATK main is penalized.
-    try:
-        main_eff = int((art.pri_effect or (0,))[0] or 0)
-    except Exception:
-        main_eff = 0
-    if main_eff == 101:
-        score -= 260
-    elif main_eff == 100:
-        score += 220 if role == "hp" else (180 if role == "support" else 160)
-    elif main_eff == 102:
-        score += 220 if role == "defense" else (150 if role == "support" else 120)
 
-    for sec in (art.sec_effects or []):
-        if not sec or len(sec) < 2:
-            continue
-        try:
-            eid = int(sec[0] or 0)
-            val = float(sec[1] or 0)
-        except Exception:
-            continue
-        if eid in (201, 205, 226):
-            score += int(round(val * (14.0 if role == "defense" else 10.0)))
-        elif eid in (213, 214, 305, 306, 307, 308, 309):
-            score += int(round(val * (16.0 if role == "support" else 13.0)))
-        elif eid in (404, 405, 406):
-            score += int(round(val * (14.0 if role == "support" else 8.0)))
-        elif eid in (206, 203):
-            score += int(round(val * (8.0 if role == "support" else 5.0)))
-        elif eid in (407, 408, 409):
-            score += int(round(val * (10.0 if role == "support" else 3.0)))
-    return int(score)
+def _artifact_context_score_proxy(
+    art: Artifact,
+    role: str = "",
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+    base_spd: int = 0,
+) -> int:
+    role_key = _arena_role_from_archetype(role)
+    if role_key == "unknown":
+        role_key = "unknown"
+    return int(
+        _artifact_profile_score(
+            art,
+            role=role_key,
+            base_hp=base_hp,
+            base_atk=base_atk,
+            base_def=base_def,
+            base_spd=base_spd,
+        )
+    )
 
 
 def _is_good_even_slot_mainstat(eff_id: int, slot_no: int) -> bool:
@@ -436,6 +914,10 @@ def _artifact_quality_score_defensive(
     uid: int,
     rta_artifact_ids_for_unit: Optional[Set[int]] = None,
     archetype: str = "",
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+    base_spd: int = 0,
 ) -> int:
     score = 0
     score += int(art.level or 0) * 8
@@ -445,9 +927,26 @@ def _artifact_quality_score_defensive(
     score += base_rank * 6
 
     # Defensive effect quality as the primary artifact signal.
-    score += int(_artifact_defensive_score_proxy(art, archetype))
+    score += int(
+        _artifact_defensive_score_proxy(
+            art,
+            archetype,
+            base_hp=base_hp,
+            base_atk=base_atk,
+            base_def=base_def,
+            base_spd=base_spd,
+        )
+    )
     # Penalize pure offensive artifact lines for defensive units.
-    score -= int(_artifact_damage_score_proxy(art))
+    score -= int(
+        _artifact_damage_score_proxy(
+            art,
+            base_hp=base_hp,
+            base_atk=base_atk,
+            base_def=base_def,
+            base_spd=base_spd,
+        )
+    )
 
     if rta_artifact_ids_for_unit is not None:
         if int(art.artifact_id or 0) in rta_artifact_ids_for_unit:
@@ -483,15 +982,62 @@ def _baseline_guard_artifact_coef(
     uid: int,
     role: str,
     rta_artifact_ids_for_unit: Optional[Set[int]] = None,
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+    base_spd: int = 0,
 ) -> int:
     if str(role) in ("defense", "hp", "support"):
         return int(
-            _artifact_quality_score_defensive(art, uid, rta_artifact_ids_for_unit, archetype=role)
-            + (int(ARENA_RUSH_DEF_ART_WEIGHT) * int(_artifact_defensive_score_proxy(art, role)))
-            - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(_artifact_damage_score_proxy(art)))
+            _artifact_quality_score_defensive(
+                art,
+                uid,
+                rta_artifact_ids_for_unit,
+                archetype=role,
+                base_hp=base_hp,
+                base_atk=base_atk,
+                base_def=base_def,
+                base_spd=base_spd,
+            )
+            + (
+                int(ARENA_RUSH_DEF_ART_WEIGHT)
+                * int(
+                    _artifact_defensive_score_proxy(
+                        art,
+                        role,
+                        base_hp=base_hp,
+                        base_atk=base_atk,
+                        base_def=base_def,
+                        base_spd=base_spd,
+                    )
+                )
+            )
+            - (
+                int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT)
+                * int(
+                    _artifact_damage_score_proxy(
+                        art,
+                        base_hp=base_hp,
+                        base_atk=base_atk,
+                        base_def=base_def,
+                        base_spd=base_spd,
+                    )
+                )
+            )
         )
     if str(role) == "attack":
-        return int(_artifact_quality_score(art, uid, rta_artifact_ids_for_unit) + int(_artifact_damage_score_proxy(art)))
+        return int(
+            _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
+            + int(
+                _artifact_damage_score_proxy(
+                    art,
+                    base_hp=base_hp,
+                    base_atk=base_atk,
+                    base_def=base_def,
+                    base_spd=base_spd,
+                )
+            )
+        )
     return int(_artifact_quality_score(art, uid, rta_artifact_ids_for_unit))
 
 
@@ -527,6 +1073,7 @@ class GreedyRequest:
     baseline_regression_guard_weight: int = 0
     global_seed_offset: int = 0
     unit_archetype_by_uid: Dict[int, str] | None = None
+    unit_artifact_hints_by_uid: Dict[int, Dict[str, Any]] | None = None
     arena_rush_context: str = ""  # "", "defense", "offense"
 
 @dataclass
@@ -918,6 +1465,7 @@ def _solve_single_unit_best(
     force_speed_priority: bool = False,
     arena_rush_damage_bias: bool = False,
     unit_archetype: str = "",
+    artifact_hints: Optional[Dict[str, Any]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None,
     register_solver: Optional[Callable[[object], None]] = None,
     mode: str = "normal",
@@ -1299,6 +1847,13 @@ def _solve_single_unit_best(
     # quality objective (2nd phase after speed is pinned)
     is_arena_rush_mode = str(mode or "").strip().lower() == "arena_rush"
     unit_role = _arena_role_from_archetype(str(unit_archetype or ""))
+    artifact_role_for_scoring = str(unit_role)
+    if artifact_role_for_scoring == "unknown":
+        artifact_role_for_scoring = (
+            "attack"
+            if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=str(unit_archetype or ""))
+            else "support"
+        )
     favor_damage_for_atk_type = (
         bool(arena_rush_damage_bias)
         and is_arena_rush_mode
@@ -1397,23 +1952,59 @@ def _solve_single_unit_best(
                             uid,
                             rta_artifact_ids_for_unit,
                             archetype=str(unit_archetype or ""),
+                            base_hp=int(base_hp or 0),
+                            base_atk=int(base_atk or 0),
+                            base_def=int(base_def or 0),
+                            base_spd=int(base_spd or 0),
                         )
                     )
                     if def_q:
                         quality_terms.append((int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * def_q) * av)
                 if favor_damage_for_atk_type:
-                    dmg_bonus = _artifact_damage_score_proxy(art)
+                    dmg_bonus = _artifact_damage_score_proxy(
+                        art,
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                        base_spd=int(base_spd or 0),
+                    )
                     if dmg_bonus:
                         quality_terms.append(dmg_bonus * av)
                 if favor_defense_for_role:
-                    def_bonus = _artifact_defensive_score_proxy(art, str(unit_archetype or ""))
+                    def_bonus = _artifact_defensive_score_proxy(
+                        art,
+                        str(unit_archetype or ""),
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                        base_spd=int(base_spd or 0),
+                    )
                     if def_bonus:
                         quality_terms.append((int(ARENA_RUSH_DEF_ART_WEIGHT) * def_bonus) * av)
-                    dmg_penalty = _artifact_damage_score_proxy(art)
+                    dmg_penalty = _artifact_damage_score_proxy(
+                        art,
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                        base_spd=int(base_spd or 0),
+                    )
                     if dmg_penalty:
                         quality_terms.append(
                             (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * av
                         )
+                if not favor_damage_for_atk_type and not favor_defense_for_role:
+                    context_bonus = int(
+                        _artifact_context_score_proxy(
+                            art,
+                            role=str(artifact_role_for_scoring),
+                            base_hp=int(base_hp or 0),
+                            base_atk=int(base_atk or 0),
+                            base_def=int(base_def or 0),
+                            base_spd=int(base_spd or 0),
+                        )
+                    )
+                    if context_bonus:
+                        quality_terms.append((int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_bonus) * av)
             else:
                 if favor_defense_for_role:
                     aw = _artifact_quality_score_defensive(
@@ -1421,6 +2012,10 @@ def _solve_single_unit_best(
                         uid,
                         rta_artifact_ids_for_unit,
                         archetype=str(unit_archetype or ""),
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                        base_spd=int(base_spd or 0),
                     )
                 else:
                     aw = _artifact_quality_score(art, uid, rta_artifact_ids_for_unit)
@@ -1435,18 +2030,53 @@ def _solve_single_unit_best(
                 if art_eff_bonus:
                     quality_terms.append(art_eff_bonus * av)
                 if favor_damage_for_atk_type:
-                    dmg_bonus = _artifact_damage_score_proxy(art)
+                    dmg_bonus = _artifact_damage_score_proxy(
+                        art,
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                        base_spd=int(base_spd or 0),
+                    )
                     if dmg_bonus:
                         quality_terms.append(dmg_bonus * av)
                 if favor_defense_for_role:
-                    def_bonus = _artifact_defensive_score_proxy(art, str(unit_archetype or ""))
+                    def_bonus = _artifact_defensive_score_proxy(
+                        art,
+                        str(unit_archetype or ""),
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                        base_spd=int(base_spd or 0),
+                    )
                     if def_bonus:
                         quality_terms.append((int(ARENA_RUSH_DEF_ART_WEIGHT) * def_bonus) * av)
-                    dmg_penalty = _artifact_damage_score_proxy(art)
+                    dmg_penalty = _artifact_damage_score_proxy(
+                        art,
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                        base_spd=int(base_spd or 0),
+                    )
                     if dmg_penalty:
                         quality_terms.append(
                             (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * av
                         )
+                if not favor_damage_for_atk_type and not favor_defense_for_role:
+                    context_bonus = int(
+                        _artifact_context_score_proxy(
+                            art,
+                            role=str(artifact_role_for_scoring),
+                            base_hp=int(base_hp or 0),
+                            base_atk=int(base_atk or 0),
+                            base_def=int(base_def or 0),
+                            base_spd=int(base_spd or 0),
+                        )
+                    )
+                    if context_bonus:
+                        quality_terms.append((int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_bonus) * av)
+            hint_bonus = int(_artifact_hint_score(art, artifact_hints))
+            if hint_bonus:
+                quality_terms.append(hint_bonus * av)
 
     # Build-aware artifact quality:
     # if artifact filters are selected, prefer higher rolls in those selected effects.
@@ -1574,6 +2204,10 @@ def _solve_single_unit_best(
                                 uid=uid,
                                 role=str(guard_role),
                                 rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
+                                base_hp=int(base_hp or 0),
+                                base_atk=int(base_atk or 0),
+                                base_def=int(base_def or 0),
+                                base_spd=int(base_spd or 0),
                             )
                         )
                         if coef != 0:
@@ -1607,6 +2241,10 @@ def _solve_single_unit_best(
                             uid=uid,
                             role=str(guard_role),
                             rta_artifact_ids_for_unit=rta_artifact_ids_for_unit,
+                            base_hp=int(base_hp or 0),
+                            base_atk=int(base_atk or 0),
+                            base_def=int(base_def or 0),
+                            base_spd=int(base_spd or 0),
                         )
                     )
                 baseline_over = (
@@ -1790,6 +2428,19 @@ def _evaluate_pass_score(
         if not res.ok or not res.runes_by_slot:
             continue
         uid = int(res.unit_id)
+        unit = account.units_by_id.get(int(uid))
+        base_hp = int((unit.base_con or 0) * 15) if unit else 0
+        base_atk = int(unit.base_atk or 0) if unit else 0
+        base_def = int(unit.base_def or 0) if unit else 0
+        base_spd = int(unit.base_spd or 0) if unit else 0
+        unit_arch = str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
+        role_for_art = _arena_role_from_archetype(unit_arch)
+        if role_for_art == "unknown":
+            role_for_art = (
+                "attack"
+                if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=unit_arch)
+                else "support"
+            )
         rta_rids: Optional[Set[int]] = None
         if rta_equip:
             rta_rids = set(int(rid) for rid in rta_equip.get(uid, []))
@@ -1809,6 +2460,23 @@ def _evaluate_pass_score(
             if art is None:
                 continue
             unit_quality += _artifact_quality_score(art, uid, rta_aids)
+            unit_quality += int(
+                ARTIFACT_ROLE_CONTEXT_WEIGHT
+                * _artifact_context_score_proxy(
+                    art,
+                    role=str(role_for_art),
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    base_spd=int(base_spd or 0),
+                )
+            )
+            unit_quality += int(
+                _artifact_hint_score(
+                    art,
+                    dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {}),
+                )
+            )
             unit_eff_scaled += int(round(float(artifact_efficiency(art)) * 10.0))
         ok_count += 1
         unit_scores.append(int(unit_quality))
@@ -2033,6 +2701,7 @@ def _run_pass_with_profile(
                 str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
             ),
             unit_archetype=str((req.unit_archetype_by_uid or {}).get(int(uid), "") or ""),
+            artifact_hints=dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {}),
             is_cancelled=req.is_cancelled,
             register_solver=req.register_solver,
             mode=str(req.mode),

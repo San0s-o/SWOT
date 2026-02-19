@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 import requests
 from PySide6.QtWidgets import QDialog, QMessageBox
@@ -25,6 +26,9 @@ from app.ui.dialogs.build_dialog import BuildDialog
 class TeamSelection:
     team_index: int
     unit_ids: List[int]
+
+
+_ARTIFACT_HINT_CACHE_VERSION = "2026-02-19.2"
 
 
 def _store_compare_snapshot_from_build_dialog(window, mode: str, dlg: BuildDialog) -> None:
@@ -121,6 +125,18 @@ def _arena_speed_lead_cache_path(window) -> Path:
 
 def _arena_archetype_cache_path(window) -> Path:
     return Path(window.config_dir) / "arena_archetype_cache.json"
+
+
+def _artifact_skill_hint_cache_path(window) -> Path:
+    return Path(window.config_dir) / "artifact_skill_hints_cache.json"
+
+
+def _monster_artifact_preferences_path(window) -> Path:
+    return Path(window.config_dir) / "monster_artifact_preferences.json"
+
+
+def _swdb_pages_cache_path(window) -> Path:
+    return Path(window.config_dir) / "swdb_pages_cache.json"
 
 
 def _allow_online_metadata_fetch(window) -> bool:
@@ -242,6 +258,603 @@ def _fetch_archetype_for_com2us_id(com2us_id: int, timeout_s: float = 6.0) -> st
         return archetype
     except Exception:
         return ""
+
+
+def _normalize_hint_payload(raw: Dict[str, Any] | None) -> Dict[str, List[int]]:
+    data = dict(raw or {})
+    out: Dict[str, List[int]] = {}
+    slot_keys = {
+        "bomb_slots",
+        "guaranteed_crit_slots",
+        "recovery_slots",
+        "debuff_slots",
+        "preferred_crit_slots",
+        "preferred_recovery_slots",
+        "preferred_debuff_slots",
+    }
+    effect_ordered_keys = {"top_sub_effect_ids"}
+    for key in (
+        "bomb_slots",
+        "guaranteed_crit_slots",
+        "recovery_slots",
+        "debuff_slots",
+        "preferred_crit_slots",
+        "preferred_recovery_slots",
+        "preferred_debuff_slots",
+        "preferred_effect_ids",
+        "top_sub_effect_ids",
+    ):
+        vals: List[int] = []
+        seen: Set[int] = set()
+        for x in (data.get(key) or []):
+            try:
+                slot = int(x or 0)
+            except Exception:
+                continue
+            if key in slot_keys and 1 <= slot <= 4:
+                if int(slot) not in seen:
+                    seen.add(int(slot))
+                    vals.append(int(slot))
+            elif key == "preferred_effect_ids" and slot > 0:
+                if int(slot) not in seen:
+                    seen.add(int(slot))
+                    vals.append(int(slot))
+            elif key == "top_sub_effect_ids" and slot > 0:
+                if int(slot) not in seen:
+                    seen.add(int(slot))
+                    vals.append(int(slot))
+                    if len(vals) >= 3:
+                        break
+        if key in effect_ordered_keys:
+            out[key] = vals[:3]
+        else:
+            out[key] = sorted(vals)
+    return out
+
+
+def _hint_payload_has_values(payload: Dict[str, List[int]] | None) -> bool:
+    data = dict(payload or {})
+    return any(
+        bool(data.get(k))
+        for k in (
+            "bomb_slots",
+            "guaranteed_crit_slots",
+            "recovery_slots",
+            "debuff_slots",
+            "preferred_crit_slots",
+            "preferred_recovery_slots",
+            "preferred_debuff_slots",
+            "preferred_effect_ids",
+            "top_sub_effect_ids",
+        )
+    )
+
+
+def _load_monster_artifact_preferences(path: Path) -> Dict[int, Dict[str, List[int]]]:
+    try:
+        if not path.exists():
+            return {}
+        raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        if not isinstance(raw, dict):
+            return {}
+        by_id = raw.get("by_com2us_id", raw)
+        if not isinstance(by_id, dict):
+            return {}
+        out: Dict[int, Dict[str, List[int]]] = {}
+        for k, v in dict(by_id or {}).items():
+            try:
+                mid = int(k or 0)
+            except Exception:
+                continue
+            if mid <= 0:
+                continue
+            if not isinstance(v, dict):
+                continue
+            base_stars = int(v.get("base_stars", 0) or 0)
+            awaken_level = int(v.get("awaken_level", 1) or 0)
+            if base_stars > 0 and base_stars <= 1:
+                continue
+            if awaken_level <= 0:
+                continue
+            payload = _normalize_hint_payload(dict(v or {}))
+            if _hint_payload_has_values(payload):
+                out[int(mid)] = payload
+        return out
+    except Exception:
+        return {}
+
+
+def _load_artifact_skill_hint_cache(path: Path) -> Dict[int, Dict[str, List[int]]]:
+    try:
+        if not path.exists():
+            return {}
+        raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        if not isinstance(raw, dict):
+            return {}
+        if "hints" in raw:
+            version = str(raw.get("version") or "").strip()
+            if version != str(_ARTIFACT_HINT_CACHE_VERSION):
+                return {}
+            payload = dict(raw.get("hints") or {})
+        else:
+            # Legacy flat cache format; force refresh to avoid stale hint semantics.
+            return {}
+        out: Dict[int, Dict[str, List[int]]] = {}
+        for k, v in dict(payload or {}).items():
+            try:
+                mid = int(k or 0)
+            except Exception:
+                continue
+            if mid <= 0:
+                continue
+            payload = _normalize_hint_payload(dict(v or {}))
+            if _hint_payload_has_values(payload):
+                out[int(mid)] = payload
+        return out
+    except Exception:
+        return {}
+
+
+def _save_artifact_skill_hint_cache(path: Path, cache: Dict[int, Dict[str, List[int]]]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        hints_payload = {
+            str(int(mid)): _normalize_hint_payload(dict(data or {}))
+            for mid, data in dict(cache or {}).items()
+            if int(mid) > 0 and _hint_payload_has_values(dict(data or {}))
+        }
+        payload = {
+            "version": str(_ARTIFACT_HINT_CACHE_VERSION),
+            "hints": hints_payload,
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        return
+
+
+def _load_swdb_pages_cache(path: Path) -> List[str]:
+    try:
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        if not isinstance(raw, dict):
+            return []
+        urls = [str(x).strip() for x in (raw.get("urls") or []) if str(x).strip().startswith("https://www.sw-database.com/")]
+        return list(dict.fromkeys(urls))
+    except Exception:
+        return []
+
+
+def _save_swdb_pages_cache(path: Path, urls: List[str]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": "2026-02-19.1",
+            "urls": [str(x).strip() for x in (urls or []) if str(x).strip().startswith("https://www.sw-database.com/")],
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        return
+
+
+def _fetch_swdb_pages_sitemap_urls(timeout_s: float = 10.0) -> List[str]:
+    try:
+        resp = requests.get("https://www.sw-database.com/pages-sitemap.xml", timeout=float(timeout_s))
+        if int(resp.status_code) != 200:
+            return []
+        xml = str(resp.text or "")
+        urls = re.findall(r"<loc>(https://www\.sw-database\.com/[^<]+)</loc>", xml, flags=re.I)
+        out = [u.strip() for u in urls if "/blog" not in u.lower()]
+        return list(dict.fromkeys(out))
+    except Exception:
+        return []
+
+
+def _swdb_slug_from_url(url: str) -> str:
+    txt = str(url or "").strip()
+    if not txt:
+        return ""
+    if txt.endswith("/"):
+        txt = txt[:-1]
+    parts = txt.split("/")
+    return str(parts[-1] if parts else "").strip().lower()
+
+
+def _swdb_name_slug(name: str) -> str:
+    s = str(name or "").strip().lower()
+    s = re.sub(r"[()\[\],.'’`]+", " ", s)
+    s = re.sub(r"\s+", "-", s).strip("-")
+    s = re.sub(r"-+", "-", s)
+    return s
+
+
+def _swdb_element_tokens(element: str) -> Set[str]:
+    e = str(element or "").strip().lower()
+    tokens: Set[str] = set()
+    if e in ("fire", "water", "wind", "light", "dark"):
+        tokens.add(e)
+    return tokens
+
+
+def _swdb_candidate_urls_for_monster(
+    all_urls: List[str],
+    monster_name: str,
+    element: str,
+) -> List[str]:
+    name_slug = _swdb_name_slug(monster_name)
+    if not name_slug:
+        return []
+    name_tokens = {t for t in name_slug.split("-") if t}
+    elem_tokens = _swdb_element_tokens(element)
+    scored: List[Tuple[int, str]] = []
+    for url in all_urls:
+        slug = _swdb_slug_from_url(url)
+        if not slug:
+            continue
+        slug_tokens = {t for t in slug.split("-") if t}
+        if name_slug == slug:
+            score = 200
+        elif slug.startswith(name_slug + "-") or slug.endswith("-" + name_slug):
+            score = 170
+        elif all(t in slug_tokens for t in name_tokens):
+            score = 130
+        elif len(name_tokens.intersection(slug_tokens)) >= max(1, min(2, len(name_tokens))):
+            score = 80
+        else:
+            continue
+        if elem_tokens and elem_tokens.intersection(slug_tokens):
+            score += 20
+        scored.append((int(score), str(url)))
+    scored.sort(key=lambda x: int(x[0]), reverse=True)
+    out: List[str] = []
+    for _score, url in scored:
+        if url in out:
+            continue
+        out.append(url)
+        if len(out) >= 4:
+            break
+    return out
+
+
+def _strip_html(text: str) -> str:
+    s = re.sub(r"<[^>]+>", " ", str(text or ""))
+    s = re.sub(r"&nbsp;?", " ", s, flags=re.I)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _extract_swdb_recommended_artifact_lines(html_text: str) -> List[str]:
+    txt = str(html_text or "")
+    idx = txt.lower().find("recommended artifacts")
+    if idx < 0:
+        return []
+    chunk = txt[idx: idx + 20000]
+    lines: List[str] = []
+    for item in re.findall(r"<li[^>]*>(.*?)</li>", chunk, flags=re.I | re.S):
+        line = _strip_html(item)
+        if line:
+            lines.append(line)
+    if lines:
+        return lines
+    for item in re.findall(r"<h\d[^>]*>(.*?)</h\d>", chunk, flags=re.I | re.S):
+        line = _strip_html(item)
+        if line:
+            lines.append(line)
+    return lines
+
+
+def _swdb_hints_from_lines(lines: List[str]) -> Dict[str, List[int]]:
+    bomb_slots: Set[int] = set()
+    preferred_crit_slots: Set[int] = set()
+    preferred_recovery_slots: Set[int] = set()
+    preferred_debuff_slots: Set[int] = set()
+    preferred_effect_ids: Set[int] = set()
+
+    elemental_dealt_map = {"fire": 300, "water": 301, "wind": 302, "light": 303, "dark": 304}
+    elemental_taken_map = {"fire": 305, "water": 306, "wind": 307, "light": 308, "dark": 309}
+
+    for line in (lines or []):
+        low = str(line or "").lower()
+        if not low:
+            continue
+        if "bomb dmg" in low or "bomb damage" in low:
+            bomb_slots.add(1)
+            preferred_effect_ids.add(210)
+        if "additional damage" in low and ("hp" in low or "health" in low):
+            preferred_effect_ids.add(218)
+        if "additional damage" in low and ("atk" in low or "attack" in low):
+            preferred_effect_ids.add(219)
+        if "additional damage" in low and "def" in low:
+            preferred_effect_ids.add(220)
+        if "additional damage" in low and "spd" in low:
+            preferred_effect_ids.add(221)
+        if "atk increasing effect" in low:
+            preferred_effect_ids.add(204)
+        if "def increasing effect" in low:
+            preferred_effect_ids.add(205)
+        if "atk/def increasing effect" in low:
+            preferred_effect_ids.add(226)
+        if "counterattack/attacking together" in low:
+            preferred_effect_ids.add(225)
+        if "counterattack" in low and "attacking together" not in low:
+            preferred_effect_ids.add(208)
+        if "attacking together" in low and "counterattack" not in low:
+            preferred_effect_ids.add(209)
+        if "single-target" in low and "crit dmg" in low:
+            preferred_effect_ids.add(224)
+
+        for elem, eid in elemental_dealt_map.items():
+            if f"dmg dealt on {elem}" in low or f"damage dealt on {elem}" in low:
+                preferred_effect_ids.add(int(eid))
+        for elem, eid in elemental_taken_map.items():
+            if f"dmg received from {elem}" in low or f"damage received from {elem}" in low:
+                preferred_effect_ids.add(int(eid))
+
+        slots: Set[int] = set()
+        for m in re.findall(r"skill\s*([1-4])", low):
+            try:
+                slots.add(int(m))
+            except Exception:
+                continue
+        if "skill 3/4" in low or "skill3/4" in low:
+            slots.add(3)
+            slots.add(4)
+        if not slots:
+            continue
+
+        if "crit dmg" in low or "critical damage" in low:
+            preferred_crit_slots.update(int(s) for s in slots if 1 <= int(s) <= 4)
+            if 1 in slots:
+                preferred_effect_ids.add(400)
+            if 2 in slots:
+                preferred_effect_ids.add(401)
+            if 3 in slots:
+                preferred_effect_ids.add(402)
+            if 4 in slots:
+                preferred_effect_ids.add(403)
+            if 3 in slots or 4 in slots:
+                preferred_effect_ids.add(410)
+        if "accuracy" in low:
+            preferred_debuff_slots.update(int(s) for s in slots if 1 <= int(s) <= 3)
+            if 1 in slots:
+                preferred_effect_ids.add(407)
+            if 2 in slots:
+                preferred_effect_ids.add(408)
+            if 3 in slots:
+                preferred_effect_ids.add(409)
+        if ("recovery" in low or "heal" in low) and "attack bar" not in low:
+            preferred_recovery_slots.update(int(s) for s in slots if 1 <= int(s) <= 3)
+            if 1 in slots:
+                preferred_effect_ids.add(404)
+            if 2 in slots:
+                preferred_effect_ids.add(405)
+            if 3 in slots:
+                preferred_effect_ids.add(406)
+
+    return _normalize_hint_payload(
+        {
+            "bomb_slots": sorted(bomb_slots),
+            "preferred_crit_slots": sorted(preferred_crit_slots),
+            "preferred_recovery_slots": sorted(preferred_recovery_slots),
+            "preferred_debuff_slots": sorted(preferred_debuff_slots),
+            "preferred_effect_ids": sorted(preferred_effect_ids),
+        }
+    )
+
+
+def _fetch_swdb_artifact_hints_for_monster(
+    window,
+    monster_name: str,
+    element: str,
+    timeout_s: float = 10.0,
+) -> Dict[str, List[int]]:
+    cache_path = _swdb_pages_cache_path(window)
+    urls = _load_swdb_pages_cache(cache_path)
+    if not urls:
+        urls = _fetch_swdb_pages_sitemap_urls(timeout_s=float(timeout_s))
+        if urls:
+            _save_swdb_pages_cache(cache_path, urls)
+    if not urls:
+        return _normalize_hint_payload({})
+
+    candidates = _swdb_candidate_urls_for_monster(urls, monster_name=monster_name, element=element)
+    if not candidates:
+        return _normalize_hint_payload({})
+
+    best: Dict[str, List[int]] = _normalize_hint_payload({})
+    best_score = 0
+    for url in candidates:
+        try:
+            resp = requests.get(str(url), timeout=float(timeout_s))
+            if int(resp.status_code) != 200:
+                continue
+            lines = _extract_swdb_recommended_artifact_lines(resp.text)
+            hints = _swdb_hints_from_lines(lines)
+            score = sum(len(v) for v in hints.values() if isinstance(v, list))
+            if score > best_score:
+                best = hints
+                best_score = int(score)
+        except Exception:
+            continue
+    return _normalize_hint_payload(best)
+
+
+def _merge_hint_payloads(*payloads: Dict[str, List[int]]) -> Dict[str, List[int]]:
+    merged_set: Dict[str, Set[int]] = {}
+    merged_top3: List[int] = []
+    for p in payloads:
+        normalized = _normalize_hint_payload(p)
+        for key, vals in normalized.items():
+            if str(key) == "top_sub_effect_ids":
+                for v in (vals or []):
+                    vi = int(v or 0)
+                    if vi <= 0 or vi in merged_top3:
+                        continue
+                    merged_top3.append(int(vi))
+                    if len(merged_top3) >= 3:
+                        break
+                continue
+            merged_set.setdefault(str(key), set()).update(int(v) for v in (vals or []) if int(v) > 0)
+    out = {k: sorted(v) for k, v in merged_set.items()}
+    if merged_top3:
+        out["top_sub_effect_ids"] = merged_top3[:3]
+    return out
+
+
+def _fetch_artifact_skill_hints_for_com2us_id(com2us_id: int, timeout_s: float = 6.0) -> Dict[str, List[int]]:
+    cid = int(com2us_id or 0)
+    if cid <= 0:
+        return _normalize_hint_payload({})
+
+    try:
+        mon_resp = requests.get(
+            "https://swarfarm.com/api/v2/monsters/",
+            params={"com2us_id": int(cid)},
+            timeout=float(timeout_s),
+        )
+        if int(mon_resp.status_code) != 200:
+            return _normalize_hint_payload({})
+        payload = dict(mon_resp.json() or {})
+        results = list(payload.get("results") or [])
+        if not results:
+            return _normalize_hint_payload({})
+        mon = dict(results[0] or {})
+        skill_ids = [int(sid) for sid in (mon.get("skills") or []) if int(sid or 0) > 0]
+        if not skill_ids:
+            return _normalize_hint_payload({})
+
+        bomb_slots: Set[int] = set()
+        crit_slots: Set[int] = set()
+        recovery_slots: Set[int] = set()
+        debuff_slots: Set[int] = set()
+
+        debuff_keywords = (
+            "stun",
+            "sleep",
+            "freeze",
+            "silence",
+            "provoke",
+            "bomb",
+            "continuous damage",
+            "decrease attack bar",
+            "reduces the attack bar",
+            "decrease atk bar",
+            "increases the chances of landing glancing hit",
+            "decreases defense",
+            "decreases attack speed",
+            "decreases attack power",
+            "decreases resistance",
+            "decreases accuracy",
+            "beneficial effect",
+            "remove all beneficial effects",
+            "strip",
+            "block beneficial effects",
+            "debuff",
+        )
+
+        for sid in skill_ids:
+            skill_resp = requests.get(
+                f"https://swarfarm.com/api/v2/skills/{int(sid)}/",
+                timeout=float(timeout_s),
+            )
+            if int(skill_resp.status_code) != 200:
+                continue
+            skill = dict(skill_resp.json() or {})
+            slot = int(skill.get("slot") or 0)
+            if slot <= 0 or slot > 4:
+                continue
+            desc = str(skill.get("description") or "")
+            txt = re.sub(r"\s+", " ", desc).strip().lower()
+            if not txt:
+                continue
+
+            if "bomb" in txt:
+                bomb_slots.add(int(slot))
+            if (
+                "always lands as a critical hit" in txt
+                or "always inflicts a critical hit" in txt
+                or "always inflicts critical hit" in txt
+                or "always lands a critical hit" in txt
+            ):
+                crit_slots.add(int(slot))
+            has_hp_recovery = (
+                (
+                    "recover hp" in txt
+                    or "recovers hp" in txt
+                    or "restore hp" in txt
+                    or "restores hp" in txt
+                    or ("heal" in txt and ("hp" in txt or "health" in txt))
+                )
+                and "attack bar" not in txt
+            )
+            if has_hp_recovery and int(slot) <= 3:
+                recovery_slots.add(int(slot))
+            if any(kw in txt for kw in debuff_keywords) and int(slot) <= 3:
+                debuff_slots.add(int(slot))
+
+        return _normalize_hint_payload(
+            {
+                "bomb_slots": sorted(bomb_slots),
+                "guaranteed_crit_slots": sorted(crit_slots),
+                "recovery_slots": sorted(recovery_slots),
+                "debuff_slots": sorted(debuff_slots),
+            }
+        )
+    except Exception:
+        return _normalize_hint_payload({})
+
+
+def optimizer_artifact_hints_by_uid(
+    window,
+    unit_ids: List[int],
+    fetch_missing: bool | None = None,
+) -> Dict[int, Dict[str, List[int]]]:
+    out: Dict[int, Dict[str, List[int]]] = {}
+    if not window.account:
+        return out
+    do_fetch = _allow_online_metadata_fetch(window) if fetch_missing is None else bool(fetch_missing)
+    cache_path = _artifact_skill_hint_cache_path(window)
+    cache = _load_artifact_skill_hint_cache(cache_path)
+    local_pref_path = _monster_artifact_preferences_path(window)
+    local_pref_by_mid = _load_monster_artifact_preferences(local_pref_path)
+    cache_changed = False
+    for uid in [int(x) for x in (unit_ids or []) if int(x) > 0]:
+        unit = window.account.units_by_id.get(int(uid))
+        if unit is None:
+            continue
+        mid = int(unit.unit_master_id or 0)
+        if mid <= 0:
+            continue
+        hints = _normalize_hint_payload(
+            _merge_hint_payloads(
+                dict(local_pref_by_mid.get(int(mid), {}) or {}),
+                dict(cache.get(int(mid), {}) or {}),
+            )
+        )
+        if not _hint_payload_has_values(hints) and do_fetch:
+            fetched_swarfarm = _fetch_artifact_skill_hints_for_com2us_id(int(mid))
+            monster_name = str(window.monster_db.name_for(int(mid)) or "").strip()
+            monster_element = str(window.monster_db.element_for(int(mid)) or "").strip()
+            fetched_swdb = _fetch_swdb_artifact_hints_for_monster(
+                window,
+                monster_name=monster_name,
+                element=monster_element,
+            )
+            fetched_norm = _normalize_hint_payload(_merge_hint_payloads(fetched_swarfarm, fetched_swdb))
+            if _hint_payload_has_values(fetched_norm):
+                cache[int(mid)] = dict(fetched_norm)
+                cache_changed = True
+                hints = _normalize_hint_payload(
+                    _merge_hint_payloads(
+                        dict(local_pref_by_mid.get(int(mid), {}) or {}),
+                        dict(fetched_norm),
+                    )
+                )
+        if _hint_payload_has_values(hints):
+            out[int(uid)] = dict(hints)
+    if cache_changed:
+        _save_artifact_skill_hint_cache(cache_path, cache)
+    return out
 
 
 def save_arena_rush_ui_state(window) -> None:
@@ -608,6 +1221,20 @@ def _arena_archetype_by_uid(
     return out
 
 
+def optimizer_archetype_by_uid(
+    window,
+    unit_ids: List[int],
+    fetch_missing: bool | None = None,
+) -> Dict[int, str]:
+    # Shared archetype resolution for all optimizer modes (arena/siege/wgb/rta/team).
+    do_fetch = _allow_online_metadata_fetch(window) if fetch_missing is None else bool(fetch_missing)
+    return _arena_archetype_by_uid(
+        window,
+        unit_ids,
+        fetch_missing=bool(do_fetch),
+    )
+
+
 def on_validate_arena_rush(window) -> None:
     if not window.account:
         return
@@ -903,6 +1530,11 @@ def on_optimize_arena_rush(window) -> None:
         all_selected_uids,
         fetch_missing=_allow_online_metadata_fetch(window),
     )
+    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(
+        window,
+        all_selected_uids,
+        fetch_missing=_allow_online_metadata_fetch(window),
+    )
 
     def _run_arena_rush(
         is_cancelled,
@@ -925,6 +1557,7 @@ def on_optimize_arena_rush(window) -> None:
             defense_unit_team_turn_order=defense_turn_order,
             defense_unit_spd_leader_bonus_flat=defense_leader_bonus,
             unit_archetype_by_uid=dict(unit_archetype_by_uid),
+            unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
             unit_baseline_runes_by_slot=dict(baseline_runes_by_unit),
             unit_baseline_artifacts_by_type=dict(baseline_arts_by_unit),
             baseline_regression_guard_weight=(

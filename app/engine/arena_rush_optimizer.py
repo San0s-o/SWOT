@@ -40,6 +40,7 @@ class ArenaRushRequest:
     defense_unit_team_turn_order: Dict[int, int] = field(default_factory=dict)
     defense_unit_spd_leader_bonus_flat: Dict[int, int] = field(default_factory=dict)
     unit_archetype_by_uid: Dict[int, str] = field(default_factory=dict)
+    unit_artifact_hints_by_uid: Dict[int, Dict[str, List[int]]] = field(default_factory=dict)
     unit_baseline_runes_by_slot: Dict[int, Dict[int, int]] = field(default_factory=dict)
     unit_baseline_artifacts_by_type: Dict[int, Dict[int, int]] = field(default_factory=dict)
     baseline_regression_guard_weight: int = 0
@@ -632,6 +633,11 @@ def _optimize_arena_rush_single(
                 int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                 for uid in ordered_defense
             },
+            unit_artifact_hints_by_uid={
+                int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+                for uid in ordered_defense
+                if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+            },
             unit_baseline_runes_by_slot={
                 int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                 for uid in ordered_defense
@@ -674,6 +680,11 @@ def _optimize_arena_rush_single(
                     unit_archetype_by_uid={
                         int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                         for uid in ordered_defense
+                    },
+                    unit_artifact_hints_by_uid={
+                        int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+                        for uid in ordered_defense
+                        if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
                     },
                     unit_baseline_runes_by_slot={
                         int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
@@ -877,6 +888,11 @@ def _optimize_arena_rush_single(
                 int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                 for uid in all_offense_units_in_order
             },
+            unit_artifact_hints_by_uid={
+                int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+                for uid in all_offense_units_in_order
+                if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+            },
             unit_baseline_runes_by_slot={
                 int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                 for uid in all_offense_units_in_order
@@ -977,6 +993,11 @@ def _optimize_arena_rush_single(
                     int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                     for uid in all_offense_units_in_order
                 },
+                unit_artifact_hints_by_uid={
+                    int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+                    for uid in all_offense_units_in_order
+                    if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+                },
                 unit_baseline_runes_by_slot={
                     int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                     for uid in all_offense_units_in_order
@@ -1047,6 +1068,11 @@ def _optimize_arena_rush_single(
                     unit_archetype_by_uid={
                         int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                         for uid in all_offense_units_in_order
+                    },
+                    unit_artifact_hints_by_uid={
+                        int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+                        for uid in all_offense_units_in_order
+                        if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
                     },
                     unit_baseline_runes_by_slot={
                         int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
@@ -1168,6 +1194,11 @@ def _optimize_arena_rush_single(
                 unit_archetype_by_uid={
                     int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                     for uid in expected_order
+                },
+                unit_artifact_hints_by_uid={
+                    int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+                    for uid in expected_order
+                    if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
                 },
                 unit_baseline_runes_by_slot={
                     int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})

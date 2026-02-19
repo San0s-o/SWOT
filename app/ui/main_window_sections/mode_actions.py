@@ -241,6 +241,12 @@ def on_optimize_siege(window) -> None:
         baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
             window, "siege", ordered_unit_ids
         )
+        from app.ui.main_window_sections.arena_rush_actions import (
+            optimizer_archetype_by_uid,
+            optimizer_artifact_hints_by_uid,
+        )
+        unit_archetype_by_uid = optimizer_archetype_by_uid(window, ordered_unit_ids)
+        unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ordered_unit_ids)
         res = window._run_with_busy_progress(
             running_text,
             lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -262,6 +268,8 @@ def on_optimize_siege(window) -> None:
                     unit_team_index=team_idx_by_uid,
                     unit_team_turn_order=team_turn_by_uid,
                     unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                    unit_archetype_by_uid=dict(unit_archetype_by_uid),
+                    unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
                     unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
                     unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
                     baseline_regression_guard_weight=(
@@ -445,6 +453,12 @@ def on_optimize_wgb(window) -> None:
     baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
         window, "wgb", ordered_unit_ids
     )
+    from app.ui.main_window_sections.arena_rush_actions import (
+        optimizer_archetype_by_uid,
+        optimizer_artifact_hints_by_uid,
+    )
+    unit_archetype_by_uid = optimizer_archetype_by_uid(window, ordered_unit_ids)
+    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ordered_unit_ids)
     res = window._run_with_busy_progress(
         running_text,
         lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -466,6 +480,8 @@ def on_optimize_wgb(window) -> None:
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
                 unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                unit_archetype_by_uid=dict(unit_archetype_by_uid),
+                unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
                 unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
                 unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
                 baseline_regression_guard_weight=(
@@ -631,6 +647,12 @@ def on_optimize_rta(window) -> None:
     baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
         window, "rta", ids
     )
+    from app.ui.main_window_sections.arena_rush_actions import (
+        optimizer_archetype_by_uid,
+        optimizer_artifact_hints_by_uid,
+    )
+    unit_archetype_by_uid = optimizer_archetype_by_uid(window, ids)
+    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ids)
     res = window._run_with_busy_progress(
         running_text,
         lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -652,6 +674,8 @@ def on_optimize_rta(window) -> None:
                 unit_team_index=team_idx_by_uid,
                 unit_team_turn_order=team_turn_by_uid,
                 unit_spd_leader_bonus_flat={},
+                unit_archetype_by_uid=dict(unit_archetype_by_uid),
+                unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
                 unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
                 unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
                 baseline_regression_guard_weight=(

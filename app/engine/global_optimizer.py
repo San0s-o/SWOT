@@ -16,6 +16,7 @@ from app.engine.greedy_optimizer import (
     ARENA_RUSH_DEF_QUALITY_WEIGHT,
     ARENA_RUSH_DEF_RUNE_WEIGHT,
     ARENA_RUSH_ATK_EFFICIENCY_SCALE,
+    ARTIFACT_ROLE_CONTEXT_WEIGHT,
     BASELINE_REGRESSION_GUARD_WEIGHT,
     CR_OVERCAP_PENALTY_PER_POINT,
     RES_OVERCAP_PENALTY_PER_POINT,
@@ -28,6 +29,8 @@ from app.engine.greedy_optimizer import (
     _allowed_runes_for_mode,
     _artifact_focus_key,
     _artifact_substat_ids,
+    _artifact_context_score_proxy,
+    _artifact_hint_score,
     _count_required_set_pieces,
     _rune_flat_spd,
     _rune_stat_total,
@@ -39,6 +42,7 @@ from app.engine.greedy_optimizer import (
     _baseline_guard_artifact_coef,
     _baseline_guard_rune_coef,
     _force_swift_speed_priority,
+    _arena_role_from_archetype,
     _is_attack_type_unit,
     _is_attack_archetype,
     _is_defensive_archetype,
@@ -88,6 +92,8 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
     favor_damage_by_uid: Dict[int, bool] = {}
     favor_defense_by_uid: Dict[int, bool] = {}
     archetype_by_uid: Dict[int, str] = {}
+    artifact_role_by_uid: Dict[int, str] = {}
+    unit_base_stats_by_uid: Dict[int, Tuple[int, int, int, int]] = {}
     overcap_penalty_expr_by_uid: Dict[int, cp_model.LinearExpr] = {}
     baseline_guard_shortfall_by_uid: Dict[int, cp_model.IntVar] = {}
 
@@ -106,6 +112,12 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         base_atk = int(unit.base_atk or 0) if unit else 0
         base_def = int(unit.base_def or 0) if unit else 0
         base_spd = int(unit.base_spd or 0) if unit else 0
+        unit_base_stats_by_uid[int(uid)] = (
+            int(base_hp or 0),
+            int(base_atk or 0),
+            int(base_def or 0),
+            int(base_spd or 0),
+        )
         totem_spd_bonus_flat = int(base_spd * int(account.sky_tribe_totem_spd_pct or 0) / 100)
         leader_spd_bonus_flat = int((req.unit_spd_leader_bonus_flat or {}).get(int(uid), 0) or 0)
         base_spd_bonus_flat = int(totem_spd_bonus_flat + leader_spd_bonus_flat)
@@ -115,6 +127,14 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         base_acc = int(unit.base_acc or 0) if unit else 0
         unit_arch = str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
         archetype_by_uid[int(uid)] = str(unit_arch)
+        role_for_art = _arena_role_from_archetype(unit_arch)
+        if role_for_art == "unknown":
+            role_for_art = (
+                "attack"
+                if _is_attack_type_unit(base_hp, base_atk, base_def, archetype=unit_arch)
+                else "support"
+            )
+        artifact_role_by_uid[int(uid)] = str(role_for_art)
         is_arena_offense = bool(
             str(req.mode or "").strip().lower() == "arena_rush"
             and str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
@@ -385,6 +405,10 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                                     uid=int(uid),
                                     role=str(guard_role),
                                     rta_artifact_ids_for_unit=None,
+                                    base_hp=int(base_hp or 0),
+                                    base_atk=int(base_atk or 0),
+                                    base_def=int(base_def or 0),
+                                    base_spd=int(base_spd or 0),
                                 )
                             )
                             if coef != 0:
@@ -418,6 +442,10 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                                 uid=int(uid),
                                 role=str(guard_role),
                                 rta_artifact_ids_for_unit=None,
+                                base_hp=int(base_hp or 0),
+                                base_atk=int(base_atk or 0),
+                                base_def=int(base_def or 0),
+                                base_spd=int(base_spd or 0),
                             )
                         )
                     baseline_over = (
@@ -670,32 +698,91 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         a = next((aa for aa in artifacts_by_type_global[t] if int(aa.artifact_id) == int(aid)), None)
         if a is None:
             continue
+        base_hp, base_atk, base_def, base_spd = unit_base_stats_by_uid.get(int(uid), (0, 0, 0, 0))
+        role_for_art = str(artifact_role_by_uid.get(int(uid), "unknown") or "unknown")
+        unit_hint = dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+        hint_score = int(_artifact_hint_score(a, unit_hint))
         eff_score = int(round(float(artifact_efficiency(a)) * 100.0))
         qual_score = int(_artifact_quality_score(a, uid, None))
         if bool(favor_damage_by_uid.get(int(uid), False)):
-            dmg_score = int(_artifact_damage_score_proxy(a))
+            dmg_score = int(
+                _artifact_damage_score_proxy(
+                    a,
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    base_spd=int(base_spd or 0),
+                )
+            )
             obj_terms.append(
                 (
                     eff_score * int(max(1, int(ARENA_RUSH_ATK_EFFICIENCY_SCALE * 0.8)))
                     + qual_score
                     + (dmg_score * 120)
+                    + hint_score
                 ) * vv
             )
         elif bool(favor_defense_by_uid.get(int(uid), False)):
             unit_arch = str(archetype_by_uid.get(int(uid), ""))
-            qual_score = int(_artifact_quality_score_defensive(a, uid, None, archetype=unit_arch))
-            def_score = int(_artifact_defensive_score_proxy(a, unit_arch))
-            dmg_penalty = int(_artifact_damage_score_proxy(a))
+            qual_score = int(
+                _artifact_quality_score_defensive(
+                    a,
+                    uid,
+                    None,
+                    archetype=unit_arch,
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    base_spd=int(base_spd or 0),
+                )
+            )
+            def_score = int(
+                _artifact_defensive_score_proxy(
+                    a,
+                    unit_arch,
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    base_spd=int(base_spd or 0),
+                )
+            )
+            dmg_penalty = int(
+                _artifact_damage_score_proxy(
+                    a,
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    base_spd=int(base_spd or 0),
+                )
+            )
             obj_terms.append(
                 (
                     eff_score * int(ARENA_RUSH_DEF_EFFICIENCY_SCALE)
                     + (int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * qual_score)
                     + (int(ARENA_RUSH_DEF_ART_WEIGHT) * def_score)
                     - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * dmg_penalty)
+                    + hint_score
                 ) * vv
             )
         else:
-            obj_terms.append((eff_score * 80 + qual_score) * vv)
+            context_score = int(
+                _artifact_context_score_proxy(
+                    a,
+                    role=role_for_art,
+                    base_hp=int(base_hp or 0),
+                    base_atk=int(base_atk or 0),
+                    base_def=int(base_def or 0),
+                    base_spd=int(base_spd or 0),
+                )
+            )
+            obj_terms.append(
+                (
+                    eff_score * 80
+                    + qual_score
+                    + (int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_score)
+                    + hint_score
+                ) * vv
+            )
     for uid in unit_ids:
         tie_raw = speed_tiebreak_weight_by_uid.get(int(uid), None)
         tie_w = 1 if tie_raw is None else int(tie_raw)
