@@ -160,6 +160,8 @@ def init_siege_builder_ui(window) -> None:
     finally:
         window._unit_combo_registration_tab = ""
 
+    grid.setRowStretch(11, 1)  # absorb extra vertical space, push content to top
+
     btn_row = QHBoxLayout()
     v.addLayout(btn_row)
 
@@ -172,6 +174,7 @@ def init_siege_builder_ui(window) -> None:
     window.btn_validate_siege.setEnabled(False)
     window.btn_validate_siege.clicked.connect(window.on_validate_siege)
     btn_row.addWidget(window.btn_validate_siege)
+    window.btn_validate_siege.setVisible(False)
 
     window.btn_edit_presets_siege = QPushButton(tr("btn.builds"))
     window.btn_edit_presets_siege.setEnabled(False)
@@ -349,6 +352,7 @@ def init_rta_builder_ui(window) -> None:
     window.btn_validate_rta.setEnabled(False)
     window.btn_validate_rta.clicked.connect(window.on_validate_rta)
     btn_row.addWidget(window.btn_validate_rta)
+    window.btn_validate_rta.setVisible(False)
 
     window.btn_edit_presets_rta = QPushButton(tr("btn.builds"))
     window.btn_edit_presets_rta.setEnabled(False)

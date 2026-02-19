@@ -44,17 +44,35 @@ def effective_workers(window, quality_profile: str, combo: QComboBox) -> int:
     return int(default_solver_workers())
 
 
+def _is_max_quality_profile(profile_value: str) -> bool:
+    prof = str(profile_value or "").strip().lower()
+    return prof in ("max_quality", "ultra_quality", "gpu_search_max")
+
+
 def sync_worker_controls(window) -> None:
-    def _apply(profile_combo_attr: str, workers_combo_attr: str) -> None:
+    def _apply(profile_combo_attr: str, workers_combo_attr: str, passes_label_attr: str = "", passes_spin_attr: str = "") -> None:
         prof = getattr(window, profile_combo_attr, None)
         workers = getattr(window, workers_combo_attr, None)
         if prof is None or workers is None:
             return
-        is_max = str(prof.currentData() or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max")
+        is_max = _is_max_quality_profile(str(prof.currentData() or ""))
         workers.setEnabled(bool(is_max))
+        if passes_label_attr and passes_spin_attr:
+            lbl_passes = getattr(window, passes_label_attr, None)
+            spin_passes = getattr(window, passes_spin_attr, None)
+            if lbl_passes is not None and spin_passes is not None:
+                # Max-quality profiles do not use pass refinement in practice.
+                lbl_passes.setVisible(not is_max)
+                spin_passes.setVisible(not is_max)
+                spin_passes.setEnabled(not is_max)
+                if bool(is_max):
+                    try:
+                        spin_passes.setValue(1)
+                    except Exception:
+                        pass
 
-    _apply("combo_quality_profile_siege", "combo_workers_siege")
-    _apply("combo_quality_profile_wgb", "combo_workers_wgb")
-    _apply("combo_quality_profile_rta", "combo_workers_rta")
+    _apply("combo_quality_profile_siege", "combo_workers_siege", "lbl_siege_passes", "spin_multi_pass_siege")
+    _apply("combo_quality_profile_wgb", "combo_workers_wgb", "lbl_wgb_passes", "spin_multi_pass_wgb")
+    _apply("combo_quality_profile_rta", "combo_workers_rta", "lbl_rta_passes", "spin_multi_pass_rta")
     _apply("combo_quality_profile_arena_rush", "combo_workers_arena_rush")
-    _apply("combo_quality_profile_team", "combo_workers_team")
+    _apply("combo_quality_profile_team", "combo_workers_team", "lbl_team_passes", "spin_multi_pass_team")

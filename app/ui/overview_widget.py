@@ -17,7 +17,11 @@ from PySide6.QtCharts import (
 
 from app.domain.models import AccountData, Rune, Artifact
 from app.domain.presets import SET_NAMES, EFFECT_ID_TO_MAINSTAT_KEY
-from app.domain.artifact_effects import artifact_rank_label
+from app.domain.artifact_effects import (
+    artifact_rank_label,
+    artifact_effect_text,
+    ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID,
+)
 from app.engine.efficiency import (
     rune_efficiencies,
     rune_efficiency,
@@ -152,6 +156,18 @@ def _stat_label(eff_id: int, value: Any) -> str:
     return f"{key} +{val}"
 
 
+def _artifact_mainstat_label(eff_id: int, value: Any) -> str:
+    focus = ARTIFACT_MAIN_FOCUS_BY_EFFECT_ID.get(int(eff_id or 0))
+    if focus:
+        try:
+            v = float(value)
+            val = str(int(v)) if abs(v - int(v)) < 1e-9 else f"{v:.2f}".rstrip("0").rstrip(".")
+        except Exception:
+            val = str(value)
+        return f"{focus} +{val}"
+    return artifact_effect_text(int(eff_id or 0), value, fallback_prefix="Effekt")
+
+
 def _rune_quality_class(rune: Rune) -> int:
     origin = int(getattr(rune, "origin_class", 0) or 0)
     return origin if origin else int(rune.rune_class or 0)
@@ -198,6 +214,11 @@ def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
 
 def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
     slot_name = tr("overview.slot_left") if int(art.slot or 0) == 1 else tr("overview.slot_right") if int(art.slot or 0) == 2 else f"Slot {int(art.slot or 0)}"
+    type_name = (
+        tr("art_opt.type_attribute") if int(art.type_ or 0) == 1
+        else tr("art_opt.type_type") if int(art.type_ or 0) == 2
+        else f"{tr('artifact.type')} {int(art.type_ or 0)}"
+    )
     base_rank = int(getattr(art, "original_rank", 0) or 0)
     if base_rank <= 0:
         base_rank = int(art.rank or 0)
@@ -205,10 +226,10 @@ def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
     lines = [
         f"{tr('overview.rank', idx=idx + 1)} | {tr('overview.efficiency')} {eff:.2f}%",
         f"{tr('ui.artifact_id')}: {int(art.artifact_id or 0)}",
-        f"{slot_name} | {tr('artifact.type')} {int(art.type_ or 0)} | {tr('overview.quality')} {quality} | +{int(art.level or 0)}",
+        f"{slot_name} | {type_name} | {tr('overview.quality')} {quality} | +{int(art.level or 0)}",
     ]
     if art.pri_effect and len(art.pri_effect) >= 2:
-        lines.append(f"{tr('overview.mainstat')} {_stat_label(int(art.pri_effect[0] or 0), art.pri_effect[1])}")
+        lines.append(f"{tr('overview.mainstat')} {_artifact_mainstat_label(int(art.pri_effect[0] or 0), art.pri_effect[1])}")
     if art.sec_effects:
         lines.append(f"{tr('ui.subs')}:")
         for sec in art.sec_effects:
@@ -217,7 +238,18 @@ def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
             eff_id = int(sec[0] or 0)
             val = sec[1] if len(sec) > 1 else 0
             upgrades = int(sec[2] or 0) if len(sec) > 2 else 0
-            lines.append(f"  \u2022 {_stat_label(eff_id, val)} ({tr('ui.rolls', n=upgrades)})")
+            # Artifact export payload keeps conversion metadata in trailing fields.
+            # Non-zero values indicate a transformed/changed substat and should be highlighted
+            # analogous to rune gem-swaps.
+            converted_flag = (
+                (int(sec[3] or 0) > 0 if len(sec) > 3 else False)
+                or (int(sec[4] or 0) > 0 if len(sec) > 4 else False)
+            )
+            text = f"\u2022 {artifact_effect_text(eff_id, val, fallback_prefix='Effekt')} ({tr('ui.rolls', n=upgrades)})"
+            if converted_flag:
+                lines.append(f'  <span style="color:{_GEM_COLOR}">{text}</span>')
+            else:
+                lines.append(f"  {text}")
     return "<br>".join(lines)
 
 

@@ -71,6 +71,11 @@ def _rank_text(art: Artifact) -> str:
 
 
 def _slot_text(art: Artifact) -> str:
+    t = int(art.type_ or 0)
+    if t == 1:
+        return tr("art_opt.type_attribute")
+    if t == 2:
+        return tr("art_opt.type_type")
     s = int(art.slot or 0)
     if s == 1:
         return tr("art_opt.type_attribute")

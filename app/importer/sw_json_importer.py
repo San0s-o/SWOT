@@ -254,10 +254,12 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
             continue
 
     equip_lists: List[List[dict]] = []
+    # Canonical occupied_id for account artifacts should reflect normal/PVE equip state.
+    # RTA equip (world_arena_artifact_equip_list) is tracked separately in acc.rta_artifact_equip
+    # and must not overwrite the artifact overview assignment, otherwise units can appear with
+    # multiple slot-1/slot-2 artifacts at the same time in the general artifact table.
     if data.get("artifact_equip_list"):
         equip_lists.append(data.get("artifact_equip_list") or [])
-    if data.get("world_arena_artifact_equip_list"):
-        equip_lists.append(data.get("world_arena_artifact_equip_list") or [])
 
     for eq_list in equip_lists:
         for e in eq_list:

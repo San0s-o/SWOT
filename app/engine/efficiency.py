@@ -1,7 +1,6 @@
 """Rune and artifact efficiency calculations."""
 from __future__ import annotations
 
-import math
 from typing import Dict, List, Literal
 
 from app.domain.models import Rune, Artifact
@@ -192,6 +191,14 @@ _EFF_ADD_HP = 218
 _EFF_ADD_ATK = 219
 _EFF_ADD_DEF = 220
 
+# Per-effect divisor overrides (applied before 4/5/6 bucket grouping).
+_EFFECT_DIVISOR_OVERRIDE: Dict[int, float] = {
+    200: 70.0,  # ATK+ proportional to lost HP (legacy)
+    201: 70.0,  # DEF+ proportional to lost HP (legacy)
+    202: 70.0,  # SPD+ proportional to lost HP (legacy)
+    214: 20.0,  # CRIT DMG Received -
+}
+
 # Auto-categorized by observed max-per-roll from account data analysis.
 # max_per_roll <= 5 → 4%Based (/20)
 # max_per_roll <= 7 → 5%Based (/25)
@@ -222,10 +229,10 @@ _FIVE_PCT: set[int] = {
 # These have max_per_roll > 7 from observed data.
 
 
-def artifact_efficiency(art: Artifact) -> float:
+def artifact_score(art: Artifact) -> float:
     json_score = float(getattr(art, "json_score", 0.0) or 0.0)
     if json_score > 0.0:
-        return round(json_score / 2.0, 2)
+        return round(json_score, 2)
 
     if not art.sec_effects:
         return 0.0
@@ -240,6 +247,13 @@ def artifact_efficiency(art: Artifact) -> float:
             eid = int(sec[0])
             val = float(sec[1])
         except (ValueError, TypeError):
+            continue
+
+        override_div = float(_EFFECT_DIVISOR_OVERRIDE.get(eid, 0.0) or 0.0)
+        if override_div > 0.0:
+            # Keep the existing "sum_6 / 30" structure while applying a custom divisor:
+            # val / override_div == (val * (30 / override_div)) / 30
+            sum_6 += val * (30.0 / override_div)
             continue
 
         if eid == _EFF_LIFEDRAIN:
@@ -271,9 +285,11 @@ def artifact_efficiency(art: Artifact) -> float:
         + add_hp / 1.5
         + (add_atk + add_def) / 20
     )
-    # ROUND semantics should be half-up for score parity with spreadsheet tools.
-    score = int(math.floor(inner * 125.0 + 0.5))
-    return round(score / 2.0, 2)
+    return round(inner * 125.0, 2)
+
+
+def artifact_efficiency(art: Artifact) -> float:
+    return round(artifact_score(art) / 2.0, 2)
 
 
 # ============================================================

@@ -98,6 +98,7 @@ def init_arena_rush_builder_ui(
     window.btn_validate_arena_rush.setEnabled(False)
     window.btn_validate_arena_rush.clicked.connect(lambda: _sec_on_validate_arena_rush(window))
     btn_row.addWidget(window.btn_validate_arena_rush)
+    window.btn_validate_arena_rush.setVisible(False)
 
     window.btn_edit_presets_arena_rush = QPushButton(tr("btn.builds"))
     window.btn_edit_presets_arena_rush.setEnabled(False)

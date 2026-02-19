@@ -424,7 +424,8 @@ def on_take_current_arena_def(window) -> None:
     window.arena_def_speed_lead_uid = 0
     window.arena_def_speed_lead_pct = 0
     save_arena_rush_ui_state(window)
-    window.lbl_arena_rush_validate.setText(tr("status.arena_def_taken"))
+    _ok, msg, _defense, _offense = _validate_arena_rush(window)
+    window.lbl_arena_rush_validate.setText(msg)
 
 
 def on_take_current_arena_off(window) -> None:
@@ -443,10 +444,13 @@ def on_take_current_arena_off(window) -> None:
     window.arena_offense_turn_effects = {}
     window.arena_offense_speed_lead_uid_by_team = {}
     window.arena_offense_speed_lead_pct_by_team = {}
-    if len(all_decks) > len(decks):
-        window.lbl_arena_rush_validate.setText(
-            tr("status.arena_off_taken_limited", count=len(decks), total=len(all_decks))
-        )
+    ok, msg, _defense, _offense = _validate_arena_rush(window)
+    if ok:
+        window.lbl_arena_rush_validate.setText(msg)
+    elif len(all_decks) > len(decks):
+        window.lbl_arena_rush_validate.setText(tr("status.arena_off_taken_limited", count=len(decks), total=len(all_decks)))
+    elif len(decks) > 0:
+        window.lbl_arena_rush_validate.setText(msg)
     else:
         window.lbl_arena_rush_validate.setText(tr("status.arena_off_taken", count=len(decks)))
 

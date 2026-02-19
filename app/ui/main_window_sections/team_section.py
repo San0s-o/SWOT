@@ -251,8 +251,10 @@ def optimize_team(window) -> None:
     if not window.account or not team:
         QMessageBox.warning(window, tr("label.team"), tr("dlg.load_import_and_team"))
         return
-    pass_count = int(window.spin_multi_pass_team.value())
     quality_profile = str(window.combo_quality_profile_team.currentData() or "balanced")
+    pass_count = int(window.spin_multi_pass_team.value())
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+        pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_team)
     running_text = tr("result.team_opt_running", name=team.name)
     window.lbl_team_opt_status.setText(running_text)

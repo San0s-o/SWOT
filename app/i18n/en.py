@@ -115,7 +115,7 @@ STRINGS: dict[str, str] = {
     "group.rta_select": "Select RTA Monsters (up to 15 - order via Drag & Drop)",
     "group.arena_def_select": "Arena Defense (4 monsters)",
     "group.arena_off_select": "Arena Offense Teams (up to 15 teams x 4 monsters)",
-    "group.build_monster_list": "Monsters",
+    "group.build_monster_list": "Monsters (Optimization Order)",
     "group.build_editor": "Build Editor",
     "group.build_rune_sets": "Rune Sets",
     "group.build_mainstats": "Mainstats (Slots 2/4/6)",

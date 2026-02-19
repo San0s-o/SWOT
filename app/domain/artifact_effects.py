@@ -150,13 +150,16 @@ def artifact_effect_text(effect_id: int, value: int | float | str, fallback_pref
 
     try:
         if isinstance(value, str):
-            raw = float(value) if "." in value else int(value)
+            txt = value.strip().replace(",", ".")
+            raw = float(txt) if "." in txt else int(txt)
         else:
             raw = value
         if isinstance(raw, (int, float)):
-            rendered_value: int | float = abs(raw)
-            if isinstance(rendered_value, float) and rendered_value.is_integer():
-                rendered_value = int(rendered_value)
+            numeric = abs(float(raw))
+            if abs(numeric - round(numeric)) < 1e-9:
+                rendered_value: int | str = int(round(numeric))
+            else:
+                rendered_value = f"{numeric:.4f}".rstrip("0").rstrip(".")
         else:
             rendered_value = raw
     except Exception:

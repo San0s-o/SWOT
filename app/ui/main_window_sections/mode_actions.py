@@ -127,7 +127,9 @@ def on_take_current_siege(window) -> None:
             cmb = window.siege_team_combos[t][s]
             idx = cmb.findData(uid)
             cmb.setCurrentIndex(idx if idx >= 0 else 0)
-    window.lbl_siege_validate.setText(tr("status.siege_taken"))
+    selections = window._collect_siege_selections()
+    _ok, msg, _all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
+    window.lbl_siege_validate.setText(msg)
 
 
 def collect_siege_selections(window) -> List[TeamSelection]:
@@ -211,8 +213,10 @@ def on_optimize_siege(window) -> None:
     window._siege_optimization_running = True
     window.btn_optimize_siege.setEnabled(False)
     try:
-        pass_count = int(window.spin_multi_pass_siege.value())
         quality_profile = str(window.combo_quality_profile_siege.currentData() or "balanced")
+        pass_count = int(window.spin_multi_pass_siege.value())
+        if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+            pass_count = 1
         workers = window._effective_workers(quality_profile, window.combo_workers_siege)
         running_text = tr("result.opt_running", mode="Siege")
         window.lbl_siege_validate.setText(running_text)
@@ -409,8 +413,10 @@ def on_edit_presets_wgb(window) -> None:
 def on_optimize_wgb(window) -> None:
     if not window.account:
         return
-    pass_count = int(window.spin_multi_pass_wgb.value())
     quality_profile = str(window.combo_quality_profile_wgb.currentData() or "balanced")
+    pass_count = int(window.spin_multi_pass_wgb.value())
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+        pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_wgb)
     running_text = tr("result.opt_running", mode="WGB")
     window.lbl_wgb_validate.setText(running_text)
@@ -529,7 +535,11 @@ def on_take_current_rta(window) -> None:
         item.setData(Qt.UserRole, uid)
         item.setIcon(window._unit_icon_for_unit_id(uid))
         window.rta_selected_list.addItem(item)
-    window.lbl_rta_validate.setText(tr("status.rta_taken", count=min(len(active_uids), 15)))
+    ids = window._collect_rta_unit_ids()
+    if ids and len(ids) == len(set(ids)):
+        window.lbl_rta_validate.setText(tr("rta.ok", count=len(ids)))
+    else:
+        window.lbl_rta_validate.setText(tr("status.rta_taken", count=min(len(active_uids), 15)))
 
 
 def collect_rta_unit_ids(window) -> List[int]:
@@ -600,8 +610,10 @@ def on_edit_presets_rta(window) -> None:
 def on_optimize_rta(window) -> None:
     if not window.account:
         return
-    pass_count = int(window.spin_multi_pass_rta.value())
     quality_profile = str(window.combo_quality_profile_rta.currentData() or "balanced")
+    pass_count = int(window.spin_multi_pass_rta.value())
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+        pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_rta)
     running_text = tr("result.opt_running", mode="RTA")
     window.lbl_rta_validate.setText(running_text)
