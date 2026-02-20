@@ -46,8 +46,6 @@ def run_with_busy_progress(
     progress_state: Dict[str, float] = {
         "current": 0.0,
         "total": 0.0,
-        "last_signal_ts": float(start_ts),
-        "last_progress_ts": float(start_ts),
     }
     done_event = threading.Event()
     last_progress_current = 0
@@ -67,9 +65,6 @@ def run_with_busy_progress(
             new_total = max(int(prev_total), max(0, int(total or 0)))
             progress_state["current"] = float(new_current)
             progress_state["total"] = float(new_total)
-            progress_state["last_signal_ts"] = float(time.monotonic())
-            if int(new_current) != int(prev_current) or int(new_total) != int(prev_total):
-                progress_state["last_progress_ts"] = float(time.monotonic())
 
     def _refresh_progress() -> None:
         nonlocal last_progress_current
@@ -78,8 +73,6 @@ def run_with_busy_progress(
         with progress_lock:
             current = int(progress_state.get("current", 0))
             total = int(progress_state.get("total", 0))
-            last_signal_ts = float(progress_state.get("last_signal_ts", start_ts) or start_ts)
-            last_progress_ts = float(progress_state.get("last_progress_ts", start_ts) or start_ts)
         if total <= 0:
             return
         if dlg.maximum() == 0:
@@ -95,21 +88,9 @@ def run_with_busy_progress(
         elapsed_s = max(0, int(round(float(time.monotonic()) - float(start_ts))))
         elapsed_txt = f"{elapsed_s // 60:02d}:{elapsed_s % 60:02d}"
         if not done_event.is_set() and int(current) >= int(total):
-            no_progress_s = max(0, int(round(float(time.monotonic()) - float(last_progress_ts))))
-            heartbeat_s = max(0, int(round(float(time.monotonic()) - float(last_signal_ts))))
-            no_progress_txt = f"{no_progress_s // 60:02d}:{no_progress_s % 60:02d}"
-            heartbeat_txt = f"{heartbeat_s // 60:02d}:{heartbeat_s % 60:02d}"
-            label_text = (
-                f"{text} (Finalisierung, {current}/{total}, Laufzeit {elapsed_txt}, "
-                f"ohne Fortschritt {no_progress_txt}, Heartbeat {heartbeat_txt})"
-            )
+            label_text = f"{text} (Finalisierung, {current}/{total}, {pct}%, Laufzeit {elapsed_txt})"
         else:
-            eta_txt = "--:--"
-            if int(current) > 0 and int(total) > int(current):
-                avg_per_step = float(elapsed_s) / float(max(1, int(current)))
-                eta_s = max(0, int(round(avg_per_step * float(int(total) - int(current)))))
-                eta_txt = f"{eta_s // 60:02d}:{eta_s % 60:02d}"
-            label_text = f"{text} ({pct}%, {current}/{total}, ETA {eta_txt}, Laufzeit {elapsed_txt})"
+            label_text = f"{text} ({current}/{total}, {pct}%, Laufzeit {elapsed_txt})"
         dlg.setLabelText(label_text)
         window.statusBar().showMessage(label_text)
 

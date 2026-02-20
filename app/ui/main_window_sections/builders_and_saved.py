@@ -135,32 +135,50 @@ def init_siege_builder_ui(window) -> None:
     window._unit_combos_by_tab = {}
     window.lbl_siege_defense: List[QLabel] = []
     window.lbl_siege_slot_headers: List[QLabel] = []
-    for col, key in enumerate(("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3"), start=1):
+    # col 0 = checkbox, col 1 = defense label, cols 2-4 = unit slots
+    for col, key in enumerate(("label.team_slot_1_leader", "label.team_slot_2", "label.team_slot_3"), start=2):
         hdr = QLabel(tr(key))
-        if col == 1:
+        if col == 2:
             hdr.setToolTip(tr("tooltip.team_slot_leader"))
         window.lbl_siege_slot_headers.append(hdr)
         grid.addWidget(hdr, 0, col)
 
     window.siege_team_combos: List[List[QComboBox]] = []
+    window.siege_optimize_checks: List[QCheckBox] = []
     window._unit_combo_registration_tab = "siege"
     try:
         for t in range(10):
+            chk = QCheckBox()
+            chk.setChecked(True)
+            chk.setToolTip(tr("tooltip.siege_optimize_check"))
+            window.siege_optimize_checks.append(chk)
+            grid.addWidget(chk, t + 1, 0, alignment=Qt.AlignCenter)
+
             lbl = QLabel(tr("label.defense", n=t + 1))
             window.lbl_siege_defense.append(lbl)
-            grid.addWidget(lbl, t + 1, 0)
+            grid.addWidget(lbl, t + 1, 1)
             row: List[QComboBox] = []
             for s in range(3):
                 cmb = new_unit_search_combo(window, min_width=300)
                 if s == 0:
                     cmb.setToolTip(tr("tooltip.team_slot_leader"))
-                grid.addWidget(cmb, t + 1, 1 + s)
+                grid.addWidget(cmb, t + 1, 2 + s)
                 row.append(cmb)
             window.siege_team_combos.append(row)
     finally:
         window._unit_combo_registration_tab = ""
 
     grid.setRowStretch(11, 1)  # absorb extra vertical space, push content to top
+    grid.setColumnStretch(0, 0)  # checkbox column - minimal width
+    grid.setColumnStretch(1, 0)  # defense label - minimal width
+    grid.setColumnStretch(2, 1)
+    grid.setColumnStretch(3, 1)
+    grid.setColumnStretch(4, 1)
+
+    window.chk_siege_block_excluded = QCheckBox(tr("chk.siege_block_excluded"))
+    window.chk_siege_block_excluded.setChecked(False)
+    window.chk_siege_block_excluded.setToolTip(tr("tooltip.siege_block_excluded"))
+    v.addWidget(window.chk_siege_block_excluded)
 
     btn_row = QHBoxLayout()
     v.addLayout(btn_row)

@@ -1045,7 +1045,7 @@ def test_optimize_arena_rush_preflights_shared_tick_requirements_into_defense(mo
 
 
 def test_turn_effect_capability_ignores_passive_self_atb() -> None:
-    from app.services.monster_turn_effects_service import _capability_from_skill_payload
+    from app.tools.update_monster_db import _capability_from_skill_payload
 
     payload = {
         "passive": True,
@@ -1064,7 +1064,7 @@ def test_turn_effect_capability_ignores_passive_self_atb() -> None:
 
 
 def test_turn_effect_capability_detects_active_teamwide_atb() -> None:
-    from app.services.monster_turn_effects_service import _capability_from_skill_payload
+    from app.tools.update_monster_db import _capability_from_skill_payload
 
     payload = {
         "passive": False,
@@ -1083,7 +1083,7 @@ def test_turn_effect_capability_detects_active_teamwide_atb() -> None:
 
 
 def test_turn_effect_capability_ignores_single_target_atb() -> None:
-    from app.services.monster_turn_effects_service import _capability_from_skill_payload
+    from app.tools.update_monster_db import _capability_from_skill_payload
 
     payload = {
         "passive": False,

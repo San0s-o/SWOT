@@ -163,7 +163,10 @@ def on_take_current_siege(window) -> None:
 def collect_siege_selections(window) -> List[TeamSelection]:
     window._ensure_unit_dropdowns_populated()
     selections: List[TeamSelection] = []
+    optimize_checks = getattr(window, "siege_optimize_checks", None) or []
     for t, row in enumerate(window.siege_team_combos):
+        if optimize_checks and t < len(optimize_checks) and not optimize_checks[t].isChecked():
+            continue
         ids = []
         for cmb in row:
             uid = int(cmb.currentData() or 0)
@@ -171,6 +174,23 @@ def collect_siege_selections(window) -> List[TeamSelection]:
                 ids.append(uid)
         selections.append(TeamSelection(team_index=t, unit_ids=ids))
     return selections
+
+
+def collect_siege_excluded_unit_ids(window) -> List[int]:
+    """Return unit IDs from defenses that are NOT selected for optimization."""
+    window._ensure_unit_dropdowns_populated()
+    excluded: List[int] = []
+    optimize_checks = getattr(window, "siege_optimize_checks", None) or []
+    for t, row in enumerate(window.siege_team_combos):
+        if not optimize_checks or t >= len(optimize_checks):
+            continue
+        if optimize_checks[t].isChecked():
+            continue
+        for cmb in row:
+            uid = int(cmb.currentData() or 0)
+            if uid != 0:
+                excluded.append(uid)
+    return excluded
 
 
 def validate_team_structure(window, label: str, selections: List[TeamSelection], must_have_team_size: int) -> Tuple[bool, str, List[int]]:
@@ -279,6 +299,24 @@ def on_optimize_siege(window) -> None:
             window,
             [sel.unit_ids for sel in selections if sel.unit_ids],
         )
+
+        # Collect rune/artifact IDs from non-optimized defenses to exclude from the pool
+        excluded_rune_ids: Set[int] = set()
+        excluded_artifact_ids: Set[int] = set()
+        chk_block = getattr(window, "chk_siege_block_excluded", None)
+        if chk_block and chk_block.isChecked():
+            excluded_uids = window._collect_siege_excluded_unit_ids()
+            for uid in excluded_uids:
+                for rune in window.account.equipped_runes_for(uid, mode="siege"):
+                    rid = int(rune.rune_id or 0)
+                    if rid > 0:
+                        excluded_rune_ids.add(rid)
+                for art in window.account.artifacts:
+                    if int(art.occupied_id or 0) == int(uid):
+                        aid = int(art.artifact_id or 0)
+                        if aid > 0:
+                            excluded_artifact_ids.add(aid)
+
         res = window._run_with_busy_progress(
             running_text,
             lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -310,6 +348,8 @@ def on_optimize_siege(window) -> None:
                         if (baseline_runes_by_unit or baseline_arts_by_unit)
                         else 0
                     ),
+                    excluded_rune_ids=(excluded_rune_ids if excluded_rune_ids else None),
+                    excluded_artifact_ids=(excluded_artifact_ids if excluded_artifact_ids else None),
                 ),
             ),
         )

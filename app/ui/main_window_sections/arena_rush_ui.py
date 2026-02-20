@@ -81,6 +81,13 @@ def init_arena_rush_builder_ui(
             row.append(cmb)
         window.arena_offense_team_combos.append(row)
 
+    off_grid.setColumnStretch(0, 0)  # "Aktiv" checkbox - minimal width
+    off_grid.setColumnStretch(1, 0)  # offense label - minimal width
+    off_grid.setColumnStretch(2, 1)
+    off_grid.setColumnStretch(3, 1)
+    off_grid.setColumnStretch(4, 1)
+    off_grid.setColumnStretch(5, 1)
+
     btn_row = QHBoxLayout()
     v.addLayout(btn_row)
 

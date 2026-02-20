@@ -61,6 +61,7 @@ tests/
 tests/*
 !tests/test_arena_rush_optimizer.py
 app/services/license_service.py
+screenshots/
 
 # Lokale App-Config / Caches (nicht oeffentlich relevant)
 app/config

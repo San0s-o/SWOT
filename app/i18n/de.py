@@ -66,6 +66,8 @@ STRINGS: dict[str, str] = {
     "btn.take_arena_def": "Aktuelle Arena-Def übernehmen",
     "btn.take_arena_off": "Arena-Offense Decks übernehmen",
     "btn.load_current_runes": "Aktuelle Runen übernehmen",
+    "btn.load_preferred_runes": "Bevorzugte Runen laden",
+    "btn.save_preferred_runes": "Bevorzugte Runen speichern",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Durchläufe",
@@ -98,6 +100,9 @@ STRINGS: dict[str, str] = {
 
     # -- Tooltips ------------------------------------------------
     "tooltip.load_current_runes": "Übernimmt die aktuell angelegten Runen-Sets und Mainstats für alle Monster.",
+    "tooltip.load_preferred_runes": "Lädt bevorzugte Runen-Kombis und Mainstats aus monster_rune_set_preferences.json für dieses Monster.",
+    "tooltip.load_preferred_runes_missing": "Keine Runen-Prefs für dieses Monster in monster_rune_set_preferences.json gefunden.",
+    "tooltip.save_preferred_runes": "Speichert die aktuell gewählten Runen-Sets und Mainstats als Monster-Prefs in monster_rune_set_preferences.json.",
     "tooltip.set_multi": "Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).",
     "tooltip.set3": "Nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind.",
     "tooltip.mainstat_multi": "Mehrfachauswahl möglich. Keine Auswahl = Any.",
@@ -110,6 +115,9 @@ STRINGS: dict[str, str] = {
     "tooltip.effect_spd_buff": "Wenn aktiv, wird nach diesem Zug ein SPD-Buff beruecksichtigt.",
     "tooltip.effect_atb_boost": "Wenn aktiv, wird ein Angriffsbalken-Push in % beruecksichtigt.",
     "tooltip.team_slot_leader": "Bei Siege/WGB bestimmt das erste Monster (Slot 1) die Leader-Fertigkeit des Teams.",
+    "tooltip.siege_optimize_check": "Wenn aktiviert, wird diese Verteidigung optimiert. Deaktivieren, um sie zu überspringen.",
+    "tooltip.siege_block_excluded": "Runen und Artefakte von Monstern in nicht-optimierten Verteidigungen werden für die Optimierung gesperrt (nicht verfügbar).",
+    "chk.siege_block_excluded": "Runen/Artefakte nicht-optimierter Defs sperren",
     "tooltip.optimize_order_priority": (
         "Drag & Drop Reihenfolge = Optimierungsreihenfolge. "
         "Bei Fast/Balanced besonders wichtig, weil vordere Monster zuerst "
@@ -542,7 +550,7 @@ STRINGS: dict[str, str] = {
 
     "settings.label_license_type": "Lizenz: {type}",
     "settings.label_license_type_trial": "Trial ({remaining} verbleibend)",
-    "settings.label_license_type_full": "Voll",
+    "settings.label_license_type_full": "Vollversion",
     "settings.label_license_key": "Key: {license_key}",
     "settings.label_no_license": "Keine Lizenz aktiv.",
     "settings.license_activated": "Lizenz erfolgreich aktiviert.",
@@ -568,5 +576,23 @@ STRINGS: dict[str, str] = {
 
     "settings.about_version": "App-Version: {version}",
     "settings.about_license": "Lizenz: {type}",
+    "settings.about_creator": "Ersteller: {name}",
+    "settings.about_discord": "Discord: {handle}",
+    "settings.btn_open_discord_dm": "Discord-DM öffnen",
+    "settings.discord_opened": "Discord wurde geöffnet. Schreibe {handle} eine DM.",
+    "settings.discord_open_failed": "Discord konnte nicht geöffnet werden. Kontakt: {handle}",
+    "settings.about_open_source": (
+        "Open Source: "
+        "<a href='https://www.qt.io/'>PySide6 (Qt)</a>, "
+        "<a href='https://developers.google.com/optimization'>OR-Tools</a>, "
+        "<a href='https://docs.pydantic.dev/'>Pydantic</a>, "
+        "<a href='https://requests.readthedocs.io/'>Requests</a>, "
+        "<a href='https://github.com/tqdm/tqdm'>tqdm</a>"
+    ),
+    "settings.about_data_sources": (
+        "Datenquellen: "
+        "<a href='https://swarfarm.com/api/'>Swarfarm API</a> "
+        "(Monster, Skills, Skill-Icons)."
+    ),
     "settings.about_data_dir": "Datenverzeichnis: {path}",
 }

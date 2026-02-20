@@ -66,6 +66,8 @@ STRINGS: dict[str, str] = {
     "btn.take_arena_def": "Load current Arena Defense",
     "btn.take_arena_off": "Load Arena Offense Decks",
     "btn.load_current_runes": "Load current runes",
+    "btn.load_preferred_runes": "Load preferred runes",
+    "btn.save_preferred_runes": "Save preferred runes",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Passes",
@@ -98,6 +100,9 @@ STRINGS: dict[str, str] = {
 
     # -- Tooltips ------------------------------------------------
     "tooltip.load_current_runes": "Load currently equipped rune sets and mainstats for all monsters.",
+    "tooltip.load_preferred_runes": "Load preferred rune set combinations and mainstats from monster_rune_set_preferences.json for this monster.",
+    "tooltip.load_preferred_runes_missing": "No rune preferences found for this monster in monster_rune_set_preferences.json.",
+    "tooltip.save_preferred_runes": "Save currently selected rune sets and mainstats as monster preferences in monster_rune_set_preferences.json.",
     "tooltip.set_multi": "Multi-select. After first selection only same-size sets (2-piece/4-piece).",
     "tooltip.set3": "Only active when Set 1 and Set 2 are both 2-piece sets.",
     "tooltip.mainstat_multi": "Multi-select possible. No selection = Any.",
@@ -110,6 +115,9 @@ STRINGS: dict[str, str] = {
     "tooltip.effect_spd_buff": "When enabled, an SPD buff after this unit's turn is considered.",
     "tooltip.effect_atb_boost": "When enabled, an attack bar push in % is considered.",
     "tooltip.team_slot_leader": "In Siege/GWB, the first monster (slot 1) defines the team's leader skill.",
+    "tooltip.siege_optimize_check": "When checked, this defense will be optimized. Uncheck to skip it.",
+    "tooltip.siege_block_excluded": "Runes and artifacts from monsters in non-optimized defenses are blocked (unavailable) for the optimization.",
+    "chk.siege_block_excluded": "Block runes/artifacts from non-optimized defenses",
     "tooltip.optimize_order_priority": (
         "Drag & Drop order = optimization order. "
         "Especially important for Fast/Balanced, because earlier monsters "
@@ -568,5 +576,23 @@ STRINGS: dict[str, str] = {
 
     "settings.about_version": "App Version: {version}",
     "settings.about_license": "License: {type}",
+    "settings.about_creator": "Creator: {name}",
+    "settings.about_discord": "Discord: {handle}",
+    "settings.btn_open_discord_dm": "Open Discord DM",
+    "settings.discord_opened": "Discord opened. Send a DM to {handle}.",
+    "settings.discord_open_failed": "Could not open Discord. Contact: {handle}",
+    "settings.about_open_source": (
+        "Open source: "
+        "<a href='https://www.qt.io/'>PySide6 (Qt)</a>, "
+        "<a href='https://developers.google.com/optimization'>OR-Tools</a>, "
+        "<a href='https://docs.pydantic.dev/'>Pydantic</a>, "
+        "<a href='https://requests.readthedocs.io/'>Requests</a>, "
+        "<a href='https://github.com/tqdm/tqdm'>tqdm</a>"
+    ),
+    "settings.about_data_sources": (
+        "Data sources: "
+        "<a href='https://swarfarm.com/api/'>Swarfarm API</a> "
+        "(monsters, skills, skill icons)."
+    ),
     "settings.about_data_dir": "Data Directory: {path}",
 }

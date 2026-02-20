@@ -38,6 +38,7 @@ from app.ui.main_window_sections.builders_and_saved import (
 from app.ui.main_window_sections.mode_actions import (
     on_take_current_siege as _sec_on_take_current_siege,
     collect_siege_selections as _sec_collect_siege_selections,
+    collect_siege_excluded_unit_ids as _sec_collect_siege_excluded_unit_ids,
     validate_team_structure as _sec_validate_team_structure,
     on_validate_siege as _sec_on_validate_siege,
     on_edit_presets_siege as _sec_on_edit_presets_siege,
@@ -701,6 +702,9 @@ class MainWindow(QMainWindow):
 
     def _collect_siege_selections(self) -> List[TeamSelection]:
         return _sec_collect_siege_selections(self)
+
+    def _collect_siege_excluded_unit_ids(self) -> List[int]:
+        return _sec_collect_siege_excluded_unit_ids(self)
 
     def _validate_team_structure(self, label: str, selections: List[TeamSelection], must_have_team_size: int) -> Tuple[bool, str, List[int]]:
         return _sec_validate_team_structure(self, label, selections, must_have_team_size)

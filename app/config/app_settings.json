@@ -1,6 +1,5 @@
 {
   "language": "de",
-  "allow_online_metadata_fetch": false,
   "tab_order": [
     "tab_overview",
     "tab_rune_optimization",

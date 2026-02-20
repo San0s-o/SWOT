@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
-import requests
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.domain.artifact_effects import artifact_effect_is_legacy
@@ -19,7 +17,6 @@ from app.engine.arena_rush_optimizer import (
 from app.engine.greedy_optimizer import BASELINE_REGRESSION_GUARD_WEIGHT
 from app.engine.arena_rush_timing import OpeningTurnEffect
 from app.i18n import tr
-from app.services.monster_turn_effects_service import ensure_skill_icons, resolve_turn_effect_capabilities
 from app.ui.dialogs.build_dialog import BuildDialog
 
 
@@ -136,21 +133,6 @@ def _monster_artifact_preferences_path(window) -> Path:
     return Path(window.config_dir) / "monster_artifact_preferences.json"
 
 
-def _swdb_pages_cache_path(window) -> Path:
-    return Path(window.config_dir) / "swdb_pages_cache.json"
-
-
-def _allow_online_metadata_fetch(window) -> bool:
-    settings_path = Path(window.config_dir) / "app_settings.json"
-    try:
-        if not settings_path.exists():
-            return False
-        raw = json.loads(settings_path.read_text(encoding="utf-8", errors="replace"))
-        return bool((raw or {}).get("allow_online_metadata_fetch", False))
-    except Exception:
-        return False
-
-
 def _load_arena_speed_lead_cache(path: Path) -> Dict[int, int]:
     try:
         if not path.exists():
@@ -168,41 +150,6 @@ def _load_arena_speed_lead_cache(path: Path) -> Dict[int, int]:
         return out
     except Exception:
         return {}
-
-
-def _save_arena_speed_lead_cache(path: Path, cache: Dict[int, int]) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {str(int(mid)): int(max(0, int(pct or 0))) for mid, pct in dict(cache or {}).items() if int(mid) > 0}
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        return
-
-
-def _fetch_arena_speed_lead_pct_for_com2us_id(com2us_id: int, timeout_s: float = 6.0) -> int:
-    cid = int(com2us_id or 0)
-    if cid <= 0:
-        return 0
-    try:
-        resp = requests.get(
-            "https://swarfarm.com/api/v2/monsters/",
-            params={"com2us_id": int(cid)},
-            timeout=float(timeout_s),
-        )
-        if int(resp.status_code) != 200:
-            return 0
-        payload = dict(resp.json() or {})
-        results = list(payload.get("results") or [])
-        if not results:
-            return 0
-        leader = dict((results[0] or {}).get("leader_skill") or {})
-        stat = str(leader.get("stat") or "").strip().upper()
-        area = str(leader.get("area") or "").strip()
-        if stat != "SPD%" or area not in ("Arena", "General"):
-            return 0
-        return max(0, int(float(leader.get("amount") or 0)))
-    except Exception:
-        return 0
 
 
 def _load_arena_archetype_cache(path: Path) -> Dict[int, str]:
@@ -224,41 +171,6 @@ def _load_arena_archetype_cache(path: Path) -> Dict[int, str]:
         return out
     except Exception:
         return {}
-
-
-def _save_arena_archetype_cache(path: Path, cache: Dict[int, str]) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            str(int(mid)): str(arch)
-            for mid, arch in dict(cache or {}).items()
-            if int(mid) > 0 and str(arch or "").strip()
-        }
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        return
-
-
-def _fetch_archetype_for_com2us_id(com2us_id: int, timeout_s: float = 6.0) -> str:
-    cid = int(com2us_id or 0)
-    if cid <= 0:
-        return ""
-    try:
-        resp = requests.get(
-            "https://swarfarm.com/api/v2/monsters/",
-            params={"com2us_id": int(cid)},
-            timeout=float(timeout_s),
-        )
-        if int(resp.status_code) != 200:
-            return ""
-        payload = dict(resp.json() or {})
-        results = list(payload.get("results") or [])
-        if not results:
-            return ""
-        archetype = str((results[0] or {}).get("archetype") or "").strip()
-        return archetype
-    except Exception:
-        return ""
 
 
 ARTIFACT_TOP_EFFECT_COUNT = 4
@@ -424,274 +336,6 @@ def _save_artifact_skill_hint_cache(path: Path, cache: Dict[int, Dict[str, List[
         return
 
 
-def _load_swdb_pages_cache(path: Path) -> List[str]:
-    try:
-        if not path.exists():
-            return []
-        raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-        if not isinstance(raw, dict):
-            return []
-        urls = [str(x).strip() for x in (raw.get("urls") or []) if str(x).strip().startswith("https://www.sw-database.com/")]
-        return list(dict.fromkeys(urls))
-    except Exception:
-        return []
-
-
-def _save_swdb_pages_cache(path: Path, urls: List[str]) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "version": "2026-02-19.1",
-            "urls": [str(x).strip() for x in (urls or []) if str(x).strip().startswith("https://www.sw-database.com/")],
-        }
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        return
-
-
-def _fetch_swdb_pages_sitemap_urls(timeout_s: float = 10.0) -> List[str]:
-    try:
-        resp = requests.get("https://www.sw-database.com/pages-sitemap.xml", timeout=float(timeout_s))
-        if int(resp.status_code) != 200:
-            return []
-        xml = str(resp.text or "")
-        urls = re.findall(r"<loc>(https://www\.sw-database\.com/[^<]+)</loc>", xml, flags=re.I)
-        out = [u.strip() for u in urls if "/blog" not in u.lower()]
-        return list(dict.fromkeys(out))
-    except Exception:
-        return []
-
-
-def _swdb_slug_from_url(url: str) -> str:
-    txt = str(url or "").strip()
-    if not txt:
-        return ""
-    if txt.endswith("/"):
-        txt = txt[:-1]
-    parts = txt.split("/")
-    return str(parts[-1] if parts else "").strip().lower()
-
-
-def _swdb_name_slug(name: str) -> str:
-    s = str(name or "").strip().lower()
-    s = re.sub(r"[()\[\],.'’`]+", " ", s)
-    s = re.sub(r"\s+", "-", s).strip("-")
-    s = re.sub(r"-+", "-", s)
-    return s
-
-
-def _swdb_element_tokens(element: str) -> Set[str]:
-    e = str(element or "").strip().lower()
-    tokens: Set[str] = set()
-    if e in ("fire", "water", "wind", "light", "dark"):
-        tokens.add(e)
-    return tokens
-
-
-def _swdb_candidate_urls_for_monster(
-    all_urls: List[str],
-    monster_name: str,
-    element: str,
-) -> List[str]:
-    name_slug = _swdb_name_slug(monster_name)
-    if not name_slug:
-        return []
-    name_tokens = {t for t in name_slug.split("-") if t}
-    elem_tokens = _swdb_element_tokens(element)
-    scored: List[Tuple[int, str]] = []
-    for url in all_urls:
-        slug = _swdb_slug_from_url(url)
-        if not slug:
-            continue
-        slug_tokens = {t for t in slug.split("-") if t}
-        if name_slug == slug:
-            score = 200
-        elif slug.startswith(name_slug + "-") or slug.endswith("-" + name_slug):
-            score = 170
-        elif all(t in slug_tokens for t in name_tokens):
-            score = 130
-        elif len(name_tokens.intersection(slug_tokens)) >= max(1, min(2, len(name_tokens))):
-            score = 80
-        else:
-            continue
-        if elem_tokens and elem_tokens.intersection(slug_tokens):
-            score += 20
-        scored.append((int(score), str(url)))
-    scored.sort(key=lambda x: int(x[0]), reverse=True)
-    out: List[str] = []
-    for _score, url in scored:
-        if url in out:
-            continue
-        out.append(url)
-        if len(out) >= 4:
-            break
-    return out
-
-
-def _strip_html(text: str) -> str:
-    s = re.sub(r"<[^>]+>", " ", str(text or ""))
-    s = re.sub(r"&nbsp;?", " ", s, flags=re.I)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-def _extract_swdb_recommended_artifact_lines(html_text: str) -> List[str]:
-    txt = str(html_text or "")
-    idx = txt.lower().find("recommended artifacts")
-    if idx < 0:
-        return []
-    chunk = txt[idx: idx + 20000]
-    lines: List[str] = []
-    for item in re.findall(r"<li[^>]*>(.*?)</li>", chunk, flags=re.I | re.S):
-        line = _strip_html(item)
-        if line:
-            lines.append(line)
-    if lines:
-        return lines
-    for item in re.findall(r"<h\d[^>]*>(.*?)</h\d>", chunk, flags=re.I | re.S):
-        line = _strip_html(item)
-        if line:
-            lines.append(line)
-    return lines
-
-
-def _swdb_hints_from_lines(lines: List[str]) -> Dict[str, List[int]]:
-    bomb_slots: Set[int] = set()
-    preferred_crit_slots: Set[int] = set()
-    preferred_recovery_slots: Set[int] = set()
-    preferred_debuff_slots: Set[int] = set()
-    preferred_effect_ids: Set[int] = set()
-
-    elemental_dealt_map = {"fire": 300, "water": 301, "wind": 302, "light": 303, "dark": 304}
-    elemental_taken_map = {"fire": 305, "water": 306, "wind": 307, "light": 308, "dark": 309}
-
-    for line in (lines or []):
-        low = str(line or "").lower()
-        if not low:
-            continue
-        if "bomb dmg" in low or "bomb damage" in low:
-            preferred_effect_ids.add(210)
-        if "additional damage" in low and ("hp" in low or "health" in low):
-            preferred_effect_ids.add(218)
-        if "additional damage" in low and ("atk" in low or "attack" in low):
-            preferred_effect_ids.add(219)
-        if "additional damage" in low and "def" in low:
-            preferred_effect_ids.add(220)
-        if "additional damage" in low and "spd" in low:
-            preferred_effect_ids.add(221)
-        if "atk increasing effect" in low:
-            preferred_effect_ids.add(204)
-        if "def increasing effect" in low:
-            preferred_effect_ids.add(205)
-        if "atk/def increasing effect" in low:
-            preferred_effect_ids.add(226)
-        if "counterattack/attacking together" in low:
-            preferred_effect_ids.add(225)
-        if "counterattack" in low and "attacking together" not in low:
-            preferred_effect_ids.add(208)
-        if "attacking together" in low and "counterattack" not in low:
-            preferred_effect_ids.add(209)
-        if "single-target" in low and "crit dmg" in low:
-            preferred_effect_ids.add(224)
-
-        for elem, eid in elemental_dealt_map.items():
-            if f"dmg dealt on {elem}" in low or f"damage dealt on {elem}" in low:
-                preferred_effect_ids.add(int(eid))
-        for elem, eid in elemental_taken_map.items():
-            if f"dmg received from {elem}" in low or f"damage received from {elem}" in low:
-                preferred_effect_ids.add(int(eid))
-
-        slots: Set[int] = set()
-        for m in re.findall(r"skill\s*([1-4])", low):
-            try:
-                slots.add(int(m))
-            except Exception:
-                continue
-        if "skill 3/4" in low or "skill3/4" in low:
-            slots.add(3)
-            slots.add(4)
-        if ("bomb dmg" in low or "bomb damage" in low) and slots:
-            bomb_slots.update(int(s) for s in slots if 1 <= int(s) <= 4)
-        if not slots:
-            continue
-
-        if "crit dmg" in low or "critical damage" in low:
-            preferred_crit_slots.update(int(s) for s in slots if 1 <= int(s) <= 4)
-            if 1 in slots:
-                preferred_effect_ids.add(400)
-            if 2 in slots:
-                preferred_effect_ids.add(401)
-            if 3 in slots:
-                preferred_effect_ids.add(402)
-            if 4 in slots:
-                preferred_effect_ids.add(403)
-            if 3 in slots or 4 in slots:
-                preferred_effect_ids.add(410)
-        if "accuracy" in low:
-            preferred_debuff_slots.update(int(s) for s in slots if 1 <= int(s) <= 3)
-            if 1 in slots:
-                preferred_effect_ids.add(407)
-            if 2 in slots:
-                preferred_effect_ids.add(408)
-            if 3 in slots:
-                preferred_effect_ids.add(409)
-        if ("recovery" in low or "heal" in low) and "attack bar" not in low:
-            preferred_recovery_slots.update(int(s) for s in slots if 1 <= int(s) <= 3)
-            if 1 in slots:
-                preferred_effect_ids.add(404)
-            if 2 in slots:
-                preferred_effect_ids.add(405)
-            if 3 in slots:
-                preferred_effect_ids.add(406)
-
-    return _normalize_hint_payload(
-        {
-            "bomb_slots": sorted(bomb_slots),
-            "preferred_crit_slots": sorted(preferred_crit_slots),
-            "preferred_recovery_slots": sorted(preferred_recovery_slots),
-            "preferred_debuff_slots": sorted(preferred_debuff_slots),
-            "preferred_effect_ids": sorted(preferred_effect_ids),
-        }
-    )
-
-
-def _fetch_swdb_artifact_hints_for_monster(
-    window,
-    monster_name: str,
-    element: str,
-    timeout_s: float = 10.0,
-) -> Dict[str, List[int]]:
-    cache_path = _swdb_pages_cache_path(window)
-    urls = _load_swdb_pages_cache(cache_path)
-    if not urls:
-        urls = _fetch_swdb_pages_sitemap_urls(timeout_s=float(timeout_s))
-        if urls:
-            _save_swdb_pages_cache(cache_path, urls)
-    if not urls:
-        return _normalize_hint_payload({})
-
-    candidates = _swdb_candidate_urls_for_monster(urls, monster_name=monster_name, element=element)
-    if not candidates:
-        return _normalize_hint_payload({})
-
-    best: Dict[str, List[int]] = _normalize_hint_payload({})
-    best_score = 0
-    for url in candidates:
-        try:
-            resp = requests.get(str(url), timeout=float(timeout_s))
-            if int(resp.status_code) != 200:
-                continue
-            lines = _extract_swdb_recommended_artifact_lines(resp.text)
-            hints = _swdb_hints_from_lines(lines)
-            score = sum(len(v) for v in hints.values() if isinstance(v, list))
-            if score > best_score:
-                best = hints
-                best_score = int(score)
-        except Exception:
-            continue
-    return _normalize_hint_payload(best)
-
-
 def _merge_hint_payloads(*payloads: Dict[str, List[int]]) -> Dict[str, List[int]]:
     effect_ordered_keys = {"top_sub_effect_ids", "top_attribute_effect_ids", "top_type_effect_ids"}
     merged_set: Dict[str, Set[int]] = {}
@@ -717,123 +361,19 @@ def _merge_hint_payloads(*payloads: Dict[str, List[int]]) -> Dict[str, List[int]
     return out
 
 
-def _fetch_artifact_skill_hints_for_com2us_id(com2us_id: int, timeout_s: float = 6.0) -> Dict[str, List[int]]:
-    cid = int(com2us_id or 0)
-    if cid <= 0:
-        return _normalize_hint_payload({})
-
-    try:
-        mon_resp = requests.get(
-            "https://swarfarm.com/api/v2/monsters/",
-            params={"com2us_id": int(cid)},
-            timeout=float(timeout_s),
-        )
-        if int(mon_resp.status_code) != 200:
-            return _normalize_hint_payload({})
-        payload = dict(mon_resp.json() or {})
-        results = list(payload.get("results") or [])
-        if not results:
-            return _normalize_hint_payload({})
-        mon = dict(results[0] or {})
-        skill_ids = [int(sid) for sid in (mon.get("skills") or []) if int(sid or 0) > 0]
-        if not skill_ids:
-            return _normalize_hint_payload({})
-
-        bomb_slots: Set[int] = set()
-        crit_slots: Set[int] = set()
-        recovery_slots: Set[int] = set()
-        debuff_slots: Set[int] = set()
-
-        debuff_keywords = (
-            "stun",
-            "sleep",
-            "freeze",
-            "silence",
-            "provoke",
-            "bomb",
-            "continuous damage",
-            "decrease attack bar",
-            "reduces the attack bar",
-            "decrease atk bar",
-            "increases the chances of landing glancing hit",
-            "decreases defense",
-            "decreases attack speed",
-            "decreases attack power",
-            "decreases resistance",
-            "decreases accuracy",
-            "beneficial effect",
-            "remove all beneficial effects",
-            "strip",
-            "block beneficial effects",
-            "debuff",
-        )
-
-        for sid in skill_ids:
-            skill_resp = requests.get(
-                f"https://swarfarm.com/api/v2/skills/{int(sid)}/",
-                timeout=float(timeout_s),
-            )
-            if int(skill_resp.status_code) != 200:
-                continue
-            skill = dict(skill_resp.json() or {})
-            slot = int(skill.get("slot") or 0)
-            if slot <= 0 or slot > 4:
-                continue
-            desc = str(skill.get("description") or "")
-            txt = re.sub(r"\s+", " ", desc).strip().lower()
-            if not txt:
-                continue
-
-            if "bomb" in txt:
-                bomb_slots.add(int(slot))
-            if (
-                "always lands as a critical hit" in txt
-                or "always inflicts a critical hit" in txt
-                or "always inflicts critical hit" in txt
-                or "always lands a critical hit" in txt
-            ):
-                crit_slots.add(int(slot))
-            has_hp_recovery = (
-                (
-                    "recover hp" in txt
-                    or "recovers hp" in txt
-                    or "restore hp" in txt
-                    or "restores hp" in txt
-                    or ("heal" in txt and ("hp" in txt or "health" in txt))
-                )
-                and "attack bar" not in txt
-            )
-            if has_hp_recovery and int(slot) <= 3:
-                recovery_slots.add(int(slot))
-            if any(kw in txt for kw in debuff_keywords) and int(slot) <= 3:
-                debuff_slots.add(int(slot))
-
-        return _normalize_hint_payload(
-            {
-                "bomb_slots": sorted(bomb_slots),
-                "guaranteed_crit_slots": sorted(crit_slots),
-                "recovery_slots": sorted(recovery_slots),
-                "debuff_slots": sorted(debuff_slots),
-            }
-        )
-    except Exception:
-        return _normalize_hint_payload({})
-
-
 def optimizer_artifact_hints_by_uid(
     window,
     unit_ids: List[int],
     fetch_missing: bool | None = None,
 ) -> Dict[int, Dict[str, List[int]]]:
+    _ = fetch_missing  # Runtime is local-only; keep argument for compatibility.
     out: Dict[int, Dict[str, List[int]]] = {}
     if not window.account:
         return out
-    do_fetch = _allow_online_metadata_fetch(window) if fetch_missing is None else bool(fetch_missing)
     cache_path = _artifact_skill_hint_cache_path(window)
     cache = _load_artifact_skill_hint_cache(cache_path)
     local_pref_path = _monster_artifact_preferences_path(window)
     local_pref_by_mid = _load_monster_artifact_preferences(local_pref_path)
-    cache_changed = False
     for uid in [int(x) for x in (unit_ids or []) if int(x) > 0]:
         unit = window.account.units_by_id.get(int(uid))
         if unit is None:
@@ -847,29 +387,8 @@ def optimizer_artifact_hints_by_uid(
                 dict(cache.get(int(mid), {}) or {}),
             )
         )
-        if not _hint_payload_has_values(hints) and do_fetch:
-            fetched_swarfarm = _fetch_artifact_skill_hints_for_com2us_id(int(mid))
-            monster_name = str(window.monster_db.name_for(int(mid)) or "").strip()
-            monster_element = str(window.monster_db.element_for(int(mid)) or "").strip()
-            fetched_swdb = _fetch_swdb_artifact_hints_for_monster(
-                window,
-                monster_name=monster_name,
-                element=monster_element,
-            )
-            fetched_norm = _normalize_hint_payload(_merge_hint_payloads(fetched_swarfarm, fetched_swdb))
-            if _hint_payload_has_values(fetched_norm):
-                cache[int(mid)] = dict(fetched_norm)
-                cache_changed = True
-                hints = _normalize_hint_payload(
-                    _merge_hint_payloads(
-                        dict(local_pref_by_mid.get(int(mid), {}) or {}),
-                        dict(fetched_norm),
-                    )
-                )
         if _hint_payload_has_values(hints):
             out[int(uid)] = dict(hints)
-    if cache_changed:
-        _save_artifact_skill_hint_cache(cache_path, cache)
     return out
 
 
@@ -1113,6 +632,7 @@ def _arena_effect_capabilities_by_unit(
     fetch_missing: bool = True,
     ensure_icons_for_dialog: bool = True,
 ) -> Dict[int, Dict[str, object]]:
+    _ = (fetch_missing, ensure_icons_for_dialog)  # Runtime is local-only.
     if not window.account:
         return {}
     uid_to_mid: Dict[int, int] = {}
@@ -1123,34 +643,14 @@ def _arena_effect_capabilities_by_unit(
         mid = int(unit.unit_master_id or 0)
         if mid > 0:
             uid_to_mid[int(uid)] = mid
-    caps_by_cid: Dict[int, Dict[str, object]] = {}
-    if bool(fetch_missing):
-        cache_path = window.project_root / "app" / "config" / "monster_turn_effect_capabilities.json"
-        com2us_ids = sorted(set(uid_to_mid.values()))
-        caps_by_cid = resolve_turn_effect_capabilities(
-            com2us_ids,
-            cache_path=cache_path,
-            fetch_missing=True,
-        )
-        if bool(ensure_icons_for_dialog):
-            skill_icons_dir = window.assets_dir / "skills"
-            ensure_skill_icons(caps_by_cid, skill_icons_dir)
     out: Dict[int, Dict[str, object]] = {}
     for uid, mid in uid_to_mid.items():
         base = dict(window.monster_db.turn_effect_capability_for(mid) or {})
-        cap = dict(caps_by_cid.get(mid) or {})
-        if bool(fetch_missing):
-            has_spd_buff = bool(cap.get("has_spd_buff", base.get("has_spd_buff", False)))
-            has_atb_boost = bool(cap.get("has_atb_boost", base.get("has_atb_boost", False)))
-            max_atb_boost_pct = int(cap.get("max_atb_boost_pct", base.get("max_atb_boost_pct", 0)) or 0)
-            spd_icon = str(cap.get("spd_buff_skill_icon", base.get("spd_buff_skill_icon", "")) or "")
-            atb_icon = str(cap.get("atb_boost_skill_icon", base.get("atb_boost_skill_icon", "")) or "")
-        else:
-            has_spd_buff = bool(base.get("has_spd_buff", False))
-            has_atb_boost = bool(base.get("has_atb_boost", False))
-            max_atb_boost_pct = int(base.get("max_atb_boost_pct", 0) or 0)
-            spd_icon = str(base.get("spd_buff_skill_icon", "") or "")
-            atb_icon = str(base.get("atb_boost_skill_icon", "") or "")
+        has_spd_buff = bool(base.get("has_spd_buff", False))
+        has_atb_boost = bool(base.get("has_atb_boost", False))
+        max_atb_boost_pct = int(base.get("max_atb_boost_pct", 0) or 0)
+        spd_icon = str(base.get("spd_buff_skill_icon", "") or "")
+        atb_icon = str(base.get("atb_boost_skill_icon", "") or "")
         if has_atb_boost and max_atb_boost_pct <= 0:
             max_atb_boost_pct = 100
         out[int(uid)] = {
@@ -1168,12 +668,12 @@ def _arena_speed_lead_pct_by_uid(
     unit_ids: List[int],
     fetch_missing: bool = True,
 ) -> Dict[int, int]:
+    _ = fetch_missing  # Runtime is local-only.
     out: Dict[int, int] = {}
     if not window.account:
         return out
     cache_path = _arena_speed_lead_cache_path(window)
     cache = _load_arena_speed_lead_cache(cache_path)
-    cache_changed = False
     for uid in [int(x) for x in (unit_ids or []) if int(x) > 0]:
         unit = window.account.units_by_id.get(int(uid))
         if unit is None:
@@ -1188,16 +688,8 @@ def _arena_speed_lead_pct_by_uid(
         if pct <= 0:
             if int(mid) in cache:
                 pct = int(cache.get(int(mid), 0) or 0)
-            else:
-                if bool(fetch_missing):
-                    fetched_pct = _fetch_arena_speed_lead_pct_for_com2us_id(int(mid))
-                    cache[int(mid)] = int(fetched_pct)
-                    cache_changed = True
-                    pct = int(fetched_pct)
         if pct > 0:
             out[int(uid)] = int(pct)
-    if cache_changed:
-        _save_arena_speed_lead_cache(cache_path, cache)
     return out
 
 
@@ -1206,12 +698,12 @@ def _arena_archetype_by_uid(
     unit_ids: List[int],
     fetch_missing: bool = True,
 ) -> Dict[int, str]:
+    _ = fetch_missing  # Runtime is local-only.
     out: Dict[int, str] = {}
     if not window.account:
         return out
     cache_path = _arena_archetype_cache_path(window)
     cache = _load_arena_archetype_cache(cache_path)
-    cache_changed = False
     for uid in [int(x) for x in (unit_ids or []) if int(x) > 0]:
         unit = window.account.units_by_id.get(int(uid))
         if unit is None:
@@ -1223,17 +715,8 @@ def _arena_archetype_by_uid(
         if not archetype or archetype.lower() == "unknown":
             if int(mid) in cache:
                 archetype = str(cache.get(int(mid), "") or "").strip()
-            else:
-                if bool(fetch_missing):
-                    fetched = _fetch_archetype_for_com2us_id(int(mid))
-                    if fetched:
-                        cache[int(mid)] = str(fetched)
-                        cache_changed = True
-                        archetype = str(fetched)
         if archetype:
             out[int(uid)] = str(archetype)
-    if cache_changed:
-        _save_arena_archetype_cache(cache_path, cache)
     return out
 
 
@@ -1242,12 +725,10 @@ def optimizer_archetype_by_uid(
     unit_ids: List[int],
     fetch_missing: bool | None = None,
 ) -> Dict[int, str]:
-    # Shared archetype resolution for all optimizer modes (arena/siege/wgb/rta/team).
-    do_fetch = _allow_online_metadata_fetch(window) if fetch_missing is None else bool(fetch_missing)
+    _ = fetch_missing  # Runtime is local-only; keep argument for compatibility.
     return _arena_archetype_by_uid(
         window,
         unit_ids,
-        fetch_missing=bool(do_fetch),
     )
 
 
@@ -1544,12 +1025,10 @@ def on_optimize_arena_rush(window) -> None:
     unit_archetype_by_uid = _arena_archetype_by_uid(
         window,
         all_selected_uids,
-        fetch_missing=_allow_online_metadata_fetch(window),
     )
     unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(
         window,
         all_selected_uids,
-        fetch_missing=_allow_online_metadata_fetch(window),
     )
 
     def _run_arena_rush(

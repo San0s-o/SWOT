@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from itertools import product
+import json
+from itertools import combinations, product
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set, Tuple
 
@@ -66,6 +67,7 @@ def _artifact_effect_label(effect_id: int) -> str:
 
 _MIN_BASE_STATS = ("SPD", "HP", "ATK", "DEF")
 _MIN_BASE_AWARE_STATS = ("SPD", "HP", "ATK", "DEF", "CR", "CD", "RES", "ACC")
+_RUNE_PREFS_PATH = Path(__file__).resolve().parents[2] / "config" / "monster_rune_set_preferences.json"
 
 
 class BuildDialog(QDialog):
@@ -102,8 +104,6 @@ class BuildDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumSize(980, 620)
-        # Match main window behavior exactly: open maximized.
-        self.showMaximized()
 
         self.preset_store = preset_store
         self.mode = mode
@@ -159,6 +159,7 @@ class BuildDialog(QDialog):
         self._syncing_focus_selection = False
         self._loaded_current_runes = False
         self._loaded_current_runes_snapshot: Dict[str, Any] = {}
+        self._rune_pref_entries_by_master_id: Dict[int, Dict[str, Any]] | None = None
 
         if show_order_sections:
             order_box = QGroupBox(tr("group.turn_order"))
@@ -460,6 +461,9 @@ class BuildDialog(QDialog):
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
 
+        # Show only after the full UI is constructed to avoid a brief white flash.
+        self.showMaximized()
+
     def _on_unit_row_changed(self, row: int) -> None:
         if row < 0 or row >= self._unit_list.count():
             return
@@ -714,6 +718,23 @@ class BuildDialog(QDialog):
         rune_sets_layout.addRow(tr("header.set1"), cmb_set1)
         rune_sets_layout.addRow(tr("header.set2"), cmb_set2)
         rune_sets_layout.addRow(tr("header.set3"), cmb_set3)
+        pref_btn_row = QWidget()
+        pref_btn_layout = QHBoxLayout(pref_btn_row)
+        pref_btn_layout.setContentsMargins(0, 0, 0, 0)
+        pref_btn_layout.setSpacing(6)
+        btn_load_pref_runes = QPushButton(tr("btn.load_preferred_runes"))
+        btn_load_pref_runes.setToolTip(
+            tr("tooltip.load_preferred_runes") if self._has_rune_pref_for_unit(int(unit_id))
+            else tr("tooltip.load_preferred_runes_missing")
+        )
+        btn_load_pref_runes.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_load_preferred_runes_for_unit(_uid))
+        btn_save_pref_runes = QPushButton(tr("btn.save_preferred_runes"))
+        btn_save_pref_runes.setToolTip(tr("tooltip.save_preferred_runes"))
+        btn_save_pref_runes.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_save_preferred_runes_for_unit(_uid))
+        pref_btn_layout.addWidget(btn_load_pref_runes)
+        pref_btn_layout.addWidget(btn_save_pref_runes)
+        pref_btn_layout.addStretch(1)
+        rune_sets_layout.addRow("", pref_btn_row)
 
         mainstats_box = QGroupBox(tr("group.build_mainstats"))
         mainstats_layout = QFormLayout(mainstats_box)
@@ -887,6 +908,411 @@ class BuildDialog(QDialog):
             c3.clear_checked()
             c3.set_enforced_size(None)
             c3.setEnabled(False)
+
+    def _load_rune_pref_entries(self) -> Dict[int, Dict[str, Any]]:
+        if self._rune_pref_entries_by_master_id is not None:
+            return dict(self._rune_pref_entries_by_master_id)
+        out: Dict[int, Dict[str, Any]] = {}
+        p = Path(_RUNE_PREFS_PATH)
+        if p.exists():
+            try:
+                raw = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+            except Exception:
+                raw = {}
+            if isinstance(raw, dict):
+                by_id = raw.get("by_com2us_id", raw)
+                if isinstance(by_id, dict):
+                    for mid_raw, entry_raw in by_id.items():
+                        try:
+                            mid = int(mid_raw or 0)
+                        except Exception:
+                            continue
+                        if mid <= 0 or not isinstance(entry_raw, dict):
+                            continue
+                        out[int(mid)] = dict(entry_raw or {})
+        self._rune_pref_entries_by_master_id = dict(out)
+        return dict(out)
+
+    def _unit_master_id_for_unit(self, unit_id: int) -> int:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return 0
+        if self._account:
+            u = self._account.units_by_id.get(int(uid))
+            if u is not None and int(getattr(u, "unit_master_id", 0) or 0) > 0:
+                return int(getattr(u, "unit_master_id", 0) or 0)
+        # Fallback (e.g. without account context).
+        return int(uid)
+
+    def _rune_pref_entry_for_unit(self, unit_id: int) -> Dict[str, Any] | None:
+        entries = self._load_rune_pref_entries()
+        mid = self._unit_master_id_for_unit(int(unit_id))
+        if int(mid) > 0 and isinstance(entries.get(int(mid)), dict):
+            return dict(entries[int(mid)])
+        uid = int(unit_id or 0)
+        if uid > 0 and isinstance(entries.get(int(uid)), dict):
+            return dict(entries[int(uid)])
+        return None
+
+    def _has_rune_pref_for_unit(self, unit_id: int) -> bool:
+        return isinstance(self._rune_pref_entry_for_unit(int(unit_id)), dict)
+
+    def _normalize_mainstat_pref_key(self, value: Any) -> str:
+        raw = str(value or "").strip().upper().replace(" ", "")
+        if not raw:
+            return ""
+        mapping = {
+            "HP": "HP%",
+            "HP%": "HP%",
+            "HPP": "HP%",
+            "ATK": "ATK%",
+            "ATK%": "ATK%",
+            "ATKP": "ATK%",
+            "DEF": "DEF%",
+            "DEF%": "DEF%",
+            "DEFP": "DEF%",
+            "SPD": "SPD",
+            "CR": "CR",
+            "CD": "CD",
+            "RES": "RES",
+            "ACC": "ACC",
+        }
+        key = mapping.get(raw, raw)
+        return str(key) if str(key) in MAINSTAT_KEYS else ""
+
+    def _rune_pref_slot_set_ids(self, entry: Dict[str, Any]) -> Tuple[List[int], List[int], List[int]]:
+        combos_raw = list(entry.get("top_set_combos") or []) + list(entry.get("preferred_set_combos") or [])
+        combos: List[List[int]] = []
+        seen_combo_keys: Set[Tuple[int, ...]] = set()
+        for combo in combos_raw:
+            if not isinstance(combo, (list, tuple)):
+                continue
+            row: List[int] = []
+            for x in list(combo)[:3]:
+                sid = int(x or 0)
+                if sid > 0 and sid in SET_NAMES:
+                    row.append(int(sid))
+            if row:
+                key = tuple(int(v) for v in row)
+                if key in seen_combo_keys:
+                    continue
+                seen_combo_keys.add(key)
+                combos.append(row)
+
+        # Fallback: derive coverage-friendly combos from top/preferred set IDs.
+        if not combos:
+            ranked_ids: List[int] = []
+            for sid in [int(x) for x in (entry.get("top_set_ids") or []) + (entry.get("preferred_set_ids") or [])]:
+                if sid > 0 and sid in SET_NAMES and sid not in ranked_ids:
+                    ranked_ids.append(int(sid))
+                if len(ranked_ids) >= 8:
+                    break
+            four_sets = [sid for sid in ranked_ids if int(SET_SIZES.get(int(sid), 2) or 2) == 4]
+            two_sets = [sid for sid in ranked_ids if int(SET_SIZES.get(int(sid), 2) or 2) == 2]
+            if four_sets and two_sets:
+                for a in four_sets:
+                    for b in two_sets:
+                        combos.append([int(a), int(b)])
+                        if len(combos) >= 12:
+                            break
+                    if len(combos) >= 12:
+                        break
+            elif len(two_sets) >= 2:
+                for a, b in combinations(two_sets, 2):
+                    combos.append([int(a), int(b)])
+                    if len(combos) >= 12:
+                        break
+                if len(two_sets) >= 3 and len(combos) < 12:
+                    for a, b, c in combinations(two_sets, 3):
+                        combos.append([int(a), int(b), int(c)])
+                        if len(combos) >= 12:
+                            break
+            elif ranked_ids:
+                combos = [[int(sid)] for sid in ranked_ids[:3]]
+
+        if combos:
+            by_width: Dict[int, List[List[int]]] = {1: [], 2: [], 3: []}
+            for row in combos:
+                w = int(len(row))
+                if 1 <= w <= 3:
+                    by_width[w].append(list(row))
+
+            best_layout: Tuple[List[int], List[int], List[int]] | None = None
+            best_score: Tuple[int, int] = (-1, -1)  # (covered combos, width)
+            for width in (3, 2, 1):
+                rows = list(by_width.get(int(width), []) or [])
+                if not rows:
+                    continue
+                slots: List[List[int]] = []
+                for pos in range(int(width)):
+                    vals: List[int] = []
+                    seen_vals: Set[int] = set()
+                    for row in rows:
+                        sid = int(row[pos] or 0)
+                        if sid <= 0 or sid in seen_vals:
+                            continue
+                        seen_vals.add(int(sid))
+                        vals.append(int(sid))
+                    slots.append(vals)
+                while len(slots) < 3:
+                    slots.append([])
+                s1, s2, s3 = slots[0], slots[1], slots[2]
+                # UI constraint: Set 3 only available if Set1+Set2 are both 2-set only.
+                if width == 3:
+                    if any(int(SET_SIZES.get(int(sid), 2) or 2) != 2 for sid in (s1 + s2)):
+                        continue
+                covered = len(rows)
+                score = (int(covered), int(width))
+                if score > best_score:
+                    best_score = score
+                    best_layout = (list(s1), list(s2), list(s3))
+
+            if best_layout is not None:
+                return best_layout
+
+            first = list(combos[0])
+            while len(first) < 3:
+                first.append(0)
+            return (
+                [int(first[0])] if int(first[0]) > 0 else [],
+                [int(first[1])] if int(first[1]) > 0 else [],
+                [int(first[2])] if int(first[2]) > 0 else [],
+            )
+
+        top_set_ids = [int(x) for x in (entry.get("top_set_ids") or []) if int(x) > 0 and int(x) in SET_NAMES]
+        while len(top_set_ids) < 3:
+            top_set_ids.append(0)
+        return (
+            [int(top_set_ids[0])] if int(top_set_ids[0]) > 0 else [],
+            [int(top_set_ids[1])] if int(top_set_ids[1]) > 0 else [],
+            [int(top_set_ids[2])] if int(top_set_ids[2]) > 0 else [],
+        )
+
+    def _rune_pref_mainstats_by_slot(self, entry: Dict[str, Any]) -> Dict[int, List[str]]:
+        out: Dict[int, List[str]] = {2: [], 4: [], 6: []}
+        by_slot = entry.get("top_mainstats_by_slot")
+        if isinstance(by_slot, dict):
+            for slot in (2, 4, 6):
+                vals_raw = by_slot.get(str(slot), by_slot.get(int(slot), []))
+                for raw in list(vals_raw or []):
+                    key = self._normalize_mainstat_pref_key(raw)
+                    if key and key not in out[slot]:
+                        out[slot].append(key)
+
+        combos_raw = list(entry.get("top_mainstat_combos_246") or [])
+        for combo in combos_raw:
+            if not isinstance(combo, (list, tuple)) or len(combo) < 3:
+                continue
+            for idx, slot in enumerate((2, 4, 6)):
+                key = self._normalize_mainstat_pref_key(combo[idx])
+                if key and key not in out[slot]:
+                    out[slot].append(key)
+
+        return {
+            2: [str(x) for x in out[2] if str(x) in MAINSTAT_KEYS],
+            4: [str(x) for x in out[4] if str(x) in MAINSTAT_KEYS],
+            6: [str(x) for x in out[6] if str(x) in MAINSTAT_KEYS],
+        }
+
+    def _normalized_set_options_for_unit(self, unit_id: int) -> List[List[int]]:
+        self._sync_set_combo_constraints_for_unit(int(unit_id))
+        c1 = self._set1_combo.get(int(unit_id))
+        c2 = self._set2_combo.get(int(unit_id))
+        c3 = self._set3_combo.get(int(unit_id))
+        if c1 is None or c2 is None or c3 is None:
+            return []
+
+        set1_ids = [int(x) for x in c1.checked_ids()]
+        set2_ids = [int(x) for x in c2.checked_ids()]
+        set3_ids = [int(x) for x in c3.checked_ids()] if self._is_set3_allowed_for_unit(int(unit_id)) else []
+
+        groups: List[List[int]] = []
+        if set1_ids:
+            groups.append(set1_ids)
+        if set2_ids:
+            groups.append(set2_ids)
+        if set3_ids:
+            groups.append(set3_ids)
+        if not groups:
+            return []
+
+        normalized: List[List[int]] = []
+        seen_opts: Set[Tuple[int, ...]] = set()
+        for opt in product(*groups):
+            cleaned: List[int] = []
+            for sid in opt:
+                sid_i = int(sid or 0)
+                if sid_i <= 0 or sid_i not in SET_NAMES:
+                    continue
+                cleaned.append(int(sid_i))
+            if not cleaned:
+                continue
+            total_pieces = sum(int(SET_SIZES.get(int(sid), 2) or 2) for sid in cleaned)
+            if int(total_pieces) > 6:
+                continue
+            key = tuple(cleaned)
+            if key in seen_opts:
+                continue
+            seen_opts.add(key)
+            normalized.append(list(cleaned))
+        return normalized
+
+    def _current_mainstats_by_slot_for_unit(self, unit_id: int) -> Dict[int, List[str]]:
+        out: Dict[int, List[str]] = {2: [], 4: [], 6: []}
+        cmb2 = self._ms2_combo.get(int(unit_id))
+        cmb4 = self._ms4_combo.get(int(unit_id))
+        cmb6 = self._ms6_combo.get(int(unit_id))
+        if cmb2 is not None:
+            out[2] = [str(x) for x in (cmb2.checked_values() or []) if str(x) in MAINSTAT_KEYS]
+        if cmb4 is not None:
+            out[4] = [str(x) for x in (cmb4.checked_values() or []) if str(x) in MAINSTAT_KEYS]
+        if cmb6 is not None:
+            out[6] = [str(x) for x in (cmb6.checked_values() or []) if str(x) in MAINSTAT_KEYS]
+        return out
+
+    def _current_mainstat_combos_246_for_unit(self, unit_id: int, limit: int = 12) -> List[List[str]]:
+        by_slot = self._current_mainstats_by_slot_for_unit(int(unit_id))
+        s2 = list(by_slot.get(2) or [])
+        s4 = list(by_slot.get(4) or [])
+        s6 = list(by_slot.get(6) or [])
+        if not s2 or not s4 or not s6:
+            return []
+        out: List[List[str]] = []
+        for a, b, c in product(s2, s4, s6):
+            out.append([str(a), str(b), str(c)])
+            if len(out) >= int(max(1, int(limit or 1))):
+                break
+        return out
+
+    def _element_name_for_master_id(self, master_id: int) -> str:
+        elem_map = {1: "Water", 2: "Fire", 3: "Wind", 4: "Light", 5: "Dark"}
+        m = int(master_id or 0)
+        if m <= 0:
+            return ""
+        return str(elem_map.get(int(m % 10), "") or "")
+
+    def _save_rune_pref_entry(self, master_id: int, payload: Dict[str, Any]) -> bool:
+        mid = int(master_id or 0)
+        if mid <= 0:
+            return False
+        p = Path(_RUNE_PREFS_PATH)
+        raw: Dict[str, Any] = {}
+        if p.exists():
+            try:
+                loaded = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(loaded, dict):
+                    raw = dict(loaded)
+            except Exception:
+                raw = {}
+        by_id = raw.get("by_com2us_id")
+        if isinstance(by_id, dict):
+            entries = dict(by_id)
+            raw["by_com2us_id"] = entries
+        else:
+            # Keep compat for legacy flat files, but prefer explicit envelope.
+            entries = {}
+            for k, v in dict(raw).items():
+                try:
+                    if int(k) > 0 and isinstance(v, dict):
+                        entries[str(int(k))] = dict(v)
+                except Exception:
+                    continue
+            raw["by_com2us_id"] = entries
+
+        existing = dict(entries.get(str(mid), {}) or {})
+        existing.update(dict(payload or {}))
+        entries[str(mid)] = existing
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self._rune_pref_entries_by_master_id = None
+        return True
+
+    def _on_load_preferred_runes_for_unit(self, unit_id: int) -> None:
+        entry = self._rune_pref_entry_for_unit(int(unit_id))
+        if not isinstance(entry, dict):
+            return
+
+        slot1_ids, slot2_ids, slot3_ids = self._rune_pref_slot_set_ids(entry)
+        c1 = self._set1_combo.get(int(unit_id))
+        c2 = self._set2_combo.get(int(unit_id))
+        c3 = self._set3_combo.get(int(unit_id))
+        if c1 is not None and slot1_ids:
+            c1.set_checked_ids(slot1_ids)
+        if c2 is not None and slot2_ids:
+            c2.set_checked_ids(slot2_ids)
+        if c3 is not None and slot3_ids:
+            c3.set_checked_ids(slot3_ids)
+        self._sync_set_combo_constraints_for_unit(int(unit_id))
+
+        by_slot = self._rune_pref_mainstats_by_slot(entry)
+        cmb2 = self._ms2_combo.get(int(unit_id))
+        cmb4 = self._ms4_combo.get(int(unit_id))
+        cmb6 = self._ms6_combo.get(int(unit_id))
+        if cmb2 is not None and by_slot.get(2):
+            cmb2.set_checked_values(list(by_slot[2]))
+        if cmb4 is not None and by_slot.get(4):
+            cmb4.set_checked_values(list(by_slot[4]))
+        if cmb6 is not None and by_slot.get(6):
+            cmb6.set_checked_values(list(by_slot[6]))
+
+    def _on_save_preferred_runes_for_unit(self, unit_id: int) -> None:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return
+        master_id = self._unit_master_id_for_unit(uid)
+        if master_id <= 0:
+            return
+
+        combos = self._normalized_set_options_for_unit(uid)
+        top_set_combos = [list(c) for c in combos[:6]]
+        top_set_ids: List[int] = []
+        for combo in top_set_combos:
+            for sid in combo:
+                si = int(sid or 0)
+                if si > 0 and si in SET_NAMES and si not in top_set_ids:
+                    top_set_ids.append(int(si))
+                if len(top_set_ids) >= 6:
+                    break
+            if len(top_set_ids) >= 6:
+                break
+        if not top_set_ids:
+            return
+
+        main_by_slot = self._current_mainstats_by_slot_for_unit(uid)
+        main_combos = self._current_mainstat_combos_246_for_unit(uid, limit=12)
+        existing = self._rune_pref_entry_for_unit(uid) or {}
+        merged_pref_ids: List[int] = []
+        for sid in top_set_ids + [int(x) for x in (existing.get("preferred_set_ids") or []) if int(x) > 0]:
+            si = int(sid or 0)
+            if si > 0 and si in SET_NAMES and si not in merged_pref_ids:
+                merged_pref_ids.append(int(si))
+            if len(merged_pref_ids) >= 10:
+                break
+
+        unit_label = str(self._unit_label_by_id.get(uid, f"Unit {uid}") or f"Unit {uid}")
+        payload: Dict[str, Any] = {
+            "name": str(existing.get("name") or unit_label),
+            "element": str(existing.get("element") or self._element_name_for_master_id(master_id)),
+            "archetype": str(existing.get("archetype") or "Unknown"),
+            "awaken_level": int(existing.get("awaken_level", 1) or 1),
+            "top_set_ids": list(top_set_ids[:3]),
+            "preferred_set_ids": list(merged_pref_ids[:10]),
+            "top_set_combos": list(top_set_combos),
+            "preferred_set_combos": list(top_set_combos),
+            "top_mainstats_by_slot": {
+                "2": list(main_by_slot.get(2) or []),
+                "4": list(main_by_slot.get(4) or []),
+                "6": list(main_by_slot.get(6) or []),
+            },
+            "top_mainstat_combos_246": list(main_combos),
+        }
+        if "base_stars" in existing:
+            payload["base_stars"] = int(existing.get("base_stars", 0) or 0)
+        elif self._account:
+            unit_obj = self._account.units_by_id.get(uid)
+            if unit_obj is not None:
+                payload["base_stars"] = int(getattr(unit_obj, "unit_class", 0) or 0)
+        self._save_rune_pref_entry(master_id=master_id, payload=payload)
 
     def _on_load_current_runes(self) -> None:
         """Load currently equipped rune sets and mainstats for all units."""

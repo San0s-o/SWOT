@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtCore import Qt, QThreadPool, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -15,6 +16,21 @@ from PySide6.QtWidgets import (
 )
 
 from app.i18n import tr
+
+
+_ABOUT_CREATOR = "San0s"
+_ABOUT_DISCORD = "san0s"
+
+
+def _open_discord_dm(window) -> None:
+    # Direct username-based DM deep links are not supported; open Discord DM view as best effort.
+    opened = QDesktopServices.openUrl(QUrl("discord://-/channels/@me"))
+    if not opened:
+        opened = QDesktopServices.openUrl(QUrl("https://discord.com/channels/@me"))
+    if opened:
+        window.statusBar().showMessage(tr("settings.discord_opened", handle=_ABOUT_DISCORD), 6000)
+    else:
+        window.statusBar().showMessage(tr("settings.discord_open_failed", handle=_ABOUT_DISCORD), 6000)
 
 
 # ================================================================
@@ -135,6 +151,30 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_about_license = QLabel("")
     about_layout.addWidget(window.lbl_settings_about_license)
 
+    window.lbl_settings_about_creator = QLabel("")
+    about_layout.addWidget(window.lbl_settings_about_creator)
+
+    window.lbl_settings_about_discord = QLabel("")
+    about_layout.addWidget(window.lbl_settings_about_discord)
+
+    window.btn_settings_open_discord_dm = QPushButton(tr("settings.btn_open_discord_dm"))
+    window.btn_settings_open_discord_dm.clicked.connect(lambda: _open_discord_dm(window))
+    about_layout.addWidget(window.btn_settings_open_discord_dm)
+
+    window.lbl_settings_about_open_source = QLabel("")
+    window.lbl_settings_about_open_source.setWordWrap(True)
+    window.lbl_settings_about_open_source.setTextFormat(Qt.RichText)
+    window.lbl_settings_about_open_source.setOpenExternalLinks(True)
+    window.lbl_settings_about_open_source.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    about_layout.addWidget(window.lbl_settings_about_open_source)
+
+    window.lbl_settings_about_data_sources = QLabel("")
+    window.lbl_settings_about_data_sources.setWordWrap(True)
+    window.lbl_settings_about_data_sources.setTextFormat(Qt.RichText)
+    window.lbl_settings_about_data_sources.setOpenExternalLinks(True)
+    window.lbl_settings_about_data_sources.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    about_layout.addWidget(window.lbl_settings_about_data_sources)
+
     window.lbl_settings_about_data_dir = QLabel("")
     window.lbl_settings_about_data_dir.setTextInteractionFlags(Qt.TextSelectableByMouse)
     about_layout.addWidget(window.lbl_settings_about_data_dir)
@@ -205,7 +245,7 @@ def refresh_settings_license_status(window) -> None:
             remaining = _format_trial_remaining(expires_at)
             type_text = tr("settings.label_license_type_trial", remaining=remaining)
         else:
-            type_text = "Trial"
+            type_text = tr("license.trial")
     elif license_type:
         type_text = tr("settings.label_license_type_full")
     else:
@@ -226,8 +266,18 @@ def _refresh_settings_about(window) -> None:
     from app.services.license_service import _load_local_license_data
 
     local_data = _load_local_license_data()
-    license_type = str(local_data.get("license_type", "")).strip() or "—"
-    window.lbl_settings_about_license.setText(tr("settings.about_license", type=license_type))
+    license_type = str(local_data.get("license_type", "")).strip()
+    if "trial" in license_type.lower():
+        about_license_type = tr("license.trial")
+    elif license_type:
+        about_license_type = tr("settings.label_license_type_full")
+    else:
+        about_license_type = "—"
+    window.lbl_settings_about_license.setText(tr("settings.about_license", type=about_license_type))
+    window.lbl_settings_about_creator.setText(tr("settings.about_creator", name=_ABOUT_CREATOR))
+    window.lbl_settings_about_discord.setText(tr("settings.about_discord", handle=_ABOUT_DISCORD))
+    window.lbl_settings_about_open_source.setText(tr("settings.about_open_source"))
+    window.lbl_settings_about_data_sources.setText(tr("settings.about_data_sources"))
 
     data_dir = str(window.account_persistence.data_dir)
     window.lbl_settings_about_data_dir.setText(tr("settings.about_data_dir", path=data_dir))
@@ -438,6 +488,7 @@ def retranslate_settings(window) -> None:
     window.btn_settings_check_update.setText(tr("settings.btn_check_update"))
 
     window.grp_settings_about.setTitle(tr("settings.group_about"))
+    window.btn_settings_open_discord_dm.setText(tr("settings.btn_open_discord_dm"))
 
     # Refresh dynamic content labels
     refresh_settings_import_status(window)
