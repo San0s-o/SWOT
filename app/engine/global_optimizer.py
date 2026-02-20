@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from ortools.sat.python import cp_model
 
 from app.domain.models import AccountData, Rune, Artifact
-from app.domain.presets import BuildStore, Build, EFFECT_ID_TO_MAINSTAT_KEY
+from app.domain.presets import BuildStore, Build, EFFECT_ID_TO_MAINSTAT_KEY, SET_SIZES
 from app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
 from app.engine.efficiency import rune_efficiency, artifact_efficiency
 from app.engine.greedy_optimizer import (
@@ -16,6 +16,8 @@ from app.engine.greedy_optimizer import (
     ARENA_RUSH_DEF_QUALITY_WEIGHT,
     ARENA_RUSH_DEF_RUNE_WEIGHT,
     ARENA_RUSH_ATK_EFFICIENCY_SCALE,
+    RUNE_SCALING_BONUS_WEIGHT,
+    ARTIFACT_SCALING_BONUS_WEIGHT,
     ARTIFACT_ROLE_CONTEXT_WEIGHT,
     BASELINE_REGRESSION_GUARD_WEIGHT,
     CR_OVERCAP_PENALTY_PER_POINT,
@@ -30,7 +32,10 @@ from app.engine.greedy_optimizer import (
     _artifact_focus_key,
     _artifact_substat_ids,
     _artifact_context_score_proxy,
+    _artifact_effect_value_scaled,
+    _artifact_effect_roll_count,
     _artifact_hint_score,
+    _artifact_hint_critical_effect_ids,
     _count_required_set_pieces,
     _rune_flat_spd,
     _rune_stat_total,
@@ -47,9 +52,13 @@ from app.engine.greedy_optimizer import (
     _is_attack_archetype,
     _is_defensive_archetype,
     _rune_damage_score_proxy,
+    _rune_scaling_score_proxy,
     _rune_quality_score_defensive,
     _rune_defensive_score_proxy,
     _run_greedy_pass,
+    _preferred_rune_set_ids_for_monster,
+    _scaling_stat_from_hints,
+    _artifact_scaling_score_proxy,
 )
 from app.i18n import tr
 
@@ -93,9 +102,11 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
     favor_defense_by_uid: Dict[int, bool] = {}
     archetype_by_uid: Dict[int, str] = {}
     artifact_role_by_uid: Dict[int, str] = {}
+    scaling_stat_by_uid: Dict[int, str] = {}
     unit_base_stats_by_uid: Dict[int, Tuple[int, int, int, int]] = {}
     overcap_penalty_expr_by_uid: Dict[int, cp_model.LinearExpr] = {}
     baseline_guard_shortfall_by_uid: Dict[int, cp_model.IntVar] = {}
+    rune_set_hint_terms: List[cp_model.LinearExpr] = []
 
     # Keep deterministic build order
     builds_by_uid: Dict[int, List[Build]] = {}
@@ -135,6 +146,12 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                 else "support"
             )
         artifact_role_by_uid[int(uid)] = str(role_for_art)
+        scaling_stat_by_uid[int(uid)] = str(
+            _scaling_stat_from_hints(
+                dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+            )
+            or ""
+        )
         is_arena_offense = bool(
             str(req.mode or "").strip().lower() == "arena_rush"
             and str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
@@ -230,6 +247,25 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                 set_choice_vars.setdefault(sid, []).append(x[(uid, slot, int(r.rune_id))])
         intangible_piece_vars = set_choice_vars.get(int(INTANGIBLE_SET_ID), [])
         intangible_piece_count_expr = sum(intangible_piece_vars) if intangible_piece_vars else 0
+        apply_rune_set_fallback = not any(bool(getattr(bb, "set_options", []) or []) for bb in (builds or []))
+        if apply_rune_set_fallback:
+            fallback_ids = _preferred_rune_set_ids_for_monster(
+                int(unit.unit_master_id or 0) if unit else 0,
+                role=str(unit_arch),
+            )
+            for rank, sid in enumerate(fallback_ids[:3]):
+                set_vars = list(set_choice_vars.get(int(sid), []) or [])
+                if not set_vars:
+                    continue
+                piece_bonus = [35, 24, 16][min(rank, 2)]
+                full_bonus = [210, 150, 95][min(rank, 2)]
+                rune_set_hint_terms.append(int(piece_bonus) * sum(set_vars))
+                needed = int(max(1, int((SET_SIZES.get(int(sid), 2) or 2))))
+                full_var = model.NewBoolVar(f"g_hint_set_full_u{uid}_s{int(sid)}_r{int(rank)}")
+                count_expr = sum(set_vars)
+                model.Add(count_expr >= int(needed)).OnlyEnforceIf(full_var)
+                model.Add(count_expr <= int(max(0, int(needed) - 1))).OnlyEnforceIf(full_var.Not())
+                rune_set_hint_terms.append(int(full_bonus) * full_var)
 
         # speed expression
         speed_terms: List[cp_model.LinearExpr] = []
@@ -662,24 +698,30 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
         r = next((rr for rr in runes_by_slot_global[slot] if int(rr.rune_id) == int(rid)), None)
         if r is None:
             continue
+        base_hp, base_atk, base_def, _base_spd = unit_base_stats_by_uid.get(int(uid), (0, 0, 0, 0))
+        scaling_stat = str(scaling_stat_by_uid.get(int(uid), "") or "")
+        scaling_bonus = int(
+            _rune_scaling_score_proxy(
+                r,
+                scaling_stat=scaling_stat,
+                base_hp=int(base_hp or 0),
+                base_atk=int(base_atk or 0),
+                base_def=int(base_def or 0),
+            )
+        )
         eff_score = int(round(float(rune_efficiency(r)) * 100.0))
         qual_score = int(_rune_quality_score(r, uid, None))
         if bool(favor_damage_by_uid.get(int(uid), False)):
-            unit = account.units_by_id.get(int(uid))
-            base_atk = int(unit.base_atk or 0) if unit else 0
             dmg_score = int(_rune_damage_score_proxy(r, base_atk))
             obj_terms.append(
                 (
                     eff_score * int(ARENA_RUSH_ATK_EFFICIENCY_SCALE)
                     + qual_score
                     + (dmg_score * 140)
+                    + (int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus)
                 ) * vv
             )
         elif bool(favor_defense_by_uid.get(int(uid), False)):
-            unit = account.units_by_id.get(int(uid))
-            base_hp = int((unit.base_con or 0) * 15) if unit else 0
-            base_def = int(unit.base_def or 0) if unit else 0
-            base_atk = int(unit.base_atk or 0) if unit else 0
             unit_arch = str(archetype_by_uid.get(int(uid), ""))
             qual_score = int(_rune_quality_score_defensive(r, uid, None))
             def_score = int(_rune_defensive_score_proxy(r, base_hp, base_def, unit_arch))
@@ -690,18 +732,21 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     + (int(ARENA_RUSH_DEF_QUALITY_WEIGHT) * qual_score)
                     + (int(ARENA_RUSH_DEF_RUNE_WEIGHT) * def_score)
                     - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * dmg_penalty)
+                    + (int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus)
                 ) * vv
             )
         else:
-            obj_terms.append((eff_score * 100 + qual_score) * vv)
+            obj_terms.append((eff_score * 100 + qual_score + (int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus)) * vv)
     for (uid, t, aid), vv in xa.items():
         a = next((aa for aa in artifacts_by_type_global[t] if int(aa.artifact_id) == int(aid)), None)
         if a is None:
             continue
         base_hp, base_atk, base_def, base_spd = unit_base_stats_by_uid.get(int(uid), (0, 0, 0, 0))
         role_for_art = str(artifact_role_by_uid.get(int(uid), "unknown") or "unknown")
+        scaling_stat = str(scaling_stat_by_uid.get(int(uid), "") or "")
         unit_hint = dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
         hint_score = int(_artifact_hint_score(a, unit_hint))
+        scaling_score = int(_artifact_scaling_score_proxy(a, scaling_stat=scaling_stat))
         eff_score = int(round(float(artifact_efficiency(a)) * 100.0))
         qual_score = int(_artifact_quality_score(a, uid, None))
         if bool(favor_damage_by_uid.get(int(uid), False)):
@@ -720,6 +765,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     + qual_score
                     + (dmg_score * 120)
                     + hint_score
+                    + (int(ARTIFACT_SCALING_BONUS_WEIGHT) * scaling_score)
                 ) * vv
             )
         elif bool(favor_defense_by_uid.get(int(uid), False)):
@@ -762,6 +808,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     + (int(ARENA_RUSH_DEF_ART_WEIGHT) * def_score)
                     - (int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * dmg_penalty)
                     + hint_score
+                    + (int(ARTIFACT_SCALING_BONUS_WEIGHT) * scaling_score)
                 ) * vv
             )
         else:
@@ -781,8 +828,53 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
                     + qual_score
                     + (int(ARTIFACT_ROLE_CONTEXT_WEIGHT) * context_score)
                     + hint_score
+                    + (int(ARTIFACT_SCALING_BONUS_WEIGHT) * scaling_score)
                 ) * vv
             )
+    # Unit-level critical hint satisfaction (balanced/quality guidance):
+    # if the candidate pool contains key hint effects, reward selecting at least one.
+    for uid in unit_ids:
+        unit_hint = dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+        critical_eids = _artifact_hint_critical_effect_ids(unit_hint)
+        if not critical_eids:
+            continue
+        for rank, eff_id in enumerate(critical_eids[:4]):
+            target_hits = [2, 1, 1, 1][min(rank, 3)]
+            per_hit_bonus = [3200, 1400, 900, 600][min(rank, 3)]
+            shortfall_penalty = [22000, 9000, 6000, 4000][min(rank, 3)]
+            target_roll_sum = [4, 2, 2, 2][min(rank, 3)]
+            per_roll_bonus = [1800, 1100, 700, 450][min(rank, 3)]
+            roll_shortfall_penalty = [12000, 7000, 4500, 2800][min(rank, 3)]
+            hit_vars: List[cp_model.IntVar] = []
+            roll_terms: List[cp_model.LinearExpr] = []
+            for t in (1, 2):
+                for a in artifacts_by_type_global[t]:
+                    if int(_artifact_effect_value_scaled(a, int(eff_id))) <= 0:
+                        continue
+                    key = (int(uid), int(t), int(a.artifact_id))
+                    vv = xa.get(key)
+                    if vv is not None:
+                        hit_vars.append(vv)
+                        rolls = int(_artifact_effect_roll_count(a, int(eff_id)))
+                        if rolls > 0:
+                            roll_terms.append(int(rolls) * vv)
+            if not hit_vars:
+                continue
+            hit_count = model.NewIntVar(0, 2, f"g_hint_cnt_u{int(uid)}_e{int(eff_id)}_r{int(rank)}")
+            model.Add(hit_count == sum(hit_vars))
+            obj_terms.append(int(per_hit_bonus) * hit_count)
+            if int(target_hits) > 0 and int(shortfall_penalty) > 0:
+                shortfall = model.NewIntVar(0, int(target_hits), f"g_hint_short_u{int(uid)}_e{int(eff_id)}_r{int(rank)}")
+                model.Add(shortfall >= int(target_hits) - hit_count)
+                obj_terms.append((-int(shortfall_penalty)) * shortfall)
+            if roll_terms:
+                roll_sum = model.NewIntVar(0, 20, f"g_hint_roll_u{int(uid)}_e{int(eff_id)}_r{int(rank)}")
+                model.Add(roll_sum == sum(roll_terms))
+                obj_terms.append(int(per_roll_bonus) * roll_sum)
+                if int(target_roll_sum) > 0 and int(roll_shortfall_penalty) > 0:
+                    roll_shortfall = model.NewIntVar(0, int(target_roll_sum), f"g_hint_roll_short_u{int(uid)}_e{int(eff_id)}_r{int(rank)}")
+                    model.Add(roll_shortfall >= int(target_roll_sum) - roll_sum)
+                    obj_terms.append((-int(roll_shortfall_penalty)) * roll_shortfall)
     for uid in unit_ids:
         tie_raw = speed_tiebreak_weight_by_uid.get(int(uid), None)
         tie_w = 1 if tie_raw is None else int(tie_raw)
@@ -800,6 +892,8 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
             obj_terms.append((-int(guard_w)) * shortfall_var)
 
     objective_expr = sum(obj_terms)
+    if rune_set_hint_terms:
+        objective_expr = objective_expr + sum(rune_set_hint_terms)
     solver = cp_model.CpSolver()
     if req.register_solver:
         try:

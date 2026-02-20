@@ -10,7 +10,7 @@ from typing import Dict, List, Tuple, Set, Optional, Callable, Any
 
 from ortools.sat.python import cp_model
 
-from app.domain.artifact_effects import artifact_effect_is_legacy
+from app.domain.artifact_effects import artifact_effect_is_legacy, ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE
 from app.domain.models import AccountData, Rune, Artifact
 from app.domain.speed_ticks import min_spd_for_tick, max_spd_for_tick
 from app.engine.efficiency import rune_efficiency, artifact_efficiency
@@ -104,16 +104,67 @@ ARTIFACT_HINT_ACC_PREFERRED_BONUS = 70
 ARTIFACT_HINT_RECOVERY_PREFERRED_BONUS = 70
 ARTIFACT_HINT_EFFECT_MATCH_BONUS = 130
 ARTIFACT_HINT_EFFECT_VALUE_WEIGHT = 6
+ARTIFACT_HINT_SPD_EFFECT_WITHOUT_TEAM_BUFF_PENALTY = 900
+ARTIFACT_HINT_SPD_EFFECT_WITHOUT_TEAM_BUFF_VALUE_WEIGHT = 80
 ARTIFACT_HINT_TOP1_MATCH_BONUS = 320
 ARTIFACT_HINT_TOP2_MATCH_BONUS = 240
 ARTIFACT_HINT_TOP3_MATCH_BONUS = 170
+ARTIFACT_HINT_TOP4_MATCH_BONUS = 120
 ARTIFACT_HINT_TOP1_VALUE_WEIGHT = 11
 ARTIFACT_HINT_TOP2_VALUE_WEIGHT = 9
 ARTIFACT_HINT_TOP3_VALUE_WEIGHT = 7
+ARTIFACT_HINT_TOP4_VALUE_WEIGHT = 5
+ARTIFACT_HINT_TOP1_MISS_PENALTY = 700
+ARTIFACT_HINT_TOP2_MISS_PENALTY = 520
+ARTIFACT_HINT_TOP3_MISS_PENALTY = 120
+ARTIFACT_HINT_TOP4_MISS_PENALTY = 80
+ARTIFACT_ATTACK_MAINSTAT_MATCH_BONUS = 180
+ARTIFACT_ATTACK_MAINSTAT_MISS_PENALTY = 300
+ARTIFACT_DEFENSE_MAINSTAT_MATCH_BONUS = 140
+ARTIFACT_HP_MAINSTAT_MATCH_BONUS = 150
+ARTIFACT_SUPPORT_MAINSTAT_MATCH_BONUS = 130
+ARTIFACT_NON_ATTACK_ATK_MAINSTAT_MISS_PENALTY = 320
+ARTIFACT_HINT_CRITICAL_MATCH_BONUS_BY_RANK = [1400, 950, 700, 520]
+ARTIFACT_HINT_CRITICAL_MISSING_PENALTY_BY_RANK = [26000, 17000, 9000, 5000]
+ARTIFACT_HINT_ADDITIONAL_DAMAGE_VALUE_FACTOR = 0.06
+ARTIFACT_HINT_HIGH_ROLL_MIN = 2
+ARTIFACT_HINT_HIGH_ROLL_BONUS_PER_ROLL = 160
+ARTIFACT_HINT_HIGH_ROLL_BONUS_MAX = 640
+ARTIFACT_HINT_TOP_EFFECT_COUNT = 4
+ARTIFACT_HINT_CRITICAL_TARGET_COUNT_BY_RANK = [2, 1, 1, 1]
+ARTIFACT_HINT_CRITICAL_HIT_BONUS_PER_COUNT_BY_RANK = [3200, 1400, 900, 600]
+ARTIFACT_HINT_CRITICAL_SHORTFALL_PENALTY_BY_RANK = [22000, 9000, 6000, 4000]
+ARTIFACT_HINT_CRITICAL_TARGET_ROLL_SUM_BY_RANK = [4, 2, 2, 2]
+ARTIFACT_HINT_CRITICAL_ROLL_BONUS_PER_ROLL_BY_RANK = [1800, 1100, 700, 450]
+ARTIFACT_HINT_CRITICAL_ROLL_SHORTFALL_PENALTY_BY_RANK = [12000, 7000, 4500, 2800]
+RUNE_SCALING_BONUS_WEIGHT = 3
+ARTIFACT_SCALING_BONUS_WEIGHT = 4
 
 _ARTIFACT_SCORING_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "artifact_scoring.json"
+_RUNE_SET_PREFERENCES_PATH = Path(__file__).resolve().parents[1] / "config" / "monster_rune_set_preferences.json"
 _ARTIFACT_PROFILE_KEYS = {"attack", "defense", "hp", "support", "unknown"}
 _ADDITIONAL_DAMAGE_EFFECT_IDS = {218, 219, 220, 221}
+_ARTIFACT_ALLOWED_EFFECT_IDS_BY_TYPE: Dict[int, Set[int]] = {
+    1: {int(x) for x in (ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(1) or []) if int(x) > 0},
+    2: {int(x) for x in (ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(2) or []) if int(x) > 0},
+}
+_VALID_SET_IDS = set(int(x) for x in SET_ID_BY_NAME.values())
+_RUNE_SET_HINT_PIECE_BONUS_BY_RANK = [35, 24, 16]
+_RUNE_SET_HINT_FULL_BONUS_BY_RANK = [210, 150, 95]
+_ROLE_DEFAULT_RUNE_SET_IDS: Dict[str, List[int]] = {
+    "attack": [13, 15, 3, 5, 8, 4],       # Violent/Will/Swift/Rage/Fatal/Blade
+    "defense": [13, 15, 17, 18, 10, 3],   # Violent/Will/Revenge/Destroy/Despair/Swift
+    "hp": [13, 15, 17, 18, 10, 3],        # Violent/Will/Revenge/Destroy/Despair/Swift
+    "support": [13, 15, 3, 10, 17, 16],   # Violent/Will/Swift/Despair/Revenge/Shield
+    "unknown": [13, 15, 3, 10, 17, 8],    # balanced fallback
+}
+_ADDITIONAL_DAMAGE_VALUE_SCALE = 1.0
+_ADDITIONAL_DAMAGE_PERCENT_REFERENCE: Dict[int, float] = {
+    218: 20.0,  # Additional Damage by HP%
+    219: 8.0,   # Additional Damage by ATK%
+    220: 8.0,   # Additional Damage by DEF%
+    221: 80.0,  # Additional Damage by SPD%
+}
 
 _DEFAULT_ARTIFACT_SCORING_CONFIG: Dict[str, Any] = {
     "legacy_multiplier": 0.72,
@@ -315,6 +366,86 @@ def _artifact_scoring_config() -> Dict[str, Any]:
     return cfg
 
 
+@lru_cache(maxsize=1)
+def _rune_set_preferences_config() -> Dict[int, List[int]]:
+    out: Dict[int, List[int]] = {}
+    p = Path(_RUNE_SET_PREFERENCES_PATH)
+    if not p.exists():
+        return out
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return out
+    if not isinstance(raw, dict):
+        return out
+    by_id = raw.get("by_com2us_id", raw)
+    if not isinstance(by_id, dict):
+        return out
+
+    for mid_raw, entry_raw in dict(by_id or {}).items():
+        try:
+            mid = int(mid_raw or 0)
+        except Exception:
+            continue
+        if mid <= 0 or not isinstance(entry_raw, dict):
+            continue
+        entry = dict(entry_raw or {})
+        base_stars = int(_to_int(entry.get("base_stars"), 0))
+        awaken_level = int(_to_int(entry.get("awaken_level"), 1))
+        if base_stars > 0 and base_stars <= 1:
+            continue
+        if awaken_level <= 0:
+            continue
+
+        ordered: List[int] = []
+        for k in ("top_set_ids", "preferred_set_ids"):
+            for x in (entry.get(k) or []):
+                sid = int(_to_int(x, 0))
+                if sid > 0 and sid in _VALID_SET_IDS and sid not in ordered:
+                    ordered.append(int(sid))
+                    if len(ordered) >= 6:
+                        break
+            if len(ordered) >= 6:
+                break
+        for x in (entry.get("top_set_names") or []):
+            sid = int(_to_int(SET_ID_BY_NAME.get(str(x) or "", 0), 0))
+            if sid > 0 and sid in _VALID_SET_IDS and sid not in ordered:
+                ordered.append(int(sid))
+                if len(ordered) >= 6:
+                    break
+        for x in (entry.get("preferred_set_names") or []):
+            sid = int(_to_int(SET_ID_BY_NAME.get(str(x) or "", 0), 0))
+            if sid > 0 and sid in _VALID_SET_IDS and sid not in ordered:
+                ordered.append(int(sid))
+                if len(ordered) >= 6:
+                    break
+        if ordered:
+            out[int(mid)] = ordered[:6]
+    return out
+
+
+def _preferred_rune_set_ids_for_monster(com2us_id: int, role: str = "") -> List[int]:
+    out: List[int] = []
+    mid = int(com2us_id or 0)
+    cfg = _rune_set_preferences_config()
+    if mid > 0:
+        out.extend(int(x) for x in (cfg.get(int(mid), []) or []) if int(x) in _VALID_SET_IDS)
+    role_key = _arena_role_from_archetype(role)
+    defaults = list(_ROLE_DEFAULT_RUNE_SET_IDS.get(str(role_key), _ROLE_DEFAULT_RUNE_SET_IDS["unknown"]))
+    if not out:
+        out = defaults
+    else:
+        for sid in defaults:
+            if int(sid) not in out:
+                out.append(int(sid))
+    dedup: List[int] = []
+    for sid in out:
+        si = int(sid or 0)
+        if si > 0 and si in _VALID_SET_IDS and si not in dedup:
+            dedup.append(si)
+    return dedup[:6]
+
+
 def _artifact_scaled_effect_value(
     effect_id: int,
     raw_value: float,
@@ -349,7 +480,13 @@ def _artifact_scaled_effect_value(
     stat_factor = 1.0
     if baseline > 0.0 and stat_value > 0.0:
         stat_factor = _clamp_float(float(stat_value) / float(baseline), factor_min, factor_max)
-    return float(val * 100.0 * stat_factor)
+    # Normalize additional-damage lines so different formulas are comparable:
+    # SPD lines have much larger raw numbers than ATK/DEF/HP lines.
+    ref = float(_ADDITIONAL_DAMAGE_PERCENT_REFERENCE.get(eid, 10.0) or 10.0)
+    if ref <= 0.0:
+        ref = 10.0
+    normalized = (float(val) / float(ref)) * 10.0
+    return float(normalized * float(_ADDITIONAL_DAMAGE_VALUE_SCALE) * stat_factor)
 
 
 def _artifact_profile_score(
@@ -369,6 +506,30 @@ def _artifact_profile_score(
     focus_key = str(_artifact_focus_key(art) or "").upper()
     if focus_key:
         score += float((profile.get("main_focus") or {}).get(focus_key, 0.0))
+    if role_key == "attack":
+        if focus_key == "ATK":
+            score += float(ARTIFACT_ATTACK_MAINSTAT_MATCH_BONUS)
+        elif focus_key in ("HP", "DEF"):
+            score -= float(ARTIFACT_ATTACK_MAINSTAT_MISS_PENALTY)
+    elif role_key == "defense":
+        if focus_key == "ATK":
+            score -= float(ARTIFACT_NON_ATTACK_ATK_MAINSTAT_MISS_PENALTY)
+        elif focus_key == "DEF":
+            score += float(ARTIFACT_DEFENSE_MAINSTAT_MATCH_BONUS)
+        elif focus_key == "HP":
+            score += float(int(ARTIFACT_DEFENSE_MAINSTAT_MATCH_BONUS * 0.45))
+    elif role_key == "hp":
+        if focus_key == "ATK":
+            score -= float(ARTIFACT_NON_ATTACK_ATK_MAINSTAT_MISS_PENALTY)
+        elif focus_key == "HP":
+            score += float(ARTIFACT_HP_MAINSTAT_MATCH_BONUS)
+        elif focus_key == "DEF":
+            score += float(int(ARTIFACT_HP_MAINSTAT_MATCH_BONUS * 0.40))
+    elif role_key == "support":
+        if focus_key == "ATK":
+            score -= float(ARTIFACT_NON_ATTACK_ATK_MAINSTAT_MISS_PENALTY)
+        elif focus_key in ("HP", "DEF"):
+            score += float(ARTIFACT_SUPPORT_MAINSTAT_MATCH_BONUS)
 
     legacy_mult = float(cfg.get("legacy_multiplier", 1.0))
     effect_weights: Dict[int, float] = dict(profile.get("effects") or {})
@@ -420,6 +581,41 @@ def _artifact_hint_score(
     if not hints:
         return 0
 
+    def _effect_allowed_for_artifact_type(effect_id: int, artifact_type: int) -> bool:
+        eid = int(effect_id or 0)
+        t = int(artifact_type or 0)
+        if eid <= 0:
+            return False
+        if t in (1, 2):
+            allowed = _ARTIFACT_ALLOWED_EFFECT_IDS_BY_TYPE.get(int(t), set())
+            if allowed:
+                return int(eid) in allowed
+        return True
+
+    def _hint_effect_ids_from_key(
+        data: Dict[str, Any],
+        key: str,
+        limit: int = ARTIFACT_HINT_TOP_EFFECT_COUNT,
+    ) -> List[int]:
+        vals: List[int] = []
+        seen: Set[int] = set()
+        for x in (data.get(str(key)) or []):
+            try:
+                eid = int(x or 0)
+            except Exception:
+                continue
+            if artifact_effect_is_legacy(int(eid)):
+                continue
+            if eid <= 0 or eid in seen:
+                continue
+            seen.add(int(eid))
+            vals.append(int(eid))
+            if len(vals) >= int(limit):
+                break
+        return vals
+
+    art_type = int(getattr(art, "type_", 0) or 0)
+
     bomb_slots = {
         int(x)
         for x in (hints.get("bomb_slots") or [])
@@ -458,21 +654,44 @@ def _artifact_hint_score(
     preferred_effect_ids = {
         int(x)
         for x in (hints.get("preferred_effect_ids") or [])
-        if int(x or 0) > 0
+        if (
+            int(x or 0) > 0
+            and (not artifact_effect_is_legacy(int(x)))
+            and _effect_allowed_for_artifact_type(int(x), int(art_type))
+        )
     }
-    top_sub_effect_ids: List[int] = []
-    top_seen: Set[int] = set()
-    for x in (hints.get("top_sub_effect_ids") or []):
+    top_key = "top_sub_effect_ids"
+    if int(art_type) == 1:
+        top_key = "top_attribute_effect_ids"
+    elif int(art_type) == 2:
+        top_key = "top_type_effect_ids"
+    top_sub_effect_ids = [
+        int(eid)
+        for eid in _hint_effect_ids_from_key(hints, top_key, limit=ARTIFACT_HINT_TOP_EFFECT_COUNT)
+        if _effect_allowed_for_artifact_type(int(eid), int(art_type))
+    ]
+    if not top_sub_effect_ids:
+        top_sub_effect_ids = [
+            int(eid)
+            for eid in _hint_effect_ids_from_key(
+                hints,
+                "top_sub_effect_ids",
+                limit=ARTIFACT_HINT_TOP_EFFECT_COUNT,
+            )
+            if _effect_allowed_for_artifact_type(int(eid), int(art_type))
+        ]
+
+    team_has_spd_buff: Optional[bool] = None
+    raw_team_spd = (hints or {}).get("team_has_spd_buff", None)
+    if raw_team_spd is not None:
         try:
-            eid = int(x or 0)
+            team_has_spd_buff = bool(raw_team_spd)
         except Exception:
-            continue
-        if eid <= 0 or eid in top_seen:
-            continue
-        top_seen.add(int(eid))
-        top_sub_effect_ids.append(int(eid))
-        if len(top_sub_effect_ids) >= 3:
-            break
+            team_has_spd_buff = None
+    if team_has_spd_buff is False:
+        # SPD Increasing Effect is only meaningful if a speed buff exists in the team.
+        preferred_effect_ids.discard(206)
+        top_sub_effect_ids = [int(eid) for eid in top_sub_effect_ids if int(eid) != 206]
 
     score = 0
     present_eids: Set[int] = set()
@@ -487,6 +706,14 @@ def _artifact_hint_score(
         present_eids.add(int(eid))
         if bomb_slots and int(eid) == 210:
             score += int(round(max(0.0, float(val)) * float(ARTIFACT_HINT_BOMB_VALUE_WEIGHT) * 10.0))
+        if team_has_spd_buff is False and int(eid) == 206:
+            score -= int(ARTIFACT_HINT_SPD_EFFECT_WITHOUT_TEAM_BUFF_PENALTY)
+            score -= int(
+                round(
+                    max(0.0, float(val))
+                    * float(ARTIFACT_HINT_SPD_EFFECT_WITHOUT_TEAM_BUFF_VALUE_WEIGHT)
+                )
+            )
 
     if guaranteed_crit_slots:
         preferred: Set[int] = set()
@@ -546,25 +773,237 @@ def _artifact_hint_score(
             int(ARTIFACT_HINT_TOP1_MATCH_BONUS),
             int(ARTIFACT_HINT_TOP2_MATCH_BONUS),
             int(ARTIFACT_HINT_TOP3_MATCH_BONUS),
+            int(ARTIFACT_HINT_TOP4_MATCH_BONUS),
         ]
         top_weight = [
             int(ARTIFACT_HINT_TOP1_VALUE_WEIGHT),
             int(ARTIFACT_HINT_TOP2_VALUE_WEIGHT),
             int(ARTIFACT_HINT_TOP3_VALUE_WEIGHT),
+            int(ARTIFACT_HINT_TOP4_VALUE_WEIGHT),
         ]
-        for idx, eff_id in enumerate(top_sub_effect_ids[:3]):
-            val_scaled = int(_artifact_effect_value_scaled(art, int(eff_id)))
+        top_miss_penalty = [
+            int(ARTIFACT_HINT_TOP1_MISS_PENALTY),
+            int(ARTIFACT_HINT_TOP2_MISS_PENALTY),
+            int(ARTIFACT_HINT_TOP3_MISS_PENALTY),
+            int(ARTIFACT_HINT_TOP4_MISS_PENALTY),
+        ]
+        for idx, eff_id in enumerate(top_sub_effect_ids[: int(ARTIFACT_HINT_TOP_EFFECT_COUNT)]):
+            val_scaled = int(_artifact_hint_effect_value_scaled(art, int(eff_id)))
             if val_scaled <= 0:
+                score -= int(top_miss_penalty[int(idx)])
                 continue
-            score += int(top_bonus[int(idx)]) + int(val_scaled * int(top_weight[int(idx)]))
+            high_roll_bonus = int(_artifact_hint_high_roll_bonus(art, int(eff_id)))
+            score += int(top_bonus[int(idx)]) + int(val_scaled * int(top_weight[int(idx)])) + int(high_roll_bonus)
 
     if preferred_effect_ids:
         non_top_effect_ids = set(preferred_effect_ids).difference(set(top_sub_effect_ids))
         for eff_id in non_top_effect_ids:
-            val_scaled = int(_artifact_effect_value_scaled(art, int(eff_id)))
+            val_scaled = int(_artifact_hint_effect_value_scaled(art, int(eff_id)))
             if val_scaled > 0:
-                score += int(ARTIFACT_HINT_EFFECT_MATCH_BONUS) + int(val_scaled * int(ARTIFACT_HINT_EFFECT_VALUE_WEIGHT))
+                high_roll_bonus = int(_artifact_hint_high_roll_bonus(art, int(eff_id)))
+                score += (
+                    int(ARTIFACT_HINT_EFFECT_MATCH_BONUS)
+                    + int(val_scaled * int(ARTIFACT_HINT_EFFECT_VALUE_WEIGHT))
+                    + int(high_roll_bonus)
+                )
 
+    return int(score)
+
+
+def _sanitize_artifact_hints_for_team_context(hints: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    data = dict(hints or {})
+    raw_team_spd = data.get("team_has_spd_buff", None)
+    try:
+        team_has_spd_buff = bool(raw_team_spd) if raw_team_spd is not None else None
+    except Exception:
+        team_has_spd_buff = None
+    if team_has_spd_buff is False:
+        for key in (
+            "top_sub_effect_ids",
+            "top_attribute_effect_ids",
+            "top_type_effect_ids",
+            "preferred_effect_ids",
+        ):
+            vals = list(data.get(str(key)) or [])
+            data[str(key)] = [int(x) for x in vals if int(x or 0) > 0 and int(x or 0) != 206]
+    return data
+
+
+def _artifact_hint_critical_effect_ids(hints: Dict[str, Any] | None = None) -> List[int]:
+    data = _sanitize_artifact_hints_for_team_context(hints)
+    out: List[int] = []
+    seen: Set[int] = set()
+
+    for key in ("top_sub_effect_ids", "top_type_effect_ids", "top_attribute_effect_ids"):
+        for x in (data.get(str(key)) or []):
+            try:
+                eid = int(x or 0)
+            except Exception:
+                continue
+            if artifact_effect_is_legacy(int(eid)):
+                continue
+            if eid <= 0 or eid in seen:
+                continue
+            seen.add(int(eid))
+            out.append(int(eid))
+            if len(out) >= 2:
+                break
+        if len(out) >= 2:
+            break
+
+    bomb_slots = {
+        int(x)
+        for x in (data.get("bomb_slots") or [])
+        if 1 <= int(x or 0) <= 4
+    }
+    if bomb_slots and 210 not in seen:
+        seen.add(210)
+        out.append(210)
+
+    debuff_slots = {
+        int(x)
+        for x in (data.get("debuff_slots") or [])
+        if 1 <= int(x or 0) <= 3
+    }
+    pref_debuff_slots = {
+        int(x)
+        for x in (data.get("preferred_debuff_slots") or [])
+        if 1 <= int(x or 0) <= 3
+    }
+    for slot in sorted(debuff_slots.union(pref_debuff_slots)):
+        eff = _skill_line_effect_id_for_slot(int(slot), "acc")
+        if eff <= 0 or eff in seen:
+            continue
+        seen.add(int(eff))
+        out.append(int(eff))
+        if len(out) >= 4:
+            break
+    return out[:4]
+
+
+def _scaling_stat_from_hints(hints: Dict[str, Any] | None = None) -> str:
+    data = dict(hints or {})
+    scores: Dict[str, int] = {"HP": 0, "ATK": 0, "DEF": 0, "SPD": 0}
+    add_map = {218: "HP", 219: "ATK", 220: "DEF", 221: "SPD"}
+
+    top_weights = [70, 45, 30, 20]
+    top_ids_ordered: List[int] = []
+    seen_top: Set[int] = set()
+    for key in ("top_sub_effect_ids", "top_attribute_effect_ids", "top_type_effect_ids"):
+        for x in (data.get(str(key)) or []):
+            try:
+                eid = int(x or 0)
+            except Exception:
+                continue
+            if eid <= 0 or eid in seen_top:
+                continue
+            seen_top.add(int(eid))
+            top_ids_ordered.append(int(eid))
+            if len(top_ids_ordered) >= int(ARTIFACT_HINT_TOP_EFFECT_COUNT):
+                break
+        if len(top_ids_ordered) >= int(ARTIFACT_HINT_TOP_EFFECT_COUNT):
+            break
+    for idx, eid in enumerate(top_ids_ordered[: int(ARTIFACT_HINT_TOP_EFFECT_COUNT)]):
+        try:
+            eid = int(eid or 0)
+        except Exception:
+            continue
+        stat = add_map.get(int(eid))
+        if not stat:
+            continue
+        scores[str(stat)] += int(top_weights[min(idx, len(top_weights) - 1)])
+
+    pref_vals = [int(x or 0) for x in (data.get("preferred_effect_ids") or []) if int(x or 0) > 0]
+    for idx, eid in enumerate(pref_vals[:10]):
+        stat = add_map.get(int(eid))
+        if not stat:
+            continue
+        scores[str(stat)] += int(max(6, 22 - idx))
+
+    # Recovery lines are usually tied to HP scaling / survivability.
+    if any(int(x or 0) in (404, 405, 406) for x in pref_vals):
+        scores["HP"] += 12
+
+    best_stat = max(scores.keys(), key=lambda k: int(scores[k]))
+    if int(scores.get(best_stat, 0)) <= 0:
+        return ""
+    return str(best_stat)
+
+
+def _rune_scaling_score_proxy(
+    r: Rune,
+    scaling_stat: str = "",
+    base_hp: int = 0,
+    base_atk: int = 0,
+    base_def: int = 0,
+) -> int:
+    stat = str(scaling_stat or "").upper().strip()
+    if not stat:
+        return 0
+    hp_pct = int(_rune_stat_total(r, 2) or 0)
+    hp_flat = int(_rune_stat_total(r, 1) or 0)
+    atk_pct = int(_rune_stat_total(r, 4) or 0)
+    atk_flat = int(_rune_stat_total(r, 3) or 0)
+    def_pct = int(_rune_stat_total(r, 6) or 0)
+    def_flat = int(_rune_stat_total(r, 5) or 0)
+    spd = int(_rune_flat_spd(r) or 0)
+    hp_flat_as_pct = int((hp_flat * 100) / max(1, int(base_hp or 1)))
+    atk_flat_as_pct = int((atk_flat * 100) / max(1, int(base_atk or 1)))
+    def_flat_as_pct = int((def_flat * 100) / max(1, int(base_def or 1)))
+
+    if stat == "HP":
+        return int((hp_pct * 24) + (hp_flat_as_pct * 16) + (spd * 4) + (def_pct * 6) - (atk_pct * 4))
+    if stat == "DEF":
+        return int((def_pct * 24) + (def_flat_as_pct * 16) + (spd * 4) + (hp_pct * 6) - (atk_pct * 4))
+    if stat == "ATK":
+        return int((atk_pct * 24) + (atk_flat_as_pct * 16) + (spd * 4) + (_rune_damage_score_proxy(r, int(base_atk or 0)) // 4))
+    if stat == "SPD":
+        return int((spd * 28) + (hp_pct * 8) + (def_pct * 6) + (atk_pct * 4))
+    return 0
+
+
+def _artifact_scaling_score_proxy(art: Artifact, scaling_stat: str = "") -> int:
+    stat = str(scaling_stat or "").upper().strip()
+    if not stat:
+        return 0
+    focus = str(_artifact_focus_key(art) or "").upper().strip()
+    score = 0
+    if stat == "HP":
+        if focus == "HP":
+            score += 420
+        elif focus == "ATK":
+            score -= 260
+        elif focus == "DEF":
+            score -= 320
+        hp_line = int(_artifact_hint_effect_value_scaled(art, 218))
+        def_line = int(_artifact_hint_effect_value_scaled(art, 220))
+        atk_line = int(_artifact_hint_effect_value_scaled(art, 219))
+        score += int(hp_line * 24) - int(def_line * 7) - int(atk_line * 5)
+    elif stat == "DEF":
+        if focus == "DEF":
+            score += 420
+        elif focus == "ATK":
+            score -= 260
+        elif focus == "HP":
+            score -= 150
+        def_line = int(_artifact_hint_effect_value_scaled(art, 220))
+        hp_line = int(_artifact_hint_effect_value_scaled(art, 218))
+        atk_line = int(_artifact_hint_effect_value_scaled(art, 219))
+        score += int(def_line * 20) - int(hp_line * 5) - int(atk_line * 4)
+    elif stat == "ATK":
+        if focus == "ATK":
+            score += 360
+        elif focus in ("HP", "DEF"):
+            score -= 180
+        atk_line = int(_artifact_hint_effect_value_scaled(art, 219))
+        score += int(atk_line * 16)
+    elif stat == "SPD":
+        if focus in ("HP", "DEF"):
+            score += 110
+        elif focus == "ATK":
+            score -= 90
+        spd_line = int(_artifact_hint_effect_value_scaled(art, 221))
+        score += int(spd_line * 14)
     return int(score)
 
 
@@ -879,6 +1318,57 @@ def _artifact_effect_value_scaled(art: Artifact, effect_id: int) -> int:
     return int(total)
 
 
+def _artifact_hint_effect_value_scaled(art: Artifact, effect_id: int) -> int:
+    eid = int(effect_id or 0)
+    raw = int(_artifact_effect_value_scaled(art, eid))
+    if raw <= 0:
+        return 0
+    if eid in _ADDITIONAL_DAMAGE_EFFECT_IDS:
+        # raw is value*10; convert back to percentage and normalize by effect family.
+        val_pct = float(raw) / 10.0
+        ref = float(_ADDITIONAL_DAMAGE_PERCENT_REFERENCE.get(eid, 10.0) or 10.0)
+        if ref <= 0.0:
+            ref = 10.0
+        normalized = (val_pct / ref) * 10.0
+        return int(round(float(normalized) * 10.0 * float(ARTIFACT_HINT_ADDITIONAL_DAMAGE_VALUE_FACTOR)))
+    return int(raw)
+
+
+def _artifact_effect_roll_count(art: Artifact, effect_id: int) -> int:
+    target = int(effect_id or 0)
+    if target <= 0:
+        return 0
+    best = 0
+    for sec in (art.sec_effects or []):
+        if not sec:
+            continue
+        try:
+            eid = int(sec[0] or 0)
+        except Exception:
+            continue
+        if eid != target:
+            continue
+        upgrades = 0
+        try:
+            upgrades = int(sec[2] or 0) if len(sec) > 2 else 0
+        except Exception:
+            upgrades = 0
+        if upgrades > best:
+            best = int(upgrades)
+    return int(best)
+
+
+def _artifact_hint_high_roll_bonus(art: Artifact, effect_id: int) -> int:
+    rolls = int(_artifact_effect_roll_count(art, int(effect_id)))
+    if rolls < int(ARTIFACT_HINT_HIGH_ROLL_MIN):
+        return 0
+    extra_rolls = int(rolls - int(ARTIFACT_HINT_HIGH_ROLL_MIN) + 1)
+    if extra_rolls <= 0:
+        return 0
+    bonus = int(extra_rolls * int(ARTIFACT_HINT_HIGH_ROLL_BONUS_PER_ROLL))
+    return int(min(int(ARTIFACT_HINT_HIGH_ROLL_BONUS_MAX), int(bonus)))
+
+
 def _artifact_quality_score(
     art: Artifact,
     uid: int,
@@ -1074,6 +1564,7 @@ class GreedyRequest:
     global_seed_offset: int = 0
     unit_archetype_by_uid: Dict[int, str] | None = None
     unit_artifact_hints_by_uid: Dict[int, Dict[str, Any]] | None = None
+    unit_team_has_spd_buff_by_uid: Dict[int, bool] | None = None
     arena_rush_context: str = ""  # "", "defense", "offense"
 
 @dataclass
@@ -1591,6 +2082,12 @@ def _solve_single_unit_best(
     # for each build, add constraints only if chosen
     # set options: if present => choose one option if build chosen
     option_bias_terms = []
+    apply_rune_set_fallback = not any(bool(getattr(bb, "set_options", []) or []) for bb in (builds or []))
+    fallback_rune_set_ids: List[int] = []
+    if apply_rune_set_fallback:
+        unit_obj = account.units_by_id.get(int(uid))
+        master_id = int((unit_obj.unit_master_id if unit_obj else 0) or 0)
+        fallback_rune_set_ids = _preferred_rune_set_ids_for_monster(master_id, role=str(unit_archetype or ""))
     for b_idx, b in enumerate(builds):
         vb = use_build[b_idx]
 
@@ -1863,6 +2360,7 @@ def _solve_single_unit_best(
         is_arena_rush_mode
         and str(unit_role) in ("defense", "hp", "support")
     )
+    scaling_stat = _scaling_stat_from_hints(artifact_hints)
     quality_terms = []
     for slot in range(1, 7):
         for r in runes_by_slot[slot]:
@@ -1899,6 +2397,17 @@ def _solve_single_unit_best(
                         quality_terms.append(
                             (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * v
                         )
+                scaling_bonus = int(
+                    _rune_scaling_score_proxy(
+                        r,
+                        scaling_stat=str(scaling_stat),
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                    )
+                )
+                if scaling_bonus:
+                    quality_terms.append((int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus) * v)
             else:
                 if favor_defense_for_role:
                     w = _rune_quality_score_defensive(r, uid, rta_rune_ids_for_unit)
@@ -1932,6 +2441,17 @@ def _solve_single_unit_best(
                         quality_terms.append(
                             (-int(ARENA_RUSH_DEF_OFFSTAT_PENALTY_WEIGHT) * int(dmg_penalty)) * v
                         )
+                scaling_bonus = int(
+                    _rune_scaling_score_proxy(
+                        r,
+                        scaling_stat=str(scaling_stat),
+                        base_hp=int(base_hp or 0),
+                        base_atk=int(base_atk or 0),
+                        base_def=int(base_def or 0),
+                    )
+                )
+                if scaling_bonus:
+                    quality_terms.append((int(RUNE_SCALING_BONUS_WEIGHT) * scaling_bonus) * v)
     for art_type in (1, 2):
         for art in artifacts_by_type[art_type]:
             av = xa[(art_type, int(art.artifact_id))]
@@ -2077,6 +2597,70 @@ def _solve_single_unit_best(
             hint_bonus = int(_artifact_hint_score(art, artifact_hints))
             if hint_bonus:
                 quality_terms.append(hint_bonus * av)
+            scaling_bonus = int(_artifact_scaling_score_proxy(art, scaling_stat=str(scaling_stat)))
+            if scaling_bonus:
+                quality_terms.append((int(ARTIFACT_SCALING_BONUS_WEIGHT) * scaling_bonus) * av)
+
+    if apply_rune_set_fallback and fallback_rune_set_ids:
+        for rank, sid in enumerate(fallback_rune_set_ids[:3]):
+            set_vars = list(set_choice_vars.get(int(sid), []) or [])
+            if not set_vars:
+                continue
+            piece_bonus = int(_RUNE_SET_HINT_PIECE_BONUS_BY_RANK[min(rank, len(_RUNE_SET_HINT_PIECE_BONUS_BY_RANK) - 1)])
+            full_bonus = int(_RUNE_SET_HINT_FULL_BONUS_BY_RANK[min(rank, len(_RUNE_SET_HINT_FULL_BONUS_BY_RANK) - 1)])
+            if piece_bonus > 0:
+                quality_terms.append(int(piece_bonus) * sum(set_vars))
+            needed = int(SET_SIZES.get(int(sid), 2) or 2)
+            if full_bonus > 0 and needed > 0:
+                count_expr = sum(set_vars)
+                full_var = model.NewBoolVar(f"hint_set_full_u{uid}_s{int(sid)}_r{int(rank)}")
+                model.Add(count_expr >= int(needed)).OnlyEnforceIf(full_var)
+                model.Add(count_expr <= int(max(0, int(needed) - 1))).OnlyEnforceIf(full_var.Not())
+                quality_terms.append(int(full_bonus) * full_var)
+
+    # Unit-level critical hint satisfaction:
+    # reward selecting at least one artifact carrying each critical effect
+    # (e.g. Bomb DMG, Skill 2 Accuracy) when available in candidate pool.
+    critical_hint_eids = _artifact_hint_critical_effect_ids(artifact_hints)
+    if critical_hint_eids:
+        for rank, eff_id in enumerate(critical_hint_eids[:4]):
+            idx = min(rank, len(ARTIFACT_HINT_CRITICAL_HIT_BONUS_PER_COUNT_BY_RANK) - 1)
+            per_hit_bonus = int(ARTIFACT_HINT_CRITICAL_HIT_BONUS_PER_COUNT_BY_RANK[idx])
+            target_hits = int(ARTIFACT_HINT_CRITICAL_TARGET_COUNT_BY_RANK[idx])
+            shortfall_penalty = int(ARTIFACT_HINT_CRITICAL_SHORTFALL_PENALTY_BY_RANK[idx])
+            per_roll_bonus = int(ARTIFACT_HINT_CRITICAL_ROLL_BONUS_PER_ROLL_BY_RANK[idx])
+            target_roll_sum = int(ARTIFACT_HINT_CRITICAL_TARGET_ROLL_SUM_BY_RANK[idx])
+            roll_shortfall_penalty = int(ARTIFACT_HINT_CRITICAL_ROLL_SHORTFALL_PENALTY_BY_RANK[idx])
+            hit_vars: List[cp_model.IntVar] = []
+            roll_terms: List[cp_model.LinearExpr] = []
+            for art_type in (1, 2):
+                for art in artifacts_by_type[art_type]:
+                    if int(_artifact_effect_value_scaled(art, int(eff_id))) <= 0:
+                        continue
+                    av = xa[(art_type, int(art.artifact_id))]
+                    hit_vars.append(av)
+                    rolls = int(_artifact_effect_roll_count(art, int(eff_id)))
+                    if rolls > 0:
+                        roll_terms.append(int(rolls) * av)
+            if not hit_vars:
+                continue
+            hit_count = model.NewIntVar(0, 2, f"hint_cnt_u{uid}_e{int(eff_id)}_r{int(rank)}")
+            model.Add(hit_count == sum(hit_vars))
+            if per_hit_bonus > 0:
+                quality_terms.append(int(per_hit_bonus) * hit_count)
+            if target_hits > 0 and shortfall_penalty > 0:
+                shortfall = model.NewIntVar(0, int(target_hits), f"hint_short_u{uid}_e{int(eff_id)}_r{int(rank)}")
+                model.Add(shortfall >= int(target_hits) - hit_count)
+                quality_terms.append((-int(shortfall_penalty)) * shortfall)
+            if roll_terms:
+                roll_sum = model.NewIntVar(0, 20, f"hint_roll_u{uid}_e{int(eff_id)}_r{int(rank)}")
+                model.Add(roll_sum == sum(roll_terms))
+                if per_roll_bonus > 0:
+                    quality_terms.append(int(per_roll_bonus) * roll_sum)
+                if target_roll_sum > 0 and roll_shortfall_penalty > 0:
+                    roll_shortfall = model.NewIntVar(0, int(target_roll_sum), f"hint_roll_short_u{uid}_e{int(eff_id)}_r{int(rank)}")
+                    model.Add(roll_shortfall >= int(target_roll_sum) - roll_sum)
+                    quality_terms.append((-int(roll_shortfall_penalty)) * roll_shortfall)
 
     # Build-aware artifact quality:
     # if artifact filters are selected, prefer higher rolls in those selected effects.
@@ -2459,6 +3043,11 @@ def _evaluate_pass_score(
             art = artifacts_by_id.get(int(aid))
             if art is None:
                 continue
+            eval_hints = dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+            team_spd_map = dict(req.unit_team_has_spd_buff_by_uid or {})
+            if int(uid) in team_spd_map:
+                eval_hints["team_has_spd_buff"] = bool(team_spd_map.get(int(uid), False))
+            eval_hints = _sanitize_artifact_hints_for_team_context(eval_hints)
             unit_quality += _artifact_quality_score(art, uid, rta_aids)
             unit_quality += int(
                 ARTIFACT_ROLE_CONTEXT_WEIGHT
@@ -2474,7 +3063,7 @@ def _evaluate_pass_score(
             unit_quality += int(
                 _artifact_hint_score(
                     art,
-                    dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {}),
+                    dict(eval_hints),
                 )
             )
             unit_eff_scaled += int(round(float(artifact_efficiency(art)) * 10.0))
@@ -2655,6 +3244,11 @@ def _run_pass_with_profile(
         fixed_artifacts_by_type = dict(((req.unit_fixed_artifacts_by_type or {}).get(int(uid), {}) or {}))
         baseline_runes_by_slot = dict(((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {}))
         baseline_artifacts_by_type = dict(((req.unit_baseline_artifacts_by_type or {}).get(int(uid), {}) or {}))
+        artifact_hints_for_unit = dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
+        team_spd_map = dict(req.unit_team_has_spd_buff_by_uid or {})
+        if int(uid) in team_spd_map:
+            artifact_hints_for_unit["team_has_spd_buff"] = bool(team_spd_map.get(int(uid), False))
+        artifact_hints_for_unit = _sanitize_artifact_hints_for_team_context(artifact_hints_for_unit)
 
         r = _solve_single_unit_best(
             uid=uid,
@@ -2701,7 +3295,7 @@ def _run_pass_with_profile(
                 str(getattr(req, "arena_rush_context", "") or "").strip().lower() == "offense"
             ),
             unit_archetype=str((req.unit_archetype_by_uid or {}).get(int(uid), "") or ""),
-            artifact_hints=dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {}),
+            artifact_hints=dict(artifact_hints_for_unit),
             is_cancelled=req.is_cancelled,
             register_solver=req.register_solver,
             mode=str(req.mode),

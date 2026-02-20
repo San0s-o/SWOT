@@ -60,6 +60,34 @@ def _baseline_assignments_for_mode(window, mode: str, unit_ids: List[int]) -> tu
     return runes_by_unit, arts_by_unit
 
 
+def _team_has_spd_buff_by_uid(window, teams: List[List[int]]) -> Dict[int, bool]:
+    out: Dict[int, bool] = {}
+    mdb = getattr(window, "monster_db", None)
+    account = getattr(window, "account", None)
+    if mdb is None or account is None:
+        return out
+    units_by_id = dict(getattr(account, "units_by_id", {}) or {})
+    for team in (teams or []):
+        ids = [int(uid) for uid in (team or []) if int(uid or 0) > 0]
+        if not ids:
+            continue
+        has_spd = False
+        for uid in ids:
+            unit = units_by_id.get(int(uid))
+            if unit is None:
+                continue
+            master_id = int(getattr(unit, "unit_master_id", 0) or 0)
+            if master_id <= 0:
+                continue
+            cap = dict(mdb.turn_effect_capability_for(int(master_id)) or {})
+            if bool(cap.get("has_spd_buff", False)):
+                has_spd = True
+                break
+        for uid in ids:
+            out[int(uid)] = bool(has_spd)
+    return out
+
+
 def init_team_tab_ui(window) -> None:
     layout = QVBoxLayout(window.tab_team_builder)
 
@@ -276,6 +304,7 @@ def optimize_team(window) -> None:
     )
     unit_archetype_by_uid = optimizer_archetype_by_uid(window, ordered_unit_ids)
     unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ordered_unit_ids)
+    team_spd_buff_by_uid = _team_has_spd_buff_by_uid(window, [team.unit_ids])
     res = window._run_with_busy_progress(
         running_text,
         lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
@@ -299,6 +328,7 @@ def optimize_team(window) -> None:
                 unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
                 unit_archetype_by_uid=dict(unit_archetype_by_uid),
                 unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
+                unit_team_has_spd_buff_by_uid=dict(team_spd_buff_by_uid),
                 unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
                 unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
                 baseline_regression_guard_weight=(

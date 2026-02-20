@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Set, Tuple
 import requests
 from PySide6.QtWidgets import QDialog, QMessageBox
 
+from app.domain.artifact_effects import artifact_effect_is_legacy
 from app.domain.presets import Build
 from app.engine.arena_rush_optimizer import (
     ArenaRushOffenseTeam,
@@ -260,6 +261,9 @@ def _fetch_archetype_for_com2us_id(com2us_id: int, timeout_s: float = 6.0) -> st
         return ""
 
 
+ARTIFACT_TOP_EFFECT_COUNT = 4
+
+
 def _normalize_hint_payload(raw: Dict[str, Any] | None) -> Dict[str, List[int]]:
     data = dict(raw or {})
     out: Dict[str, List[int]] = {}
@@ -272,7 +276,7 @@ def _normalize_hint_payload(raw: Dict[str, Any] | None) -> Dict[str, List[int]]:
         "preferred_recovery_slots",
         "preferred_debuff_slots",
     }
-    effect_ordered_keys = {"top_sub_effect_ids"}
+    effect_ordered_keys = {"top_sub_effect_ids", "top_attribute_effect_ids", "top_type_effect_ids"}
     for key in (
         "bomb_slots",
         "guaranteed_crit_slots",
@@ -283,6 +287,8 @@ def _normalize_hint_payload(raw: Dict[str, Any] | None) -> Dict[str, List[int]]:
         "preferred_debuff_slots",
         "preferred_effect_ids",
         "top_sub_effect_ids",
+        "top_attribute_effect_ids",
+        "top_type_effect_ids",
     ):
         vals: List[int] = []
         seen: Set[int] = set()
@@ -296,17 +302,21 @@ def _normalize_hint_payload(raw: Dict[str, Any] | None) -> Dict[str, List[int]]:
                     seen.add(int(slot))
                     vals.append(int(slot))
             elif key == "preferred_effect_ids" and slot > 0:
+                if artifact_effect_is_legacy(int(slot)):
+                    continue
                 if int(slot) not in seen:
                     seen.add(int(slot))
                     vals.append(int(slot))
-            elif key == "top_sub_effect_ids" and slot > 0:
+            elif key in effect_ordered_keys and slot > 0:
+                if artifact_effect_is_legacy(int(slot)):
+                    continue
                 if int(slot) not in seen:
                     seen.add(int(slot))
                     vals.append(int(slot))
-                    if len(vals) >= 3:
+                    if len(vals) >= int(ARTIFACT_TOP_EFFECT_COUNT):
                         break
         if key in effect_ordered_keys:
-            out[key] = vals[:3]
+            out[key] = vals[: int(ARTIFACT_TOP_EFFECT_COUNT)]
         else:
             out[key] = sorted(vals)
     return out
@@ -326,6 +336,8 @@ def _hint_payload_has_values(payload: Dict[str, List[int]] | None) -> bool:
             "preferred_debuff_slots",
             "preferred_effect_ids",
             "top_sub_effect_ids",
+            "top_attribute_effect_ids",
+            "top_type_effect_ids",
         )
     )
 
@@ -558,7 +570,6 @@ def _swdb_hints_from_lines(lines: List[str]) -> Dict[str, List[int]]:
         if not low:
             continue
         if "bomb dmg" in low or "bomb damage" in low:
-            bomb_slots.add(1)
             preferred_effect_ids.add(210)
         if "additional damage" in low and ("hp" in low or "health" in low):
             preferred_effect_ids.add(218)
@@ -599,6 +610,8 @@ def _swdb_hints_from_lines(lines: List[str]) -> Dict[str, List[int]]:
         if "skill 3/4" in low or "skill3/4" in low:
             slots.add(3)
             slots.add(4)
+        if ("bomb dmg" in low or "bomb damage" in low) and slots:
+            bomb_slots.update(int(s) for s in slots if 1 <= int(s) <= 4)
         if not slots:
             continue
 
@@ -680,24 +693,27 @@ def _fetch_swdb_artifact_hints_for_monster(
 
 
 def _merge_hint_payloads(*payloads: Dict[str, List[int]]) -> Dict[str, List[int]]:
+    effect_ordered_keys = {"top_sub_effect_ids", "top_attribute_effect_ids", "top_type_effect_ids"}
     merged_set: Dict[str, Set[int]] = {}
-    merged_top3: List[int] = []
+    merged_top: Dict[str, List[int]] = {k: [] for k in effect_ordered_keys}
     for p in payloads:
         normalized = _normalize_hint_payload(p)
         for key, vals in normalized.items():
-            if str(key) == "top_sub_effect_ids":
+            key_s = str(key)
+            if key_s in effect_ordered_keys:
                 for v in (vals or []):
                     vi = int(v or 0)
-                    if vi <= 0 or vi in merged_top3:
+                    if vi <= 0 or vi in merged_top[key_s]:
                         continue
-                    merged_top3.append(int(vi))
-                    if len(merged_top3) >= 3:
+                    merged_top[key_s].append(int(vi))
+                    if len(merged_top[key_s]) >= int(ARTIFACT_TOP_EFFECT_COUNT):
                         break
                 continue
-            merged_set.setdefault(str(key), set()).update(int(v) for v in (vals or []) if int(v) > 0)
+            merged_set.setdefault(key_s, set()).update(int(v) for v in (vals or []) if int(v) > 0)
     out = {k: sorted(v) for k, v in merged_set.items()}
-    if merged_top3:
-        out["top_sub_effect_ids"] = merged_top3[:3]
+    for key in ("top_sub_effect_ids", "top_attribute_effect_ids", "top_type_effect_ids"):
+        if merged_top.get(key):
+            out[key] = list(merged_top[key][: int(ARTIFACT_TOP_EFFECT_COUNT)])
     return out
 
 

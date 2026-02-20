@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from math import ceil
 import time
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from app.domain.models import AccountData, Artifact
 from app.domain.presets import BuildStore, Build
@@ -107,6 +107,31 @@ def _unit_order_from_presets(presets: BuildStore, mode: str, unit_ids: List[int]
 
 def _default_turn_order(unit_ids: List[int]) -> Dict[int, int]:
     return {int(uid): int(idx + 1) for idx, uid in enumerate(unit_ids)}
+
+
+def _team_has_spd_buff(turn_effects_by_unit: Dict[int, OpeningTurnEffect] | None = None) -> bool:
+    for effect in dict(turn_effects_by_unit or {}).values():
+        if bool(getattr(effect, "applies_spd_buff", False)):
+            return True
+    return False
+
+
+def _artifact_hints_for_units(
+    base_hints_by_uid: Dict[int, Dict[str, List[int]]] | None,
+    unit_ids: List[int],
+    team_has_spd_buff_by_uid: Dict[int, bool] | None = None,
+) -> Dict[int, Dict[str, Any]]:
+    out: Dict[int, Dict[str, Any]] = {}
+    for uid in (unit_ids or []):
+        ui = int(uid or 0)
+        if ui <= 0:
+            continue
+        base = dict((base_hints_by_uid or {}).get(int(ui), {}) or {})
+        if team_has_spd_buff_by_uid is not None and int(ui) in team_has_spd_buff_by_uid:
+            base["team_has_spd_buff"] = bool(team_has_spd_buff_by_uid.get(int(ui), False))
+        if base:
+            out[int(ui)] = base
+    return out
 
 
 def _unit_spd_tick_map_from_presets(presets: BuildStore, mode: str, unit_ids: List[int]) -> Dict[int, int]:
@@ -633,11 +658,10 @@ def _optimize_arena_rush_single(
                 int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                 for uid in ordered_defense
             },
-            unit_artifact_hints_by_uid={
-                int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                for uid in ordered_defense
-                if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-            },
+            unit_artifact_hints_by_uid=_artifact_hints_for_units(
+                base_hints_by_uid=req.unit_artifact_hints_by_uid,
+                unit_ids=list(ordered_defense),
+            ),
             unit_baseline_runes_by_slot={
                 int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                 for uid in ordered_defense
@@ -681,11 +705,10 @@ def _optimize_arena_rush_single(
                         int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                         for uid in ordered_defense
                     },
-                    unit_artifact_hints_by_uid={
-                        int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                        for uid in ordered_defense
-                        if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                    },
+                    unit_artifact_hints_by_uid=_artifact_hints_for_units(
+                        base_hints_by_uid=req.unit_artifact_hints_by_uid,
+                        unit_ids=list(ordered_defense),
+                    ),
                     unit_baseline_runes_by_slot={
                         int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                         for uid in ordered_defense
@@ -877,6 +900,16 @@ def _optimize_arena_rush_single(
                 else:
                     base_tick_cap_by_uid[int(uid)] = min(int(prev_cap), int(cap))
 
+    offense_team_has_spd_buff_by_uid: Dict[int, bool] = {}
+    for row in offense_cfg_rows:
+        has_team_spd_buff = bool(_team_has_spd_buff(dict(row.get("turn_effects_by_unit") or {})))
+        for uid in (row.get("expected_order") or []):
+            ui = int(uid or 0)
+            if ui <= 0:
+                continue
+            if ui not in offense_team_has_spd_buff_by_uid:
+                offense_team_has_spd_buff_by_uid[ui] = bool(has_team_spd_buff)
+
     global_offense_result = optimize_greedy(
         account,
         presets,
@@ -888,11 +921,11 @@ def _optimize_arena_rush_single(
                 int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                 for uid in all_offense_units_in_order
             },
-            unit_artifact_hints_by_uid={
-                int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                for uid in all_offense_units_in_order
-                if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-            },
+            unit_artifact_hints_by_uid=_artifact_hints_for_units(
+                base_hints_by_uid=req.unit_artifact_hints_by_uid,
+                unit_ids=list(all_offense_units_in_order),
+                team_has_spd_buff_by_uid=dict(offense_team_has_spd_buff_by_uid),
+            ),
             unit_baseline_runes_by_slot={
                 int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                 for uid in all_offense_units_in_order
@@ -993,11 +1026,11 @@ def _optimize_arena_rush_single(
                     int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                     for uid in all_offense_units_in_order
                 },
-                unit_artifact_hints_by_uid={
-                    int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                    for uid in all_offense_units_in_order
-                    if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                },
+                unit_artifact_hints_by_uid=_artifact_hints_for_units(
+                    base_hints_by_uid=req.unit_artifact_hints_by_uid,
+                    unit_ids=list(all_offense_units_in_order),
+                    team_has_spd_buff_by_uid=dict(offense_team_has_spd_buff_by_uid),
+                ),
                 unit_baseline_runes_by_slot={
                     int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                     for uid in all_offense_units_in_order
@@ -1069,11 +1102,11 @@ def _optimize_arena_rush_single(
                         int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                         for uid in all_offense_units_in_order
                     },
-                    unit_artifact_hints_by_uid={
-                        int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                        for uid in all_offense_units_in_order
-                        if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                    },
+                    unit_artifact_hints_by_uid=_artifact_hints_for_units(
+                        base_hints_by_uid=req.unit_artifact_hints_by_uid,
+                        unit_ids=list(all_offense_units_in_order),
+                        team_has_spd_buff_by_uid=dict(offense_team_has_spd_buff_by_uid),
+                    ),
                     unit_baseline_runes_by_slot={
                         int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                         for uid in all_offense_units_in_order
@@ -1195,11 +1228,15 @@ def _optimize_arena_rush_single(
                     int(uid): str((req.unit_archetype_by_uid or {}).get(int(uid), "") or "")
                     for uid in expected_order
                 },
-                unit_artifact_hints_by_uid={
-                    int(uid): dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                    for uid in expected_order
-                    if dict((req.unit_artifact_hints_by_uid or {}).get(int(uid), {}) or {})
-                },
+                unit_artifact_hints_by_uid=_artifact_hints_for_units(
+                    base_hints_by_uid=req.unit_artifact_hints_by_uid,
+                    unit_ids=list(expected_order),
+                    team_has_spd_buff_by_uid={
+                        int(uid): bool(_team_has_spd_buff(team_effects))
+                        for uid in expected_order
+                        if int(uid or 0) > 0
+                    },
+                ),
                 unit_baseline_runes_by_slot={
                     int(uid): dict((req.unit_baseline_runes_by_slot or {}).get(int(uid), {}) or {})
                     for uid in expected_order
