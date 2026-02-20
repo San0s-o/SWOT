@@ -92,19 +92,37 @@ def retranslate_ui(window) -> None:
         if idx >= 0:
             window.tabs.setTabText(idx, tr(key))
 
+    def _set_inner_tab_text(inner_tabs_attr: str, tab_index: int, key: str) -> None:
+        inner = getattr(window, inner_tabs_attr, None)
+        if inner is not None:
+            inner.setTabText(tab_index, tr(key))
+
+    # Äußere Gruppen-Tabs
     _set_tab_text("tab_overview", "tab.overview")
-    _set_tab_text("tab_siege_raw", "tab.siege_current")
-    _set_tab_text("tab_rta_overview", "tab.rta_current")
+    _set_tab_text("tab_siege", "tab.siege_group")
+    _set_tab_text("tab_wgb", "tab.wgb_group")
+    _set_tab_text("tab_rta", "tab.rta_group")
+    _set_tab_text("tab_arena_rush", "tab.arena_rush_group")
     _set_tab_text("tab_rune_optimization", "tab.rune_optimization")
-    _set_tab_text("tab_siege_builder", "tab.siege_builder")
-    _set_tab_text("tab_saved_siege", "tab.siege_saved")
-    _set_tab_text("tab_wgb_builder", "tab.wgb_builder")
-    _set_tab_text("tab_saved_wgb", "tab.wgb_saved")
-    _set_tab_text("tab_rta_builder", "tab.rta_builder")
-    _set_tab_text("tab_saved_rta", "tab.rta_saved")
-    _set_tab_text("tab_arena_rush_builder", "tab.arena_rush_builder")
-    _set_tab_text("tab_saved_arena_rush", "tab.arena_rush_saved")
     _set_tab_text("tab_settings", "tab.settings")
+
+    # Siege-Gruppe: Aktuell | Builder | Gespeichert
+    _set_inner_tab_text("siege_inner_tabs", 0, "tab.subtab_current")
+    _set_inner_tab_text("siege_inner_tabs", 1, "tab.subtab_builder")
+    _set_inner_tab_text("siege_inner_tabs", 2, "tab.subtab_saved")
+
+    # WGB-Gruppe: Builder | Gespeichert
+    _set_inner_tab_text("wgb_inner_tabs", 0, "tab.subtab_builder")
+    _set_inner_tab_text("wgb_inner_tabs", 1, "tab.subtab_saved")
+
+    # RTA-Gruppe: Aktuell | Builder | Gespeichert
+    _set_inner_tab_text("rta_inner_tabs", 0, "tab.subtab_current")
+    _set_inner_tab_text("rta_inner_tabs", 1, "tab.subtab_builder")
+    _set_inner_tab_text("rta_inner_tabs", 2, "tab.subtab_saved")
+
+    # Arena Rush-Gruppe: Builder | Gespeichert
+    _set_inner_tab_text("arena_rush_inner_tabs", 0, "tab.subtab_builder")
+    _set_inner_tab_text("arena_rush_inner_tabs", 1, "tab.subtab_saved")
 
     window.lbl_saved_siege.setText(tr("label.saved_opt"))
     window.lbl_saved_wgb.setText(tr("label.saved_opt"))

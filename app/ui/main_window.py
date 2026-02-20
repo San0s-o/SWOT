@@ -254,21 +254,111 @@ class MainWindow(QMainWindow):
         self.overview_widget = OverviewWidget()
         ov.addWidget(self.overview_widget)
 
-        # Raw Siege – card-based layout
+        # ── Siege-Gruppe ─────────────────────────────────────────
+        self.tab_siege = QWidget()
+        self.tabs.addTab(self.tab_siege, tr("tab.siege_group"))
+        _siege_layout = QVBoxLayout(self.tab_siege)
+        _siege_layout.setContentsMargins(0, 0, 0, 0)
+        _siege_layout.setSpacing(0)
+        self.siege_inner_tabs = QTabWidget()
+        self.siege_inner_tabs.setDocumentMode(True)
+        self._apply_inner_tab_style(self.siege_inner_tabs)
+        _siege_layout.addWidget(self.siege_inner_tabs)
+
         self.tab_siege_raw = QWidget()
-        self.tabs.addTab(self.tab_siege_raw, tr("tab.siege_current"))
+        self.siege_inner_tabs.addTab(self.tab_siege_raw, tr("tab.subtab_current"))
         sv = QVBoxLayout(self.tab_siege_raw)
         self.siege_cards = SiegeDefCardsWidget()
         sv.addWidget(self.siege_cards)
 
-        # RTA (aktuell) – card-based overview of current RTA monsters
+        self.tab_siege_builder = QWidget()
+        self.siege_inner_tabs.addTab(self.tab_siege_builder, tr("tab.subtab_builder"))
+        self._init_siege_builder_ui()
+
+        self.tab_saved_siege = QWidget()
+        self.siege_inner_tabs.addTab(self.tab_saved_siege, tr("tab.subtab_saved"))
+        self._init_saved_siege_tab()
+
+        self.siege_inner_tabs.currentChanged.connect(
+            lambda _: self._on_tab_changed(self.tabs.currentIndex())
+        )
+
+        # ── WGB-Gruppe ────────────────────────────────────────────
+        self.tab_wgb = QWidget()
+        self.tabs.addTab(self.tab_wgb, tr("tab.wgb_group"))
+        _wgb_layout = QVBoxLayout(self.tab_wgb)
+        _wgb_layout.setContentsMargins(0, 0, 0, 0)
+        _wgb_layout.setSpacing(0)
+        self.wgb_inner_tabs = QTabWidget()
+        self.wgb_inner_tabs.setDocumentMode(True)
+        self._apply_inner_tab_style(self.wgb_inner_tabs)
+        _wgb_layout.addWidget(self.wgb_inner_tabs)
+
+        self.tab_wgb_builder = QWidget()
+        self.wgb_inner_tabs.addTab(self.tab_wgb_builder, tr("tab.subtab_builder"))
+        self._init_wgb_builder_ui()
+
+        self.tab_saved_wgb = QWidget()
+        self.wgb_inner_tabs.addTab(self.tab_saved_wgb, tr("tab.subtab_saved"))
+        self._init_saved_wgb_tab()
+
+        self.wgb_inner_tabs.currentChanged.connect(
+            lambda _: self._on_tab_changed(self.tabs.currentIndex())
+        )
+
+        # ── RTA-Gruppe ────────────────────────────────────────────
+        self.tab_rta = QWidget()
+        self.tabs.addTab(self.tab_rta, tr("tab.rta_group"))
+        _rta_layout = QVBoxLayout(self.tab_rta)
+        _rta_layout.setContentsMargins(0, 0, 0, 0)
+        _rta_layout.setSpacing(0)
+        self.rta_inner_tabs = QTabWidget()
+        self.rta_inner_tabs.setDocumentMode(True)
+        self._apply_inner_tab_style(self.rta_inner_tabs)
+        _rta_layout.addWidget(self.rta_inner_tabs)
+
         self.tab_rta_overview = QWidget()
-        self.tabs.addTab(self.tab_rta_overview, tr("tab.rta_current"))
+        self.rta_inner_tabs.addTab(self.tab_rta_overview, tr("tab.subtab_current"))
         rv = QVBoxLayout(self.tab_rta_overview)
         self.rta_overview = RtaOverviewWidget()
         rv.addWidget(self.rta_overview)
 
-        # Runen & Artefakte (inner subtabs)
+        self.tab_rta_builder = QWidget()
+        self.rta_inner_tabs.addTab(self.tab_rta_builder, tr("tab.subtab_builder"))
+        self._init_rta_builder_ui()
+
+        self.tab_saved_rta = QWidget()
+        self.rta_inner_tabs.addTab(self.tab_saved_rta, tr("tab.subtab_saved"))
+        self._init_saved_rta_tab()
+
+        self.rta_inner_tabs.currentChanged.connect(
+            lambda _: self._on_tab_changed(self.tabs.currentIndex())
+        )
+
+        # ── Arena Rush-Gruppe ─────────────────────────────────────
+        self.tab_arena_rush = QWidget()
+        self.tabs.addTab(self.tab_arena_rush, tr("tab.arena_rush_group"))
+        _ar_layout = QVBoxLayout(self.tab_arena_rush)
+        _ar_layout.setContentsMargins(0, 0, 0, 0)
+        _ar_layout.setSpacing(0)
+        self.arena_rush_inner_tabs = QTabWidget()
+        self.arena_rush_inner_tabs.setDocumentMode(True)
+        self._apply_inner_tab_style(self.arena_rush_inner_tabs)
+        _ar_layout.addWidget(self.arena_rush_inner_tabs)
+
+        self.tab_arena_rush_builder = QWidget()
+        self.arena_rush_inner_tabs.addTab(self.tab_arena_rush_builder, tr("tab.subtab_builder"))
+        self._init_arena_rush_builder_ui()
+
+        self.tab_saved_arena_rush = QWidget()
+        self.arena_rush_inner_tabs.addTab(self.tab_saved_arena_rush, tr("tab.subtab_saved"))
+        self._init_saved_arena_rush_tab()
+
+        self.arena_rush_inner_tabs.currentChanged.connect(
+            lambda _: self._on_tab_changed(self.tabs.currentIndex())
+        )
+
+        # ── Runen & Artefakte (eigene innere Tabs) ────────────────
         self.tab_rune_optimization = QWidget()
         self.tabs.addTab(self.tab_rune_optimization, tr("tab.rune_optimization"))
         rov = QVBoxLayout(self.tab_rune_optimization)
@@ -276,6 +366,7 @@ class MainWindow(QMainWindow):
         rov.setSpacing(0)
         self.rune_art_inner_tabs = QTabWidget()
         self.rune_art_inner_tabs.setDocumentMode(True)
+        self._apply_inner_tab_style(self.rune_art_inner_tabs)
         rov.addWidget(self.rune_art_inner_tabs)
 
         _sub_runes = QWidget()
@@ -297,46 +388,6 @@ class MainWindow(QMainWindow):
         )
         _artifacts_layout.addWidget(self.artifact_optimization_widget)
 
-        # Siege Builder
-        self.tab_siege_builder = QWidget()
-        self.tabs.addTab(self.tab_siege_builder, tr("tab.siege_builder"))
-        self._init_siege_builder_ui()
-
-        # Saved Siege Optimizations
-        self.tab_saved_siege = QWidget()
-        self.tabs.addTab(self.tab_saved_siege, tr("tab.siege_saved"))
-        self._init_saved_siege_tab()
-
-        # WGB Builder (nur Validierung)
-        self.tab_wgb_builder = QWidget()
-        self.tabs.addTab(self.tab_wgb_builder, tr("tab.wgb_builder"))
-        self._init_wgb_builder_ui()
-
-        # Saved WGB Optimizations
-        self.tab_saved_wgb = QWidget()
-        self.tabs.addTab(self.tab_saved_wgb, tr("tab.wgb_saved"))
-        self._init_saved_wgb_tab()
-
-        # RTA Builder
-        self.tab_rta_builder = QWidget()
-        self.tabs.addTab(self.tab_rta_builder, tr("tab.rta_builder"))
-        self._init_rta_builder_ui()
-
-        # Saved RTA Optimizations
-        self.tab_saved_rta = QWidget()
-        self.tabs.addTab(self.tab_saved_rta, tr("tab.rta_saved"))
-        self._init_saved_rta_tab()
-
-        # Arena Rush Builder
-        self.tab_arena_rush_builder = QWidget()
-        self.tabs.addTab(self.tab_arena_rush_builder, tr("tab.arena_rush_builder"))
-        self._init_arena_rush_builder_ui()
-
-        # Saved Arena Rush Optimizations
-        self.tab_saved_arena_rush = QWidget()
-        self.tabs.addTab(self.tab_saved_arena_rush, tr("tab.arena_rush_saved"))
-        self._init_saved_arena_rush_tab()
-
         # Team Manager (fixed + custom teams)
         self.tab_team_builder = QWidget()
         self._init_team_tab_ui()
@@ -355,6 +406,39 @@ class MainWindow(QMainWindow):
 
     def _apply_tab_style(self) -> None:
         return _sec_apply_tab_style(self)
+
+    @staticmethod
+    def _apply_inner_tab_style(tab_widget: "QTabWidget") -> None:
+        tab_widget.setStyleSheet(
+            """
+            QTabWidget { border: none; background: transparent; }
+            QTabWidget::pane {
+                border: none;
+                border-top: 1px solid #2e3138;
+                background: #1f2126;
+            }
+            QTabBar { qproperty-drawBase: 0; background: #1a1d22; }
+            QTabBar::tab {
+                background: #1a1d22;
+                color: #7a8494;
+                border: none;
+                border-right: 1px solid #2e3138;
+                border-bottom: 2px solid transparent;
+                min-width: 90px;
+                padding: 6px 18px;
+                margin-right: 0px;
+            }
+            QTabBar::tab:selected {
+                background: #1f2126;
+                color: #e8ecf1;
+                border-bottom: 2px solid #4a90e2;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #222630;
+                color: #c8d0da;
+            }
+            """
+        )
 
     # ============================================================
     # Tab reordering

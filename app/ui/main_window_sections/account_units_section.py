@@ -280,10 +280,26 @@ def tab_needs_unit_dropdowns(window, tab: QWidget | None) -> bool:
     )
 
 
+def _resolve_active_inner_tab(window, outer_tab) -> QWidget:
+    """Falls outer_tab ein Gruppen-Container ist, gibt den aktuell aktiven inneren Tab zurück."""
+    for group_attr, inner_attr in [
+        ("tab_siege", "siege_inner_tabs"),
+        ("tab_wgb", "wgb_inner_tabs"),
+        ("tab_rta", "rta_inner_tabs"),
+        ("tab_arena_rush", "arena_rush_inner_tabs"),
+    ]:
+        group = getattr(window, group_attr, None)
+        inner = getattr(window, inner_attr, None)
+        if outer_tab is group and inner is not None:
+            return inner.currentWidget()
+    return outer_tab
+
+
 def on_tab_changed(window, index: int) -> None:
     if not window.account:
         return
-    tab = window.tabs.widget(index)
+    outer_tab = window.tabs.widget(index)
+    tab = _resolve_active_inner_tab(window, outer_tab)
     if window._tab_needs_unit_dropdowns(tab):
         window._ensure_unit_dropdowns_populated(tab=tab)
     if tab is window.tab_siege_raw and bool(window._lazy_view_dirty.get("siege_raw", False)):

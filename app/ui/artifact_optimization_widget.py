@@ -3,13 +3,24 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QStandardItemModel, QStandardItem
+from PySide6.QtGui import (
+    QAbstractTextDocumentLayout,
+    QPainter,
+    QPalette,
+    QStandardItem,
+    QStandardItemModel,
+    QTextDocument,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QPushButton,
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -115,6 +126,55 @@ def _sec_effects_text(art: Artifact) -> str:
     return " | ".join(parts)
 
 
+def _sec_effects_html(art: Artifact) -> str:
+    parts = []
+    for sec in (art.sec_effects or []):
+        if not sec or len(sec) < 2:
+            continue
+        eid = int(sec[0] or 0)
+        val = sec[1]
+        upgrades = int(sec[2] or 0) if len(sec) > 2 else 0
+        swapped = int(sec[3] or 0) if len(sec) > 3 else 0
+        text = artifact_effect_text(eid, val)
+        if upgrades > 0:
+            text += f" ({tr('ui.rolls', n=upgrades)})"
+        if swapped:
+            text = f"<span style='color:#1abc9c'>{text}</span>"
+        parts.append(text)
+    return "<span style='color:#9aa4b2'> | </span>".join(parts)
+
+
+class _RichTextDelegate(QStyledItemDelegate):
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        options = QStyleOptionViewItem(option)
+        self.initStyleOption(options, index)
+        style = options.widget.style() if options.widget else QApplication.style()
+
+        doc = QTextDocument()
+        doc.setHtml(options.text or "")
+        options.text = ""
+        style.drawControl(QStyle.CE_ItemViewItem, options, painter, options.widget)
+
+        text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, options, options.widget)
+        painter.save()
+        try:
+            painter.translate(text_rect.topLeft())
+            painter.setClipRect(text_rect.translated(-text_rect.topLeft()))
+            doc.setTextWidth(float(text_rect.width()))
+            ctx = QAbstractTextDocumentLayout.PaintContext()
+            if options.state & QStyle.State_Selected:
+                ctx.palette.setColor(QPalette.ColorRole.Text, options.palette.highlightedText().color())
+            doc.documentLayout().draw(painter, ctx)
+        finally:
+            painter.restore()
+
+    def sizeHint(self, option: QStyleOptionViewItem, index):
+        doc = QTextDocument()
+        doc.setHtml(str(index.data() or ""))
+        doc.setTextWidth(float(max(0, option.rect.width())))
+        return doc.size().toSize()
+
+
 class ArtifactOptimizationWidget(QWidget):
     def __init__(
         self,
@@ -160,6 +220,7 @@ class ArtifactOptimizationWidget(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(28)
         self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setItemDelegateForColumn(5, _RichTextDelegate(self.table))
         layout.addWidget(self.table, 1)
 
         self.retranslate()
@@ -304,7 +365,10 @@ class ArtifactOptimizationWidget(QWidget):
             self.table.setItem(row, 3, slot_item)
 
             self.table.setItem(row, 4, QTableWidgetItem(_mainstat_text(art)))
-            self.table.setItem(row, 5, QTableWidgetItem(_sec_effects_text(art)))
+            sub_item = QTableWidgetItem(_sec_effects_html(art))
+            sub_item.setData(Qt.UserRole, _sec_effects_text(art))
+            sub_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self.table.setItem(row, 5, sub_item)
 
             monster_name = ""
             uid = int(art.occupied_id or 0)
@@ -317,7 +381,16 @@ class ArtifactOptimizationWidget(QWidget):
         self.table.resizeColumnsToContents()
         self.table.setColumnWidth(0, max(90, self.table.columnWidth(0)))
         self.table.setColumnWidth(1, max(80, self.table.columnWidth(1)))
-        self.table.setColumnWidth(4, max(180, self.table.columnWidth(4)))
-        self.table.setColumnWidth(5, max(500, self.table.columnWidth(5)))
+        self.table.setColumnWidth(4, 100)
+        # Spalte 5 (Substats): Breite am breitesten Klartext-Eintrag orientieren,
+        # da resizeColumnsToContents() HTML-Inhalte nicht korrekt messen kann.
+        fm = self.table.fontMetrics()
+        max_sub_w = max(
+            (fm.horizontalAdvance(str(self.table.item(r, 5).data(Qt.UserRole) or ""))
+             for r in range(self.table.rowCount())
+             if self.table.item(r, 5)),
+            default=0,
+        )
+        self.table.setColumnWidth(5, max_sub_w + 24)
         self.table.setColumnWidth(6, max(120, self.table.columnWidth(6)))
         self.table.setSortingEnabled(True)

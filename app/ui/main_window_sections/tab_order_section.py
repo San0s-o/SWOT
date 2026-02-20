@@ -8,17 +8,11 @@ from PySide6.QtWidgets import QWidget
 
 DEFAULT_TAB_ORDER = [
     "tab_overview",
-    "tab_siege_raw",
-    "tab_rta_overview",
+    "tab_siege",
+    "tab_wgb",
+    "tab_rta",
+    "tab_arena_rush",
     "tab_rune_optimization",
-    "tab_siege_builder",
-    "tab_saved_siege",
-    "tab_wgb_builder",
-    "tab_saved_wgb",
-    "tab_rta_builder",
-    "tab_saved_rta",
-    "tab_arena_rush_builder",
-    "tab_saved_arena_rush",
     "tab_settings",
 ]
 

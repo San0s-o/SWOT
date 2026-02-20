@@ -16,13 +16,22 @@ STRINGS: dict[str, str] = {
     "main.import_outdated_title": "Import outdated",
     "main.import_outdated_msg": "The current import \"{source}\" is from {date} and older than 1 month.\n\nPlease import a current JSON file to keep your data up to date.",
 
-    # -- Tabs ----------------------------------------------------
+    # -- Tabs (group tabs) ---------------------------------------
     "tab.overview": "Overview",
-    "tab.siege_current": "Siege Defenses (current)",
-    "tab.rta_current": "RTA (current)",
-    "tab.rune_optimization": "Runes & Artifacts",
+    "tab.siege_group": "Siege",
+    "tab.wgb_group": "World Guild Battle",
+    "tab.rta_group": "RTA",
+    "tab.arena_rush_group": "Arena Rush",
+    "tab.rune_optimization": "Runes && Artifacts",
+    # -- Sub-tabs (within groups) --------------------------------
+    "tab.subtab_current": "Current",
+    "tab.subtab_builder": "Builder",
+    "tab.subtab_saved": "Saved",
     "rune_opt.subtab_runes": "Runes",
     "rune_opt.subtab_artifacts": "Artifacts",
+    # -- Legacy tab keys (for compatibility) ---------------------
+    "tab.siege_current": "Siege Defenses (current)",
+    "tab.rta_current": "RTA (current)",
     "tab.siege_builder": "Siege Builder (Custom)",
     "tab.siege_saved": "Siege Optimizations (saved)",
     "tab.wgb_builder": "GWB Builder (Custom)",
