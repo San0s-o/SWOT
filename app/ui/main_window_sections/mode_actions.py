@@ -1,0 +1,815 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, List, Set, Tuple
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QListWidgetItem, QMessageBox
+
+from app.domain.presets import Build
+from app.engine.greedy_optimizer import (
+    BASELINE_REGRESSION_GUARD_WEIGHT,
+    GreedyRequest,
+    optimize_greedy,
+)
+from app.i18n import tr
+from app.ui.dialogs.build_dialog import BuildDialog
+
+
+@dataclass
+class TeamSelection:
+    team_index: int
+    unit_ids: List[int]
+
+
+def _store_compare_snapshot_from_build_dialog(window, mode: str, dlg: BuildDialog) -> None:
+    mode_key = str(mode or "").strip().lower()
+    if not mode_key:
+        return
+    store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    snap = dlg.loaded_current_runes_snapshot()
+    if not isinstance(snap, dict):
+        store.pop(mode_key, None)
+        window._loaded_current_runes_compare_by_mode = store
+        return
+    runes_raw = dict(snap.get("runes_by_unit") or {})
+    artifacts_raw = dict(snap.get("artifacts_by_unit") or {})
+    runes_by_unit: Dict[int, Dict[int, int]] = {}
+    artifacts_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_slot in runes_raw.items():
+        ui = int(uid or 0)
+        if ui <= 0:
+            continue
+        clean_slots: Dict[int, int] = {}
+        for slot, rid in dict(by_slot or {}).items():
+            s = int(slot or 0)
+            r = int(rid or 0)
+            if 1 <= s <= 6 and r > 0:
+                clean_slots[int(s)] = int(r)
+        if clean_slots:
+            runes_by_unit[int(ui)] = clean_slots
+    for uid, by_type in artifacts_raw.items():
+        ui = int(uid or 0)
+        if ui <= 0:
+            continue
+        clean_types: Dict[int, int] = {}
+        for art_type, aid in dict(by_type or {}).items():
+            t = int(art_type or 0)
+            a = int(aid or 0)
+            if t in (1, 2) and a > 0:
+                clean_types[int(t)] = int(a)
+        if clean_types:
+            artifacts_by_unit[int(ui)] = clean_types
+    if runes_by_unit or artifacts_by_unit:
+        store[mode_key] = {
+            "runes_by_unit": runes_by_unit,
+            "artifacts_by_unit": artifacts_by_unit,
+        }
+    else:
+        store.pop(mode_key, None)
+    window._loaded_current_runes_compare_by_mode = store
+
+
+def _baseline_assignments_for_mode(window, mode: str, unit_ids: List[int]) -> Tuple[Dict[int, Dict[int, int]], Dict[int, Dict[int, int]]]:
+    mode_key = str(mode or "").strip().lower()
+    if not mode_key:
+        return {}, {}
+    unit_set = {int(uid) for uid in (unit_ids or []) if int(uid) > 0}
+    if not unit_set:
+        return {}, {}
+    compare_store = dict(getattr(window, "_loaded_current_runes_compare_by_mode", {}) or {})
+    snap = dict(compare_store.get(mode_key, {}) or {})
+    runes_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_slot in dict(snap.get("runes_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        slots = {
+            int(slot): int(rid)
+            for slot, rid in dict(by_slot or {}).items()
+            if 1 <= int(slot or 0) <= 6 and int(rid or 0) > 0
+        }
+        if slots:
+            runes_by_unit[int(ui)] = slots
+    arts_by_unit: Dict[int, Dict[int, int]] = {}
+    for uid, by_type in dict(snap.get("artifacts_by_unit") or {}).items():
+        ui = int(uid or 0)
+        if ui <= 0 or ui not in unit_set:
+            continue
+        types = {
+            int(t): int(aid)
+            for t, aid in dict(by_type or {}).items()
+            if int(t or 0) in (1, 2) and int(aid or 0) > 0
+        }
+        if types:
+            arts_by_unit[int(ui)] = types
+    return runes_by_unit, arts_by_unit
+
+
+def _team_has_spd_buff_by_uid(window, teams: List[List[int]]) -> Dict[int, bool]:
+    out: Dict[int, bool] = {}
+    mdb = getattr(window, "monster_db", None)
+    account = getattr(window, "account", None)
+    if mdb is None or account is None:
+        return out
+    units_by_id = dict(getattr(account, "units_by_id", {}) or {})
+    for team in (teams or []):
+        ids = [int(uid) for uid in (team or []) if int(uid or 0) > 0]
+        if not ids:
+            continue
+        has_spd = False
+        for uid in ids:
+            unit = units_by_id.get(int(uid))
+            if unit is None:
+                continue
+            master_id = int(getattr(unit, "unit_master_id", 0) or 0)
+            if master_id <= 0:
+                continue
+            cap = dict(mdb.turn_effect_capability_for(int(master_id)) or {})
+            if bool(cap.get("has_spd_buff", False)):
+                has_spd = True
+                break
+        for uid in ids:
+            out[int(uid)] = bool(has_spd)
+    return out
+
+
+def save_arena_rush_ui_state(window) -> None:
+    from app.ui.main_window_sections.arena_rush_actions import save_arena_rush_ui_state as _impl
+    return _impl(window)
+
+
+def restore_arena_rush_ui_state(window) -> None:
+    from app.ui.main_window_sections.arena_rush_actions import restore_arena_rush_ui_state as _impl
+    return _impl(window)
+
+
+def on_take_current_siege(window) -> None:
+    if not window.account:
+        return
+    teams = window.account.siege_def_teams()
+    for t in range(min(len(teams), len(window.siege_team_combos))):
+        team = teams[t]
+        for s in range(min(3, len(team))):
+            uid = team[s]
+            cmb = window.siege_team_combos[t][s]
+            idx = cmb.findData(uid)
+            cmb.setCurrentIndex(idx if idx >= 0 else 0)
+    selections = window._collect_siege_selections()
+    _ok, msg, _all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
+    window.lbl_siege_validate.setText(msg)
+
+
+def collect_siege_selections(window) -> List[TeamSelection]:
+    window._ensure_unit_dropdowns_populated()
+    selections: List[TeamSelection] = []
+    optimize_checks = getattr(window, "siege_optimize_checks", None) or []
+    for t, row in enumerate(window.siege_team_combos):
+        if optimize_checks and t < len(optimize_checks) and not optimize_checks[t].isChecked():
+            continue
+        ids = []
+        for cmb in row:
+            uid = int(cmb.currentData() or 0)
+            if uid != 0:
+                ids.append(uid)
+        selections.append(TeamSelection(team_index=t, unit_ids=ids))
+    return selections
+
+
+def collect_siege_excluded_unit_ids(window) -> List[int]:
+    """Return unit IDs from defenses that are NOT selected for optimization."""
+    window._ensure_unit_dropdowns_populated()
+    excluded: List[int] = []
+    optimize_checks = getattr(window, "siege_optimize_checks", None) or []
+    for t, row in enumerate(window.siege_team_combos):
+        if not optimize_checks or t >= len(optimize_checks):
+            continue
+        if optimize_checks[t].isChecked():
+            continue
+        for cmb in row:
+            uid = int(cmb.currentData() or 0)
+            if uid != 0:
+                excluded.append(uid)
+    return excluded
+
+
+def validate_team_structure(window, label: str, selections: List[TeamSelection], must_have_team_size: int) -> Tuple[bool, str, List[int]]:
+    all_units: List[int] = []
+    for sel in selections:
+        if not sel.unit_ids:
+            continue
+        if len(sel.unit_ids) != must_have_team_size:
+            return False, tr("val.incomplete_team", label=label, team=sel.team_index + 1, have=len(sel.unit_ids), need=must_have_team_size), []
+        team_set: Set[int] = set()
+        for uid in sel.unit_ids:
+            if uid in team_set:
+                name = window._unit_text(uid) if window.account else str(uid)
+                return False, tr("val.duplicate_in_team", label=label, team=sel.team_index + 1, name=name), []
+            team_set.add(uid)
+        all_units.extend(sel.unit_ids)
+    if not all_units:
+        return False, tr("val.no_teams", label=label), []
+    return True, tr("val.ok", label=label, count=len(all_units)), all_units
+
+
+def on_validate_siege(window) -> None:
+    if not window.account:
+        return
+    selections = window._collect_siege_selections()
+    ok, msg, _all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
+    if not ok:
+        window.lbl_siege_validate.setText(msg)
+        QMessageBox.critical(window, tr("val.title_siege"), msg)
+        return
+    window.lbl_siege_validate.setText(msg)
+    QMessageBox.information(window, tr("val.title_siege_ok"), msg)
+
+
+def on_edit_presets_siege(window) -> None:
+    if not window.account:
+        return
+    selections = window._collect_siege_selections()
+    ok, msg, all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
+    if not ok:
+        QMessageBox.critical(window, "Siege", tr("dlg.validate_first", msg=msg))
+        return
+    unit_rows: List[Tuple[int, str]] = [(uid, window._unit_text(uid)) for uid in all_units]
+    dlg = BuildDialog(
+        window,
+        "Siege Builds",
+        unit_rows,
+        window.presets,
+        "siege",
+        window.account,
+        window._unit_icon_for_unit_id,
+        team_size=3,
+    )
+    if dlg.exec() == QDialog.Accepted:
+        _store_compare_snapshot_from_build_dialog(window, "siege", dlg)
+        window.presets.save(window.presets_path)
+        QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
+
+
+def on_optimize_siege(window) -> None:
+    if not window.account or window._siege_optimization_running:
+        return
+    window._siege_optimization_running = True
+    window.btn_optimize_siege.setEnabled(False)
+    try:
+        quality_profile = str(window.combo_quality_profile_siege.currentData() or "balanced")
+        pass_count = int(window.spin_multi_pass_siege.value())
+        if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+            pass_count = 1
+        workers = window._effective_workers(quality_profile, window.combo_workers_siege)
+        running_text = tr("result.opt_running", mode="Siege")
+        window.lbl_siege_validate.setText(running_text)
+        window.statusBar().showMessage(running_text)
+        selections = window._collect_siege_selections()
+        ok, msg, all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
+        if not ok:
+            QMessageBox.critical(window, "Siege", tr("dlg.validate_first", msg=msg))
+            return
+
+        ordered_unit_ids = window._units_by_turn_order("siege", all_units)
+        team_idx_by_uid: Dict[int, int] = {}
+        for idx, sel in enumerate(selections):
+            for uid in sel.unit_ids:
+                team_idx_by_uid[int(uid)] = int(idx)
+        leader_spd_bonus_by_uid = window._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
+        team_turn_by_uid: Dict[int, int] = {}
+        for uid in all_units:
+            builds = window.presets.get_unit_builds("siege", int(uid))
+            b0 = builds[0] if builds else Build.default_any()
+            team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
+        baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+            window, "siege", ordered_unit_ids
+        )
+        from app.ui.main_window_sections.arena_rush_actions import (
+            optimizer_archetype_by_uid,
+            optimizer_artifact_hints_by_uid,
+        )
+        unit_archetype_by_uid = optimizer_archetype_by_uid(window, ordered_unit_ids)
+        unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ordered_unit_ids)
+        team_spd_buff_by_uid = _team_has_spd_buff_by_uid(
+            window,
+            [sel.unit_ids for sel in selections if sel.unit_ids],
+        )
+
+        # Collect rune/artifact IDs from non-optimized defenses to exclude from the pool
+        excluded_rune_ids: Set[int] = set()
+        excluded_artifact_ids: Set[int] = set()
+        chk_block = getattr(window, "chk_siege_block_excluded", None)
+        if chk_block and chk_block.isChecked():
+            excluded_uids = window._collect_siege_excluded_unit_ids()
+            for uid in excluded_uids:
+                for rune in window.account.equipped_runes_for(uid, mode="siege"):
+                    rid = int(rune.rune_id or 0)
+                    if rid > 0:
+                        excluded_rune_ids.add(rid)
+                for art in window.account.artifacts:
+                    if int(art.occupied_id or 0) == int(uid):
+                        aid = int(art.artifact_id or 0)
+                        if aid > 0:
+                            excluded_artifact_ids.add(aid)
+
+        res = window._run_with_busy_progress(
+            running_text,
+            lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+                window.account,
+                window.presets,
+                GreedyRequest(
+                    mode="siege",
+                    unit_ids_in_order=ordered_unit_ids,
+                    time_limit_per_unit_s=5.0,
+                    workers=workers,
+                    multi_pass_enabled=bool(pass_count > 1),
+                    multi_pass_count=pass_count,
+                    multi_pass_strategy="greedy_refine",
+                    quality_profile=quality_profile,
+                    progress_callback=progress_cb,
+                    is_cancelled=is_cancelled,
+                    register_solver=register_solver,
+                    enforce_turn_order=True,
+                    unit_team_index=team_idx_by_uid,
+                    unit_team_turn_order=team_turn_by_uid,
+                    unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                    unit_archetype_by_uid=dict(unit_archetype_by_uid),
+                    unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
+                    unit_team_has_spd_buff_by_uid=dict(team_spd_buff_by_uid),
+                    unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+                    unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+                    baseline_regression_guard_weight=(
+                        int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                        if (baseline_runes_by_unit or baseline_arts_by_unit)
+                        else 0
+                    ),
+                    excluded_rune_ids=(excluded_rune_ids if excluded_rune_ids else None),
+                    excluded_artifact_ids=(excluded_artifact_ids if excluded_artifact_ids else None),
+                ),
+            ),
+        )
+        window.lbl_siege_validate.setText(res.message)
+        window.statusBar().showMessage(res.message, 7000)
+        unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
+        siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+        window._show_optimize_results(
+            tr("result.title_siege"),
+            res.message,
+            res.results,
+            unit_team_index=team_idx_by_uid,
+            unit_display_order=unit_display_order,
+            mode="siege",
+            teams=siege_teams,
+        )
+    finally:
+        window._siege_optimization_running = False
+        window.btn_optimize_siege.setEnabled(bool(window.account))
+
+
+def units_by_turn_order(window, mode: str, unit_ids: List[int]) -> List[int]:
+    indexed: List[Tuple[int, int, int]] = []
+    for pos, uid in enumerate(unit_ids):
+        builds = window.presets.get_unit_builds(mode, int(uid))
+        b0 = builds[0] if builds else Build.default_any()
+        opt = int(getattr(b0, "optimize_order", 0) or 0)
+        indexed.append((opt, pos, int(uid)))
+    with_order = [x for x in indexed if x[0] > 0]
+    without_order = [x for x in indexed if x[0] <= 0]
+    with_order.sort(key=lambda t: (t[0], t[1]))
+    without_order.sort(key=lambda t: t[1])
+    return [uid for _, _, uid in (with_order + without_order)]
+
+
+def units_by_turn_order_grouped(window, mode: str, unit_ids: List[int], group_size: int) -> List[int]:
+    if group_size <= 0:
+        return window._units_by_turn_order(mode, unit_ids)
+    out: List[int] = []
+    for i in range(0, len(unit_ids), group_size):
+        group = unit_ids[i : i + group_size]
+        out.extend(window._units_by_turn_order(mode, group))
+    return out
+
+
+def leader_spd_bonus_map(window, teams: List[List[int]]) -> Dict[int, int]:
+    out: Dict[int, int] = {}
+    if not window.account:
+        return out
+    for team in teams:
+        ids = [int(uid) for uid in (team or []) if int(uid) != 0]
+        if not ids:
+            continue
+        for uid in ids:
+            out[int(uid)] = int(window._unit_leader_bonus(int(uid), ids).get("SPD", 0) or 0)
+    return out
+
+
+def collect_wgb_selections(window) -> List[TeamSelection]:
+    window._ensure_unit_dropdowns_populated()
+    selections: List[TeamSelection] = []
+    for t, row in enumerate(window.wgb_team_combos):
+        ids = []
+        for cmb in row:
+            uid = int(cmb.currentData() or 0)
+            if uid != 0:
+                ids.append(uid)
+        selections.append(TeamSelection(team_index=t, unit_ids=ids))
+    return selections
+
+
+def validate_unique_monsters(window, all_unit_ids: List[int]) -> Tuple[bool, str]:
+    if not window.account:
+        return False, tr("val.no_account")
+    seen: Dict[int, str] = {}
+    for uid in all_unit_ids:
+        u = window.account.units_by_id.get(uid)
+        if not u:
+            continue
+        mid = u.unit_master_id
+        name = window.monster_db.name_for(mid)
+        if mid in seen:
+            return False, tr("val.duplicate_monster_wgb", name=name)
+        seen[mid] = name
+    return True, ""
+
+
+def on_validate_wgb(window) -> None:
+    if not window.account:
+        return
+    selections = window._collect_wgb_selections()
+    ok, msg, all_units = window._validate_team_structure("WGB", selections, must_have_team_size=3)
+    if not ok:
+        window.lbl_wgb_validate.setText(msg)
+        QMessageBox.critical(window, tr("val.title_wgb"), msg)
+        return
+    ok2, msg2 = window._validate_unique_monsters(all_units)
+    if not ok2:
+        window.lbl_wgb_validate.setText(msg2)
+        QMessageBox.critical(window, tr("val.title_wgb"), msg2)
+        return
+    window.lbl_wgb_validate.setText(msg)
+    QMessageBox.information(window, tr("val.title_wgb_ok"), msg)
+    window._render_wgb_preview(selections)
+
+
+def on_edit_presets_wgb(window) -> None:
+    if not window.account:
+        return
+    selections = window._collect_wgb_selections()
+    ok, msg, all_units = window._validate_team_structure("WGB", selections, must_have_team_size=3)
+    if not ok:
+        QMessageBox.critical(window, "WGB", tr("dlg.validate_first", msg=msg))
+        return
+    ok2, msg2 = window._validate_unique_monsters(all_units)
+    if not ok2:
+        QMessageBox.critical(window, "WGB", msg2)
+        return
+
+    unit_rows: List[Tuple[int, str]] = [(uid, window._unit_text(uid)) for uid in all_units]
+    dlg = BuildDialog(
+        window,
+        "WGB Builds",
+        unit_rows,
+        window.presets,
+        "wgb",
+        window.account,
+        window._unit_icon_for_unit_id,
+        team_size=3,
+    )
+    if dlg.exec() == QDialog.Accepted:
+        _store_compare_snapshot_from_build_dialog(window, "wgb", dlg)
+        window.presets.save(window.presets_path)
+        QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
+
+
+def on_optimize_wgb(window) -> None:
+    if not window.account:
+        return
+    quality_profile = str(window.combo_quality_profile_wgb.currentData() or "balanced")
+    pass_count = int(window.spin_multi_pass_wgb.value())
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+        pass_count = 1
+    workers = window._effective_workers(quality_profile, window.combo_workers_wgb)
+    running_text = tr("result.opt_running", mode="WGB")
+    window.lbl_wgb_validate.setText(running_text)
+    window.statusBar().showMessage(running_text)
+    selections = window._collect_wgb_selections()
+    ok, msg, all_units = window._validate_team_structure("WGB", selections, must_have_team_size=3)
+    if not ok:
+        QMessageBox.critical(window, "WGB", tr("dlg.validate_first", msg=msg))
+        return
+    ok2, msg2 = window._validate_unique_monsters(all_units)
+    if not ok2:
+        QMessageBox.critical(window, "WGB", msg2)
+        return
+
+    ordered_unit_ids = window._units_by_turn_order("wgb", all_units)
+    team_idx_by_uid: Dict[int, int] = {}
+    for idx, sel in enumerate(selections):
+        for uid in sel.unit_ids:
+            team_idx_by_uid[int(uid)] = int(idx)
+    leader_spd_bonus_by_uid = window._leader_spd_bonus_map([sel.unit_ids for sel in selections if sel.unit_ids])
+    team_turn_by_uid: Dict[int, int] = {}
+    for uid in all_units:
+        builds = window.presets.get_unit_builds("wgb", int(uid))
+        b0 = builds[0] if builds else Build.default_any()
+        team_turn_by_uid[int(uid)] = int(getattr(b0, "turn_order", 0) or 0)
+    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+        window, "wgb", ordered_unit_ids
+    )
+    from app.ui.main_window_sections.arena_rush_actions import (
+        optimizer_archetype_by_uid,
+        optimizer_artifact_hints_by_uid,
+    )
+    unit_archetype_by_uid = optimizer_archetype_by_uid(window, ordered_unit_ids)
+    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ordered_unit_ids)
+    team_spd_buff_by_uid = _team_has_spd_buff_by_uid(
+        window,
+        [sel.unit_ids for sel in selections if sel.unit_ids],
+    )
+    res = window._run_with_busy_progress(
+        running_text,
+        lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+            window.account,
+            window.presets,
+            GreedyRequest(
+                mode="wgb",
+                unit_ids_in_order=ordered_unit_ids,
+                time_limit_per_unit_s=5.0,
+                workers=workers,
+                multi_pass_enabled=bool(pass_count > 1),
+                multi_pass_count=pass_count,
+                multi_pass_strategy="greedy_refine",
+                quality_profile=quality_profile,
+                progress_callback=progress_cb,
+                is_cancelled=is_cancelled,
+                register_solver=register_solver,
+                enforce_turn_order=True,
+                unit_team_index=team_idx_by_uid,
+                unit_team_turn_order=team_turn_by_uid,
+                unit_spd_leader_bonus_flat=leader_spd_bonus_by_uid,
+                unit_archetype_by_uid=dict(unit_archetype_by_uid),
+                unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
+                unit_team_has_spd_buff_by_uid=dict(team_spd_buff_by_uid),
+                unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+                unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+                baseline_regression_guard_weight=(
+                    int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                    if (baseline_runes_by_unit or baseline_arts_by_unit)
+                    else 0
+                ),
+            ),
+        ),
+    )
+    window.lbl_wgb_validate.setText(res.message)
+    window.statusBar().showMessage(res.message, 7000)
+    unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
+    wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+    window._show_optimize_results(
+        tr("result.title_wgb"),
+        res.message,
+        res.results,
+        unit_team_index=team_idx_by_uid,
+        unit_display_order=unit_display_order,
+        mode="wgb",
+        teams=wgb_teams,
+    )
+
+
+def render_wgb_preview(window, selections: List[TeamSelection] | None = None) -> None:
+    if not window.account:
+        return
+    if selections is None:
+        selections = window._collect_wgb_selections()
+    teams = [sel.unit_ids for sel in selections if sel.unit_ids]
+    window.wgb_preview_cards.render_from_selections(teams, window.account, window.monster_db, window.assets_dir, rune_mode="siege")
+
+
+def on_rta_add_monster(window) -> None:
+    window._ensure_unit_dropdowns_populated()
+    uid = int(window.rta_add_combo.currentData() or 0)
+    if uid == 0:
+        return
+    if window.rta_selected_list.count() >= 15:
+        QMessageBox.warning(window, "RTA", tr("dlg.max_15_rta"))
+        return
+    for i in range(window.rta_selected_list.count()):
+        if int(window.rta_selected_list.item(i).data(Qt.UserRole) or 0) == uid:
+            return
+    item = QListWidgetItem(window._unit_text(uid))
+    item.setData(Qt.UserRole, uid)
+    item.setIcon(window._unit_icon_for_unit_id(uid))
+    window.rta_selected_list.addItem(item)
+    window.rta_add_combo.setCurrentIndex(0)
+    if hasattr(window.rta_add_combo, "_reset_search_field"):
+        window.rta_add_combo._reset_search_field()
+
+
+def on_rta_remove_monster(window) -> None:
+    for item in list(window.rta_selected_list.selectedItems()):
+        window.rta_selected_list.takeItem(window.rta_selected_list.row(item))
+
+
+def on_take_current_rta(window) -> None:
+    if not window.account:
+        return
+    active_uids = window.account.rta_active_unit_ids()
+    window.rta_selected_list.clear()
+    for uid in active_uids[:15]:
+        item = QListWidgetItem(window._unit_text(uid))
+        item.setData(Qt.UserRole, uid)
+        item.setIcon(window._unit_icon_for_unit_id(uid))
+        window.rta_selected_list.addItem(item)
+    ids = window._collect_rta_unit_ids()
+    if ids and len(ids) == len(set(ids)):
+        window.lbl_rta_validate.setText(tr("rta.ok", count=len(ids)))
+    else:
+        window.lbl_rta_validate.setText(tr("status.rta_taken", count=min(len(active_uids), 15)))
+
+
+def collect_rta_unit_ids(window) -> List[int]:
+    ids: List[int] = []
+    for i in range(window.rta_selected_list.count()):
+        uid = int(window.rta_selected_list.item(i).data(Qt.UserRole) or 0)
+        if uid != 0:
+            ids.append(uid)
+    return ids
+
+
+def on_validate_rta(window) -> None:
+    if not window.account:
+        return
+    ids = window._collect_rta_unit_ids()
+    if not ids:
+        msg = tr("rta.no_monsters")
+        window.lbl_rta_validate.setText(msg)
+        QMessageBox.critical(window, tr("val.title_rta"), msg)
+        return
+    seen: Set[int] = set()
+    for uid in ids:
+        if uid in seen:
+            name = window._unit_text(uid)
+            msg = tr("rta.duplicate", name=name)
+            window.lbl_rta_validate.setText(msg)
+            QMessageBox.critical(window, tr("val.title_rta"), msg)
+            return
+        seen.add(uid)
+    msg = tr("rta.ok", count=len(ids))
+    window.lbl_rta_validate.setText(msg)
+    QMessageBox.information(window, tr("val.title_rta_ok"), msg)
+
+
+def on_edit_presets_rta(window) -> None:
+    if not window.account:
+        return
+    ids = window._collect_rta_unit_ids()
+    if not ids:
+        QMessageBox.critical(window, "RTA", tr("dlg.select_monsters_first"))
+        return
+    if len(ids) != len(set(ids)):
+        QMessageBox.critical(window, "RTA", tr("dlg.duplicates_found"))
+        return
+    unit_rows: List[Tuple[int, str]] = [(uid, window._unit_text(uid)) for uid in ids]
+    dlg = BuildDialog(
+        window,
+        "RTA Builds",
+        unit_rows,
+        window.presets,
+        "rta",
+        window.account,
+        window._unit_icon_for_unit_id,
+        team_size=len(ids),
+        show_order_sections=False,
+    )
+    if dlg.exec() == QDialog.Accepted:
+        _store_compare_snapshot_from_build_dialog(window, "rta", dlg)
+        window.presets.save(window.presets_path)
+        QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
+
+
+def on_optimize_rta(window) -> None:
+    if not window.account:
+        return
+    quality_profile = str(window.combo_quality_profile_rta.currentData() or "balanced")
+    pass_count = int(window.spin_multi_pass_rta.value())
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+        pass_count = 1
+    workers = window._effective_workers(quality_profile, window.combo_workers_rta)
+    running_text = tr("result.opt_running", mode="RTA")
+    window.lbl_rta_validate.setText(running_text)
+    window.statusBar().showMessage(running_text)
+    ids = window._collect_rta_unit_ids()
+    if not ids:
+        QMessageBox.critical(window, "RTA", tr("dlg.select_monsters_first"))
+        return
+    if len(ids) != len(set(ids)):
+        QMessageBox.critical(window, "RTA", tr("dlg.duplicates_found"))
+        return
+
+    team_idx_by_uid: Dict[int, int] = {int(uid): 0 for uid in ids}
+    team_turn_by_uid: Dict[int, int] = {int(uid): pos + 1 for pos, uid in enumerate(ids)}
+    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+        window, "rta", ids
+    )
+    from app.ui.main_window_sections.arena_rush_actions import (
+        optimizer_archetype_by_uid,
+        optimizer_artifact_hints_by_uid,
+    )
+    unit_archetype_by_uid = optimizer_archetype_by_uid(window, ids)
+    unit_artifact_hints_by_uid = optimizer_artifact_hints_by_uid(window, ids)
+    team_spd_buff_by_uid = _team_has_spd_buff_by_uid(window, [ids])
+    res = window._run_with_busy_progress(
+        running_text,
+        lambda is_cancelled, register_solver, progress_cb: optimize_greedy(
+            window.account,
+            window.presets,
+            GreedyRequest(
+                mode="rta",
+                unit_ids_in_order=ids,
+                time_limit_per_unit_s=5.0,
+                workers=workers,
+                multi_pass_enabled=bool(pass_count > 1),
+                multi_pass_count=pass_count,
+                multi_pass_strategy="greedy_refine",
+                quality_profile=quality_profile,
+                progress_callback=progress_cb,
+                is_cancelled=is_cancelled,
+                register_solver=register_solver,
+                enforce_turn_order=True,
+                unit_team_index=team_idx_by_uid,
+                unit_team_turn_order=team_turn_by_uid,
+                unit_spd_leader_bonus_flat={},
+                unit_archetype_by_uid=dict(unit_archetype_by_uid),
+                unit_artifact_hints_by_uid=dict(unit_artifact_hints_by_uid),
+                unit_team_has_spd_buff_by_uid=dict(team_spd_buff_by_uid),
+                unit_baseline_runes_by_slot=(baseline_runes_by_unit or None),
+                unit_baseline_artifacts_by_type=(baseline_arts_by_unit or None),
+                baseline_regression_guard_weight=(
+                    int(BASELINE_REGRESSION_GUARD_WEIGHT)
+                    if (baseline_runes_by_unit or baseline_arts_by_unit)
+                    else 0
+                ),
+            ),
+        ),
+    )
+    window.lbl_rta_validate.setText(res.message)
+    window.statusBar().showMessage(res.message, 7000)
+    unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
+    window._show_optimize_results(
+        tr("result.title_rta"),
+        res.message,
+        res.results,
+        unit_team_index=team_idx_by_uid,
+        unit_display_order=unit_display_order,
+        mode="rta",
+        teams=[ids],
+    )
+
+
+def collect_arena_def_selection(window) -> List[int]:
+    from app.ui.main_window_sections.arena_rush_actions import collect_arena_def_selection as _impl
+    return _impl(window)
+
+
+def collect_arena_offense_selections(window) -> List[TeamSelection]:
+    from app.ui.main_window_sections.arena_rush_actions import collect_arena_offense_selections as _impl
+    return _impl(window)
+
+
+def on_take_current_arena_def(window) -> None:
+    from app.ui.main_window_sections.arena_rush_actions import on_take_current_arena_def as _impl
+    return _impl(window)
+
+
+def on_take_current_arena_off(window) -> None:
+    from app.ui.main_window_sections.arena_rush_actions import on_take_current_arena_off as _impl
+    return _impl(window)
+
+
+def _validate_arena_rush(window) -> Tuple[bool, str, List[int], List[TeamSelection]]:
+    from app.ui.main_window_sections.arena_rush_actions import _validate_arena_rush as _impl
+    return _impl(window)
+
+
+def on_validate_arena_rush(window) -> None:
+    from app.ui.main_window_sections.arena_rush_actions import on_validate_arena_rush as _impl
+    return _impl(window)
+
+
+def on_edit_presets_arena_rush(window) -> None:
+    from app.ui.main_window_sections.arena_rush_actions import on_edit_presets_arena_rush as _impl
+    return _impl(window)
+
+
+def _arena_speed_leader_bonus_map(
+    window,
+    team_unit_ids: List[int],
+    leader_uid: int = 0,
+    lead_pct_override: int = 0,
+) -> Dict[int, int]:
+    from app.ui.main_window_sections.arena_rush_actions import _arena_speed_leader_bonus_map as _impl
+    return _impl(window, team_unit_ids, leader_uid=leader_uid, lead_pct_override=lead_pct_override)
+
+
+def on_optimize_arena_rush(window) -> None:
+    from app.ui.main_window_sections.arena_rush_actions import on_optimize_arena_rush as _impl
+    return _impl(window)

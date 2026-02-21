@@ -1,0 +1,5 @@
+PySide6>=6.6
+ortools>=9.10
+
+requests>=2.31
+pytest>=8.0

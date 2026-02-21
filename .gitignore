@@ -1,0 +1,73 @@
+# ── Secrets & Lizenz ───────────────────────────────────
+license_config.json
+license.json
+*.secret
+.env
+.env.*
+!.env.example
+
+
+# ── Supabase (Edge Functions, SQL, Secrets) ────────────
+supabase/
+
+# ── Interne Admin-Tools (Keygen, DB-Updater) ──────────
+app/tools/
+app/services/license_service.py
+LICENSE_COMMANDS.md
+
+# ── Game-Assets & lokale Nutzerdaten ──────────────────
+app/assets/
+app/data/
+app/config/build_presets.json
+app/config/saved_optimizations.json
+app/config/team_presets.json
+
+# ── Python ─────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+
+# ── Build-Artefakte ────────────────────────────────────
+build/
+dist/
+*.spec
+*.spec.bak
+*.exe
+*.msi
+*.zip
+*.tar.gz
+
+# ── Kryptografie-Material ──────────────────────────────
+*.pem
+*.key
+*.cert
+*.p12
+
+# ── IDE & Editor ───────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Sonstiges ──────────────────────────────────────────
+*.log
+*.tmp
+tests/
+!tests/
+tests/*
+!tests/test_arena_rush_optimizer.py
+app/services/license_service.py
+screenshots/
+
+# Lokale App-Config / Caches (nicht oeffentlich relevant)
+app/config
+
+# Lokale Script-Artefakte
+scripts/
+app/services
