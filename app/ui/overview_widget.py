@@ -78,25 +78,29 @@ _IMPORTANT_SET_IDS = [13, 15, 3, 10, 18, 14]  # Violent, Will, Swift, Despair, D
 class _SummaryCard(QFrame):
     def __init__(self, title: str, value: str, accent: str = _ACCENT, parent=None):
         super().__init__(parent)
+        self._accent = accent
+        self.setObjectName("SummaryCard")
+        self.setFrameShape(QFrame.NoFrame)
         self.setStyleSheet(f"""
-            _SummaryCard {{
+            QFrame#SummaryCard {{
                 background: {_CARD_BG};
                 border: 1px solid {_CARD_BORDER};
-                border-radius: 6px;
-                padding: 10px;
+                border-top: 3px solid {accent};
+                border-radius: 8px;
             }}
         """)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(2)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(6)
 
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 9pt;")
+        lbl_title.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 9pt; border: none; background: transparent;")
         lbl_title.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl_title)
 
         lbl_val = QLabel(value)
-        lbl_val.setStyleSheet(f"color: {accent}; font-size: 16pt; font-weight: bold;")
+        lbl_val.setStyleSheet(f"color: {accent}; font-size: 18pt; font-weight: bold; border: none; background: transparent;")
         lbl_val.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl_val)
 
@@ -106,7 +110,7 @@ class _SummaryCard(QFrame):
     def update_value(self, value: str, accent: str | None = None):
         self._lbl_val.setText(value)
         if accent:
-            self._lbl_val.setStyleSheet(f"color: {accent}; font-size: 16pt; font-weight: bold;")
+            self._lbl_val.setStyleSheet(f"color: {accent}; font-size: 18pt; font-weight: bold; border: none; background: transparent;")
 
     def update_title(self, title: str) -> None:
         self._lbl_title.setText(title)

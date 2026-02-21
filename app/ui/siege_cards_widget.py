@@ -53,6 +53,28 @@ _ELEMENT_COLOURS: Dict[str, str] = {
 _RTA_GRID_MIN_COLUMNS = 4
 _RTA_GRID_MAX_COLUMNS = 6
 
+# ── rune quality border colours for slot buttons ─────────────
+_RUNE_QUALITY_BORDER: Dict[int, str] = {
+    1:  "#555555",  # Normal   – grey
+    11: "#555555",
+    2:  "#27ae60",  # Magic    – green
+    12: "#27ae60",
+    3:  "#3498db",  # Rare     – blue
+    13: "#3498db",
+    4:  "#9b59b6",  # Hero     – purple
+    14: "#9b59b6",
+    5:  "#e67e22",  # Legend   – orange
+    6:  "#e67e22",
+    15: "#e67e22",
+    16: "#e67e22",
+}
+
+
+def _rune_quality_class(rune: Rune) -> int:
+    origin = int(getattr(rune, "origin_class", 0) or 0)
+    return origin if origin else int(rune.rune_class or 0)
+
+
 def _card_stat_label(key: str) -> str:
     return tr("card_stat." + key)
 
@@ -318,25 +340,27 @@ class MonsterCard(QFrame):
         self._computed_stats = computed_stats
 
         self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet("""
-            MonsterCard {
+        _elem_accent = _ELEMENT_COLOURS.get(element, "#3a3a3a")
+        self.setStyleSheet(f"""
+            MonsterCard {{
                 background: #2b2b2b;
-                border: 1px solid #555;
+                border: 1px solid #3a3a3a;
+                border-top: 3px solid {_elem_accent};
+                border-radius: 6px;
+            }}
+            QLabel {{ color: #ddd; font-size: 9pt; }}
+            QPushButton {{
+                background: #323232;
+                border: 1px solid #4a4a4a;
                 border-radius: 4px;
-            }
-            QLabel { color: #ddd; font-size: 9pt; }
-            QPushButton {
-                background: #3a3a3a;
-                border: 1px solid #666;
-                border-radius: 2px;
                 padding: 2px;
                 min-width: 34px;
                 min-height: 34px;
-            }
-            QPushButton:hover {
-                background: #505050;
-                border-color: #888;
-            }
+            }}
+            QPushButton:hover {{
+                background: #484848;
+                border-color: #6a6a6a;
+            }}
         """)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
@@ -420,7 +444,7 @@ class MonsterCard(QFrame):
 
         # stats grid (clickable to toggle view mode)
         self._stats_grid = QGridLayout()
-        self._stats_grid.setSpacing(3)
+        self._stats_grid.setSpacing(5)
         self._stats_grid.setContentsMargins(0, 4, 0, 0)
         self._refresh_stats()
         stats_box.addLayout(self._stats_grid)
@@ -442,6 +466,12 @@ class MonsterCard(QFrame):
                     btn.setIcon(icon)
                     btn.setText("")
                 btn.setToolTip(_rune_rich_tooltip(rune))
+                quality_cls = _rune_quality_class(rune)
+                border_col = _RUNE_QUALITY_BORDER.get(quality_cls, "#4a4a4a")
+                btn.setStyleSheet(
+                    f"QPushButton {{ border: 2px solid {border_col}; border-radius: 4px; background: #323232; }}"
+                    f"QPushButton:hover {{ background: #484848; border-color: {border_col}; }}"
+                )
             else:
                 btn.setEnabled(False)
                 btn.setToolTip(tr("artifact.no_rune"))

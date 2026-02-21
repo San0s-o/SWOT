@@ -74,6 +74,7 @@ def run_app(main_window_cls: Type):
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
+    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs)
     app = QApplication(sys.argv)
     _apply_physical_dpi_font_scale(app)
     apply_dark_palette(app)
@@ -88,6 +89,6 @@ def run_app(main_window_cls: Type):
         sys.exit(1)
     w = main_window_cls()
     _apply_license_title(w, license_info)
-    w.show()
+    w.showMaximized()
     QTimer.singleShot(1200, lambda: _start_update_check(w))
     sys.exit(app.exec())

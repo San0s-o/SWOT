@@ -15,7 +15,7 @@ def apply_tab_style(window) -> None:
             background: transparent;
         }
         QTabWidget::pane {
-            border: 1px solid #35383d;
+            border: 1px solid #2e3138;
             border-top: none;
             background: #1f2126;
             top: -1px;
@@ -25,25 +25,30 @@ def apply_tab_style(window) -> None:
             background: transparent;
         }
         QTabBar::tab {
-            background: #262a30;
-            color: #9aa4b2;
-            border: 1px solid #35383d;
+            background: #23272e;
+            color: #6c7888;
+            border: 1px solid #2e3138;
             border-bottom: none;
-            border-top-left-radius: 8px;
-            border-top-right-radius: 8px;
-            min-width: 120px;
-            padding: 7px 16px;
+            border-top: 2px solid transparent;
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+            min-width: 110px;
+            padding: 8px 20px;
             margin-right: 2px;
         }
         QTabBar::tab:selected {
             background: #1f2126;
-            color: #f0f3f7;
-            border-color: #4a90e2;
+            color: #eef1f5;
+            border-color: #2e3138;
+            border-top: 2px solid #4a90e2;
+            border-bottom: none;
             margin-bottom: -1px;
+            font-weight: bold;
         }
         QTabBar::tab:hover:!selected {
-            background: #2f353d;
-            color: #e1e6ec;
+            background: #2a2f37;
+            color: #b0bac8;
+            border-top: 2px solid #3a4a5e;
         }
         """
     )

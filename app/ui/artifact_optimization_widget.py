@@ -151,6 +151,7 @@ class _RichTextDelegate(QStyledItemDelegate):
         style = options.widget.style() if options.widget else QApplication.style()
 
         doc = QTextDocument()
+        doc.setDefaultFont(options.font)
         doc.setHtml(options.text or "")
         options.text = ""
         style.drawControl(QStyle.CE_ItemViewItem, options, painter, options.widget)
@@ -170,6 +171,7 @@ class _RichTextDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option: QStyleOptionViewItem, index):
         doc = QTextDocument()
+        doc.setDefaultFont(option.font)
         doc.setHtml(str(index.data() or ""))
         doc.setTextWidth(float(max(0, option.rect.width())))
         return doc.size().toSize()
@@ -219,7 +221,7 @@ class ArtifactOptimizationWidget(QWidget):
         self.table.setSortingEnabled(True)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.verticalHeader().setDefaultSectionSize(36)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setItemDelegateForColumn(5, _RichTextDelegate(self.table))
         layout.addWidget(self.table, 1)
@@ -380,7 +382,7 @@ class ArtifactOptimizationWidget(QWidget):
             self.table.setItem(row, 7, _numeric_item(eff, "%"))
 
         self.table.resizeColumnsToContents()
-        self.table.setColumnWidth(0, max(90, self.table.columnWidth(0)))
+        self.table.setColumnWidth(0, max(72, self.table.columnWidth(0)))
         self.table.setColumnWidth(1, max(80, self.table.columnWidth(1)))
         self.table.setColumnWidth(4, 100)
         # Spalte 5 (Substats): Breite am breitesten Klartext-Eintrag orientieren,

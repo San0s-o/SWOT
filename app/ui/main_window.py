@@ -194,7 +194,6 @@ class MainWindow(QMainWindow):
             )
         else:
             self.setMinimumSize(1200, 750)
-        self.showMaximized()
 
         self.account: Optional[AccountData] = None
         self._icon_cache: Dict[int, QIcon] = {}
@@ -239,9 +238,11 @@ class MainWindow(QMainWindow):
         btn_help = QPushButton("?")
         btn_help.setFixedSize(32, 32)
         btn_help.setStyleSheet(
-            "QPushButton { background: #2b2b2b; color: #ddd; border: 1px solid #3a3a3a;"
-            " border-radius: 16px; font-size: 14pt; font-weight: bold; }"
-            "QPushButton:hover { background: #3498db; color: #fff; }"
+            "QPushButton { background: #3a3a3a; color: #ffffff; border: 1px solid #555555;"
+            " border-radius: 16px; font-size: 15pt; font-weight: bold;"
+            " padding: 0px; min-height: 0px; }"
+            "QPushButton:hover { background: #4a90e2; border-color: #4a90e2; }"
+            "QPushButton:pressed { background: #2d6bc4; }"
         )
         btn_help.clicked.connect(self._show_help_dialog)
         top.addWidget(btn_help)
