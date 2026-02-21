@@ -112,6 +112,7 @@ def simulate_opening_order(
     turn_effects_by_unit: Dict[int, OpeningTurnEffect] | None = None,
     spd_buff_increase_pct_by_unit: Dict[int, float] | None = None,
     max_actions: int | None = None,
+    one_action_per_unit: bool = False,
     atb_gain_per_tick_pct: float = DEFAULT_ATB_GAIN_PER_TICK_PCT,
     base_spd_buff_pct: float = DEFAULT_SPD_BUFF_PCT,
 ) -> List[int]:
@@ -136,6 +137,7 @@ def simulate_opening_order(
     buff_inc = {int(uid): float(v) for uid, v in (spd_buff_increase_pct_by_unit or {}).items()}
     atb: Dict[int, float] = {int(uid): 0.0 for uid in unique_units}
     spd_buff_active: Dict[int, bool] = {int(uid): False for uid in unique_units}
+    acted_once: Dict[int, bool] = {int(uid): False for uid in unique_units}
     position = {int(uid): idx for idx, uid in enumerate(unique_units)}
 
     gain_per_tick_ratio = float(atb_gain_per_tick_pct) / 100.0
@@ -161,6 +163,9 @@ def simulate_opening_order(
         gains = {int(uid): _unit_gain(int(uid)) for uid in unique_units}
         ticks_needed: Dict[int, int] = {}
         for uid in unique_units:
+            if bool(one_action_per_unit) and bool(acted_once.get(int(uid), False)):
+                ticks_needed[int(uid)] = 10**9
+                continue
             gain = float(gains.get(int(uid), 0.0))
             if gain <= 0.0:
                 ticks_needed[int(uid)] = 10**9
@@ -179,7 +184,12 @@ def simulate_opening_order(
             for uid in unique_units:
                 atb[int(uid)] = float(atb.get(int(uid), 0.0) + (float(gains[int(uid)]) * float(min_ticks)))
 
-        ready = [int(uid) for uid in unique_units if float(atb.get(int(uid), 0.0)) >= 100.0 - 1e-9]
+        ready = [
+            int(uid)
+            for uid in unique_units
+            if (not bool(one_action_per_unit) or not bool(acted_once.get(int(uid), False)))
+            and float(atb.get(int(uid), 0.0)) >= 100.0 - 1e-9
+        ]
         if not ready:
             continue
 
@@ -192,6 +202,8 @@ def simulate_opening_order(
             ),
         )
         out.append(int(actor))
+        if bool(one_action_per_unit):
+            acted_once[int(actor)] = True
         atb[int(actor)] = max(0.0, float(atb.get(int(actor), 0.0)) - 100.0)
 
         effect = turn_effects.get(int(actor))

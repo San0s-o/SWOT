@@ -90,16 +90,33 @@ def _arena_rush_spd_buff_bonus_for_unit(
     base_spd: int,
     artifacts_by_unit: Dict[int, Dict[int, int]] | None = None,
 ) -> int:
+    bonus, _eff_buff_pct, _inc_pct = _arena_rush_spd_buff_profile_for_unit(
+        window,
+        unit_id,
+        team_unit_ids,
+        base_spd,
+        artifacts_by_unit=artifacts_by_unit,
+    )
+    return int(bonus)
+
+
+def _arena_rush_spd_buff_profile_for_unit(
+    window,
+    unit_id: int,
+    team_unit_ids: List[int],
+    base_spd: int,
+    artifacts_by_unit: Dict[int, Dict[int, int]] | None = None,
+) -> Tuple[int, float, float]:
     mode_ctx = str(getattr(window, "_result_mode_context", "") or "").strip().lower()
     if mode_ctx != "arena_rush":
-        return 0
+        return 0, 0.0, 0.0
     ctx, off_idx = _arena_rush_team_context(window, team_unit_ids)
     if ctx != "offense" or int(off_idx) < 0:
-        return 0
+        return 0, 0.0, 0.0
     order = [int(uid) for uid in (team_unit_ids or []) if int(uid) > 0]
     target_uid = int(unit_id or 0)
     if target_uid <= 0 or target_uid not in order:
-        return 0
+        return 0, 0.0, 0.0
     target_pos = order.index(int(target_uid))
     team_effects: Dict[int, Dict[str, object]] = {}
     payload_rows = list(getattr(window, "_arena_rush_last_offense_payload", []) or [])
@@ -125,13 +142,14 @@ def _arena_rush_spd_buff_bonus_for_unit(
         applies = True
         break
     if not applies:
-        return 0
+        return 0, 0.0, 0.0
     artifact_lookup = {int(a.artifact_id): a for a in (window.account.artifacts or [])}
     selected_artifacts = dict((artifacts_by_unit or {}).get(int(target_uid), {}) or {})
     artifact_ids = [int(aid) for aid in selected_artifacts.values() if int(aid or 0) > 0]
     inc_pct = spd_buff_increase_pct_for_unit(artifact_ids, artifact_lookup)
     eff_buff_pct = effective_spd_buff_pct_for_unit(inc_pct, base_spd_buff_pct=30.0)
-    return int(int(base_spd or 0) * float(eff_buff_pct) / 100.0)
+    bonus = int(int(base_spd or 0) * float(eff_buff_pct) / 100.0)
+    return int(bonus), float(eff_buff_pct), float(inc_pct)
 
 
 def unit_spd_buff_bonus(
@@ -146,7 +164,7 @@ def unit_spd_buff_bonus(
     if u is None:
         return {}
     base_spd = int(u.base_spd or 0)
-    bonus = _arena_rush_spd_buff_bonus_for_unit(
+    bonus, eff_buff_pct, inc_pct = _arena_rush_spd_buff_profile_for_unit(
         window,
         int(unit_id),
         list(team_unit_ids or []),
@@ -155,7 +173,11 @@ def unit_spd_buff_bonus(
     )
     if bonus <= 0:
         return {}
-    return {"SPD": int(bonus)}
+    return {
+        "SPD": int(bonus),
+        "SPD_BUFF_EFF_PCT_X10": int(round(float(eff_buff_pct) * 10.0)),
+        "SPD_BUFF_INC_PCT_X10": int(round(float(inc_pct) * 10.0)),
+    }
 
 
 def unit_leader_bonus(window, unit_id: int, team_unit_ids: List[int]) -> Dict[str, int]:

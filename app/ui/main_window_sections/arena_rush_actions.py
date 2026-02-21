@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Set, Tuple
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.domain.artifact_effects import artifact_effect_is_legacy
-from app.domain.presets import Build
 from app.engine.arena_rush_optimizer import (
     ArenaRushOffenseTeam,
     ArenaRushRequest,
@@ -832,11 +831,6 @@ def on_edit_presets_arena_rush(window) -> None:
         speed_lead_teams = dlg.team_speed_lead_by_lists()
         speed_lead_pct_teams = dlg.team_speed_lead_pct_by_lists()
         effect_teams = dlg.team_turn_effects_by_lists()
-        try:
-            dlg.apply_to_store()
-        except ValueError as exc:
-            QMessageBox.critical(window, "Builds", str(exc))
-            return
         _store_compare_snapshot_from_build_dialog(window, "arena_rush", dlg)
         if ordered_teams:
             defense_order = ordered_teams[0] if len(ordered_teams) > 0 else []
@@ -960,12 +954,19 @@ def on_optimize_arena_rush(window) -> None:
     window.lbl_arena_rush_validate.setText(running_text)
     window.statusBar().showMessage(running_text)
 
-    defense_turn_order = {int(uid): idx + 1 for idx, uid in enumerate(defense_ids)}
+    all_selected_uids: List[int] = list(defense_ids)
+    for sel in offense_teams:
+        all_selected_uids.extend([int(uid) for uid in (sel.unit_ids or []) if int(uid) > 0])
+    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
+        window, "arena_rush", all_selected_uids
+    )
+
     defense_lead_uid = int(getattr(window, "arena_def_speed_lead_uid", 0) or 0)
     defense_lead_pct = int(getattr(window, "arena_def_speed_lead_pct", 0) or 0)
     defense_leader_bonus = _arena_speed_leader_bonus_map(
         window, defense_ids, leader_uid=defense_lead_uid, lead_pct_override=defense_lead_pct
     )
+    defense_turn_order = {int(uid): idx + 1 for idx, uid in enumerate(defense_ids)}
     arena_effect_state = dict(getattr(window, "arena_offense_turn_effects", {}) or {})
     offense_speed_lead_state = dict(getattr(window, "arena_offense_speed_lead_uid_by_team", {}) or {})
     offense_speed_lead_pct_state = dict(getattr(window, "arena_offense_speed_lead_pct_by_team", {}) or {})
@@ -973,8 +974,6 @@ def on_optimize_arena_rush(window) -> None:
     offense_payload_debug: List[Dict[str, object]] = []
     for sel in offense_teams:
         ids = [int(uid) for uid in (sel.unit_ids or []) if int(uid) > 0]
-        turn_by_uid: Dict[int, int] = {int(uid): int(pos + 1) for pos, uid in enumerate(ids)}
-        expected_order = list(ids)
         team_effects: Dict[int, OpeningTurnEffect] = {}
         raw_team_cfg = dict(arena_effect_state.get(int(sel.team_index), {}) or {})
         for uid in ids:
@@ -990,14 +989,17 @@ def on_optimize_arena_rush(window) -> None:
                 )
         lead_uid = int(offense_speed_lead_state.get(int(sel.team_index), 0) or 0)
         lead_pct = int(offense_speed_lead_pct_state.get(int(sel.team_index), 0) or 0)
+        leader_bonus_by_uid = _arena_speed_leader_bonus_map(
+            window, ids, leader_uid=lead_uid, lead_pct_override=lead_pct
+        )
+        expected_order = list(ids)
+        turn_by_uid: Dict[int, int] = {int(uid): int(pos + 1) for pos, uid in enumerate(expected_order)}
         offense_payload.append(
             ArenaRushOffenseTeam(
                 unit_ids=ids,
                 expected_opening_order=expected_order,
                 unit_turn_order=turn_by_uid,
-                unit_spd_leader_bonus_flat=_arena_speed_leader_bonus_map(
-                    window, ids, leader_uid=lead_uid, lead_pct_override=lead_pct
-                ),
+                unit_spd_leader_bonus_flat=leader_bonus_by_uid,
                 turn_effects_by_unit=team_effects,
             )
         )
@@ -1005,6 +1007,7 @@ def on_optimize_arena_rush(window) -> None:
             {
                 "team_index": int(sel.team_index),
                 "unit_ids": [int(uid) for uid in ids],
+                "expected_opening_order": [int(uid) for uid in expected_order],
                 "turn_effects_by_unit": {
                     int(uid): {
                         "applies_spd_buff": bool(getattr(effect, "applies_spd_buff", False)),
@@ -1016,12 +1019,6 @@ def on_optimize_arena_rush(window) -> None:
             }
         )
     window._arena_rush_last_offense_payload = offense_payload_debug
-    all_selected_uids: List[int] = list(defense_ids)
-    for row in offense_payload:
-        all_selected_uids.extend([int(uid) for uid in (row.unit_ids or []) if int(uid) > 0])
-    baseline_runes_by_unit, baseline_arts_by_unit = _baseline_assignments_for_mode(
-        window, "arena_rush", all_selected_uids
-    )
     unit_archetype_by_uid = _arena_archetype_by_uid(
         window,
         all_selected_uids,
@@ -1042,9 +1039,17 @@ def on_optimize_arena_rush(window) -> None:
             quality_profile=profile_key,
             offense_team_count=len(offense_payload),
         )
-        # Runtime-tuned defaults to keep Arena Rush practical.
-        time_limit_per_unit_s = 2.0
-        offense_pass_count = 1
+        # Runtime-tuned defaults: give offense solve enough room for strict
+        # turn-order/tick/build constraints while keeping runtime practical.
+        if profile_key == "ultra_quality":
+            time_limit_per_unit_s = 3.0
+            offense_pass_count = 2
+        elif profile_key == "max_quality":
+            time_limit_per_unit_s = 2.5
+            offense_pass_count = 2
+        else:
+            time_limit_per_unit_s = 2.0
+            offense_pass_count = 1
         rune_top_per_set = 0
         arena_req = ArenaRushRequest(
             mode="arena_rush",
@@ -1069,7 +1074,9 @@ def on_optimize_arena_rush(window) -> None:
             offense_quality_profile=str(solver_quality_profile),
             defense_candidate_count=int(defense_candidate_count),
             rune_top_per_set=int(rune_top_per_set),
-            max_runtime_s=300.0,
+            # Keep Arena Rush local-only and user-cancellable without truncating
+            # offense output due to a hard global timeout.
+            max_runtime_s=0.0,
             progress_callback=progress_cb,
             is_cancelled=is_cancelled,
             register_solver=register_solver,

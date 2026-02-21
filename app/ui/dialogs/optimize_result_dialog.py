@@ -175,11 +175,21 @@ class OptimizeResultDialog(QDialog):
             for result_key, result in team_results:
                 label = self._unit_label_fn(result.unit_id)
                 state = "OK" if result.ok else tr("label.error")
-                item = QListWidgetItem(f"{label} [{state}]")
+                item_text = f"{label} [{state}]"
+                if not bool(result.ok):
+                    msg = str(getattr(result, "message", "") or "").strip()
+                    if msg:
+                        short = msg if len(msg) <= 72 else (msg[:69] + "...")
+                        item_text = f"{item_text} - {short}"
+                item = QListWidgetItem(item_text)
                 icon = self._unit_icon_fn(result.unit_id)
                 if not icon.isNull():
                     item.setIcon(icon)
                 item.setData(Qt.UserRole, int(result_key))
+                if not bool(result.ok):
+                    msg = str(getattr(result, "message", "") or "").strip()
+                    if msg:
+                        item.setToolTip(msg)
                 self.nav_list.addItem(item)
                 if not has_selection:
                     self.nav_list.setCurrentItem(item)
@@ -464,6 +474,10 @@ class OptimizeResultDialog(QDialog):
                     table.setItem(i, leader_col, it_l)
                 if has_buff and buff_col >= 0:
                     buff_str = f"+{buff}" if buff > 0 else str(buff) if buff else ""
+                    if key == "SPD" and int(buff or 0) > 0:
+                        eff_x10 = int(spd_buff_bonus.get("SPD_BUFF_EFF_PCT_X10", 0) or 0)
+                        if eff_x10 > 0:
+                            buff_str = f"{buff_str} ({float(eff_x10) / 10.0:.1f}%)"
                     it_bf = QTableWidgetItem(buff_str)
                     it_bf.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     table.setItem(i, buff_col, it_bf)

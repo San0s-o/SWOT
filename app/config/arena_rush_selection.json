@@ -2,12 +2,12 @@
   "version": "2026-02-17",
   "defense_ids": [
     21677609130,
-    20907818819,
     16350518523,
+    20907818819,
     7561127647
   ],
-  "defense_speed_lead_uid": 7561127647,
-  "defense_speed_lead_pct": 33,
+  "defense_speed_lead_uid": 0,
+  "defense_speed_lead_pct": 0,
   "offense_enabled": [
     true,
     true,
@@ -117,14 +117,8 @@
       0
     ]
   ],
-  "offense_speed_lead_uid_by_team": {
-    "0": 24417264790,
-    "2": 21056650192
-  },
-  "offense_speed_lead_pct_by_team": {
-    "0": 28,
-    "2": 24
-  },
+  "offense_speed_lead_uid_by_team": {},
+  "offense_speed_lead_pct_by_team": {},
   "offense_turn_effects_by_team": {
     "0": {
       "18005431197": {

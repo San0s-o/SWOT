@@ -445,7 +445,8 @@ STRINGS: dict[str, str] = {
     ),
     "opt.set_too_many": "Build '{name}': Set-Option {opt} benötigt {pieces} Teile (>6).",
     "opt.set_not_enough": "Build '{name}': Set {set_id} braucht {pieces}, verfügbar {avail}.",
-    "opt.infeasible": "Infeasible: Pool/Build-Constraints passen nicht zusammen.",
+    "opt.infeasible": "Nicht erfuellbar: Pool/Build-Constraints passen nicht zusammen.",
+    "opt.not_feasible": "Nicht erfuellbar: {detail}",
     "opt.internal_no_rune": "Interner Fehler: Slot {slot} keine Rune.",
     "opt.internal_no_artifact": "Interner Fehler: Artefakt-Typ {art_type} fehlt.",
     "opt.no_units": "Keine Units.",
@@ -585,9 +586,7 @@ STRINGS: dict[str, str] = {
         "Open Source: "
         "<a href='https://www.qt.io/'>PySide6 (Qt)</a>, "
         "<a href='https://developers.google.com/optimization'>OR-Tools</a>, "
-        "<a href='https://docs.pydantic.dev/'>Pydantic</a>, "
-        "<a href='https://requests.readthedocs.io/'>Requests</a>, "
-        "<a href='https://github.com/tqdm/tqdm'>tqdm</a>"
+        "<a href='https://requests.readthedocs.io/'>Requests</a>"
     ),
     "settings.about_data_sources": (
         "Datenquellen: "

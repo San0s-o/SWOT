@@ -1916,6 +1916,188 @@ def _diagnose_single_unit_infeasible(
     return tr("opt.infeasible")
 
 
+def _diagnose_single_unit_hard_constraint_conflict(
+    runes_by_slot: Dict[int, List[Rune]],
+    builds: List[Build],
+    base_hp: int,
+    base_atk: int,
+    base_def: int,
+    base_spd: int,
+    base_spd_bonus_flat: int,
+    base_cr: int,
+    base_cd: int,
+    base_res: int,
+    base_acc: int,
+    min_final_speed: Optional[int],
+    max_final_speed: Optional[int],
+    mode: str,
+) -> str:
+    min_final = int(min_final_speed or 0)
+    max_final = int(max_final_speed or 0)
+    if min_final > 0 and max_final > 0 and min_final > max_final:
+        return (
+            f"Widerspruch bei Kampf-SPD: Mindestwert {min_final} ist groesser als "
+            f"Maximalwert {max_final}."
+        )
+
+    min_slot_spd_sum = 0
+    max_slot_spd_sum = 0
+    swift_forced_pieces = 0
+    swift_possible_pieces = 0
+    for slot in range(1, 7):
+        cands = list(runes_by_slot.get(int(slot), []) or [])
+        if not cands:
+            return ""
+        spd_vals = [int(_rune_flat_spd(r) or 0) for r in cands]
+        min_slot_spd_sum += int(min(spd_vals)) if spd_vals else 0
+        max_slot_spd_sum += int(max(spd_vals)) if spd_vals else 0
+        has_swift = any(int(r.set_id or 0) == 3 for r in cands)
+        all_swift = bool(cands) and all(int(r.set_id or 0) == 3 for r in cands)
+        if has_swift:
+            swift_possible_pieces += 1
+        if all_swift:
+            swift_forced_pieces += 1
+
+    swift_bonus = int(int(base_spd or 0) * 25 / 100)
+    min_swift_bonus = int(swift_bonus) if int(swift_forced_pieces) >= 4 else 0
+    max_swift_bonus = int(swift_bonus) if int(swift_possible_pieces) >= 4 else 0
+    min_possible_final = int(base_spd or 0) + int(min_slot_spd_sum) + int(min_swift_bonus) + int(base_spd_bonus_flat or 0)
+    max_possible_final = int(base_spd or 0) + int(max_slot_spd_sum) + int(max_swift_bonus) + int(base_spd_bonus_flat or 0)
+
+    if min_final > 0 and max_possible_final < min_final:
+        return (
+            f"Min-SPD-Constraint nicht erfuellbar: gefordert >= {min_final}, "
+            f"maximal moeglich {max_possible_final}."
+        )
+    if max_final > 0 and min_possible_final > max_final:
+        return (
+            f"SPD-Cap nicht erfuellbar: gefordert <= {max_final}, "
+            f"minimal moeglich {min_possible_final}."
+        )
+
+    def _max_sum_for_effect(effect_id: int) -> int:
+        total = 0
+        for slot in range(1, 7):
+            cands = list(runes_by_slot.get(int(slot), []) or [])
+            if not cands:
+                continue
+            total += max(int(_rune_stat_total(r, int(effect_id)) or 0) for r in cands)
+        return int(total)
+
+    def _max_primary_bonus(base_value: int, flat_eff_id: int, pct_eff_id: int) -> int:
+        total = 0
+        for slot in range(1, 7):
+            cands = list(runes_by_slot.get(int(slot), []) or [])
+            if not cands:
+                continue
+            best = 0
+            for r in cands:
+                flat = int(_rune_stat_total(r, int(flat_eff_id)) or 0)
+                pct = int(_rune_stat_total(r, int(pct_eff_id)) or 0)
+                bonus = int(flat + int(int(base_value or 0) * int(pct) / 100))
+                if int(bonus) > int(best):
+                    best = int(bonus)
+            total += int(best)
+        return int(total)
+
+    hp_bonus_max = _max_primary_bonus(int(base_hp or 0), 1, 2)
+    atk_bonus_max = _max_primary_bonus(int(base_atk or 0), 3, 4)
+    def_bonus_max = _max_primary_bonus(int(base_def or 0), 5, 6)
+    cr_bonus_max = _max_sum_for_effect(9)
+    cd_bonus_max = _max_sum_for_effect(10)
+    res_bonus_max = _max_sum_for_effect(11)
+    acc_bonus_max = _max_sum_for_effect(12)
+
+    speed_conflicts: List[str] = []
+    has_speed_feasible_build = False
+    candidates = list(builds or [Build.default_any()])
+    for b in candidates:
+        b_name = str(getattr(b, "name", "") or "Build")
+        lo = int(min_final) if min_final > 0 else 0
+        hi = int(max_final) if max_final > 0 else 10**9
+        tick = int(getattr(b, "spd_tick", 0) or 0)
+        if str(mode or "").strip().lower() != "arena_rush" and tick != 0:
+            tick_min = int(min_spd_for_tick(int(tick), mode) or 0)
+            tick_max = int(max_spd_for_tick(int(tick), mode) or 0)
+            if tick_min > 0:
+                lo = max(int(lo), int(tick_min))
+            if tick_max > 0:
+                hi = min(int(hi), int(tick_max))
+        mins = dict(getattr(b, "min_stats", {}) or {})
+        min_spd_raw = int(mins.get("SPD", 0) or 0)
+        min_spd_no_base = int(mins.get("SPD_NO_BASE", 0) or 0)
+        if min_spd_raw > 0:
+            lo = max(int(lo), int(min_spd_raw + int(base_spd_bonus_flat or 0)))
+        if min_spd_no_base > 0:
+            lo = max(int(lo), int(base_spd or 0) + int(min_spd_no_base) + int(base_spd_bonus_flat or 0))
+
+        if hi < lo:
+            speed_conflicts.append(
+                f"Build '{b_name}': SPD-Vorgaben widersprechen sich ({lo}..{hi})."
+            )
+            continue
+        if int(max_possible_final) < int(lo) or int(min_possible_final) > int(hi):
+            speed_conflicts.append(
+                f"Build '{b_name}': geforderter SPD-Bereich {lo}..{hi} liegt ausserhalb "
+                f"des moeglichen Bereichs {min_possible_final}..{max_possible_final}."
+            )
+            continue
+        has_speed_feasible_build = True
+
+    if speed_conflicts and not has_speed_feasible_build:
+        return " | ".join(speed_conflicts[:3])
+
+    non_spd_conflicts: List[str] = []
+    has_non_spd_feasible_build = False
+    for b in candidates:
+        b_name = str(getattr(b, "name", "") or "Build")
+        mins = dict(getattr(b, "min_stats", {}) or {})
+        b_conflict: str = ""
+        for key, raw_val in mins.items():
+            stat_key = str(key).strip().upper()
+            target = int(raw_val or 0)
+            if target <= 0 or stat_key in ("SPD", "SPD_NO_BASE"):
+                continue
+            max_possible = None
+            if stat_key == "HP":
+                max_possible = int(base_hp or 0) + int(hp_bonus_max)
+            elif stat_key == "HP_NO_BASE":
+                max_possible = int(hp_bonus_max)
+            elif stat_key == "ATK":
+                max_possible = int(base_atk or 0) + int(atk_bonus_max)
+            elif stat_key == "ATK_NO_BASE":
+                max_possible = int(atk_bonus_max)
+            elif stat_key == "DEF":
+                max_possible = int(base_def or 0) + int(def_bonus_max)
+            elif stat_key == "DEF_NO_BASE":
+                max_possible = int(def_bonus_max)
+            elif stat_key == "CR":
+                max_possible = int(base_cr or 0) + int(cr_bonus_max)
+            elif stat_key == "CD":
+                max_possible = int(base_cd or 0) + int(cd_bonus_max)
+            elif stat_key == "RES":
+                max_possible = int(base_res or 0) + int(res_bonus_max)
+            elif stat_key == "ACC":
+                max_possible = int(base_acc or 0) + int(acc_bonus_max)
+            if max_possible is None:
+                continue
+            if int(max_possible) < int(target):
+                b_conflict = (
+                    f"Build '{b_name}': Min-Stat {stat_key} >= {target} nicht erfuellbar "
+                    f"(maximal moeglich {int(max_possible)})."
+                )
+                break
+        if b_conflict:
+            non_spd_conflicts.append(str(b_conflict))
+            continue
+        has_non_spd_feasible_build = True
+
+    if non_spd_conflicts and not has_non_spd_feasible_build:
+        return " | ".join(non_spd_conflicts[:3])
+
+    return ""
+
+
 def _solve_single_unit_best(
     uid: int,
     pool: List[Rune],
@@ -1989,7 +2171,7 @@ def _solve_single_unit_best(
             return GreedyUnitResult(
                 uid,
                 False,
-                f"Locked rune {int(rune_id)} not available for slot {int(slot)}.",
+                f"Lock-Constraint verletzt: Rune {int(rune_id)} ist fuer Slot {int(slot)} nicht verfuegbar.",
                 runes_by_slot={},
             )
         runes_by_slot[int(slot)] = matches
@@ -2019,7 +2201,7 @@ def _solve_single_unit_best(
             return GreedyUnitResult(
                 uid,
                 False,
-                f"Locked artifact {int(art_id)} not available for type {int(art_type)}.",
+                f"Lock-Constraint verletzt: Artefakt {int(art_id)} ist fuer Typ {int(art_type)} nicht verfuegbar.",
                 runes_by_slot={},
             )
         artifacts_by_type[int(art_type)] = matches
@@ -2883,11 +3065,27 @@ def _solve_single_unit_best(
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         detail = _diagnose_single_unit_infeasible(pool, artifact_pool, builds)
         if str(detail) == str(tr("opt.feasible")):
-            detail = (
-                f"{detail}; harte Constraints nicht erfuellbar "
-                f"(z. B. Min-Stats/SPD-Tick/Turnorder-Speed-Caps/Locks)"
+            hard_detail = _diagnose_single_unit_hard_constraint_conflict(
+                runes_by_slot=runes_by_slot,
+                builds=builds,
+                base_hp=int(base_hp or 0),
+                base_atk=int(base_atk or 0),
+                base_def=int(base_def or 0),
+                base_spd=int(base_spd or 0),
+                base_spd_bonus_flat=int(base_spd_bonus_flat or 0),
+                base_cr=int(base_cr or 0),
+                base_cd=int(base_cd or 0),
+                base_res=int(base_res or 0),
+                base_acc=int(base_acc or 0),
+                min_final_speed=min_final_speed,
+                max_final_speed=max_final_speed,
+                mode=str(mode or ""),
             )
-        return GreedyUnitResult(uid, False, f"infeasible ({detail})", runes_by_slot={})
+            detail = str(hard_detail or "").strip() or (
+                "Harte Constraints nicht erfuellbar "
+                "(Min-Stats/SPD-Tick/Turnorder-Speed-Caps/Locks)."
+            )
+        return GreedyUnitResult(uid, False, tr("opt.not_feasible", detail=detail), runes_by_slot={})
 
     # extract build
     chosen_build = builds[0]

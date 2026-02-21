@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QThreadPool, QUrl
-from PySide6.QtGui import QDesktopServices
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QSize, QThreadPool, QUrl
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -159,6 +161,22 @@ def init_settings_ui(window) -> None:
 
     window.btn_settings_open_discord_dm = QPushButton(tr("settings.btn_open_discord_dm"))
     window.btn_settings_open_discord_dm.clicked.connect(lambda: _open_discord_dm(window))
+    _discord_icon_path = Path(__file__).resolve().parents[2] / "assets" / "discord_icon.svg"
+    if _discord_icon_path.exists():
+        try:
+            from PySide6.QtSvg import QSvgRenderer
+            from PySide6.QtGui import QPixmap, QPainter
+            _renderer = QSvgRenderer(str(_discord_icon_path))
+            if _renderer.isValid():
+                _pix = QPixmap(18, 18)
+                _pix.fill(Qt.transparent)
+                _painter = QPainter(_pix)
+                _renderer.render(_painter)
+                _painter.end()
+                window.btn_settings_open_discord_dm.setIcon(QIcon(_pix))
+                window.btn_settings_open_discord_dm.setIconSize(QSize(18, 18))
+        except ImportError:
+            pass
     about_layout.addWidget(window.btn_settings_open_discord_dm)
 
     window.lbl_settings_about_open_source = QLabel("")

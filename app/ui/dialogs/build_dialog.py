@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from math import ceil
 from itertools import combinations, product
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set, Tuple
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -445,12 +447,7 @@ class BuildDialog(QDialog):
                 item.setIcon(icon)
             item.setData(Qt.UserRole, int(unit_id))
             self._unit_list.addItem(item)
-            builds = self.preset_store.get_unit_builds(self.mode, unit_id)
-            b0 = builds[0] if builds else Build.default_any()
-            editor_page = self._build_unit_editor(int(unit_id), b0)
-            stack_idx = self._unit_editor_stack.count()
-            self._unit_editor_stack.addWidget(editor_page)
-            self._uid_to_stack_index[int(unit_id)] = stack_idx
+            self._uid_to_stack_index[int(unit_id)] = -1
 
         self._unit_list.currentRowChanged.connect(self._on_unit_row_changed)
         if self._unit_list.count() > 0:
@@ -464,14 +461,43 @@ class BuildDialog(QDialog):
         # Show only after the full UI is constructed to avoid a brief white flash.
         self.showMaximized()
 
+    def accept(self) -> None:
+        try:
+            self.apply_to_store()
+        except ValueError as exc:
+            QMessageBox.critical(self, "Builds", str(exc))
+            return
+        super().accept()
+
     def _on_unit_row_changed(self, row: int) -> None:
         if row < 0 or row >= self._unit_list.count():
             return
         item = self._unit_list.item(row)
         uid = int(item.data(Qt.UserRole) or 0) if item else 0
-        stack_idx = self._uid_to_stack_index.get(uid, row)
+        stack_idx = self._ensure_editor_page(int(uid))
         if 0 <= stack_idx < self._unit_editor_stack.count():
             self._unit_editor_stack.setCurrentIndex(stack_idx)
+
+    def _ensure_editor_page(self, unit_id: int) -> int:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return -1
+        existing = int(self._uid_to_stack_index.get(uid, -1) or -1)
+        if existing >= 0 and existing < self._unit_editor_stack.count():
+            return int(existing)
+        builds = self.preset_store.get_unit_builds(self.mode, uid)
+        b0 = builds[0] if builds else Build.default_any()
+        editor_page = self._build_unit_editor(int(uid), b0)
+        stack_idx = int(self._unit_editor_stack.addWidget(editor_page))
+        self._uid_to_stack_index[int(uid)] = int(stack_idx)
+        return int(stack_idx)
+
+    def _ensure_all_editor_pages(self) -> None:
+        for row in range(self._unit_list.count()):
+            item = self._unit_list.item(row)
+            uid = int(item.data(Qt.UserRole) or 0) if item else 0
+            if uid > 0:
+                self._ensure_editor_page(int(uid))
 
     def _row_for_uid_in_unit_list(self, uid: int) -> int:
         target = int(uid or 0)
@@ -520,8 +546,9 @@ class BuildDialog(QDialog):
 
     def _make_mainstat_combo(self, defaults: List[str]) -> _MainstatMultiCombo:
         cmb = _MainstatMultiCombo(MAINSTAT_KEYS)
-        if defaults:
-            cmb.set_checked_values([str(defaults[0])])
+        # Keep true "Any" as initial state. Concrete values are applied only
+        # when an explicit build mainstat selection exists or user action sets it.
+        _ = defaults
         cmb.setToolTip(tr("tooltip.mainstat_multi"))
         cmb.setMinimumWidth(190)
         return cmb
@@ -1318,6 +1345,8 @@ class BuildDialog(QDialog):
         """Load currently equipped rune sets and mainstats for all units."""
         if not self._account:
             return
+        # This action updates all units, so ensure all editors exist first.
+        self._ensure_all_editor_pages()
         rune_mode = self._rune_mode_for_load_current_runes()
         for unit_id in list(self._set1_combo.keys()):
             equipped = self._account.equipped_runes_for(int(unit_id), rune_mode)
@@ -1643,6 +1672,117 @@ class BuildDialog(QDialog):
             out.append(row_cfg)
         return out
 
+    def _team_title(self, team_index: int) -> str:
+        if 0 <= int(team_index) < len(self._order_team_titles):
+            title = str(self._order_team_titles[int(team_index)] or "").strip()
+            if title:
+                return title
+        return f"Team {int(team_index) + 1}"
+
+    def _has_spd_buff_before_turn(
+        self,
+        team_order: List[int],
+        team_effect_cfg: Dict[int, Dict[str, Any]],
+        target_uid: int,
+    ) -> bool:
+        order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
+        tu = int(target_uid or 0)
+        if tu <= 0 or tu not in order:
+            return False
+        pos_target = order.index(int(tu))
+        for pos, caster_uid in enumerate(order):
+            if pos >= pos_target:
+                break
+            cfg = dict((team_effect_cfg or {}).get(int(caster_uid), {}) or {})
+            if bool(cfg.get("applies_spd_buff", False)):
+                return True
+        return False
+
+    def _atb_boost_before_turn_pct(
+        self,
+        team_order: List[int],
+        team_effect_cfg: Dict[int, Dict[str, Any]],
+        target_uid: int,
+    ) -> float:
+        order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
+        tu = int(target_uid or 0)
+        if tu <= 0 or tu not in order:
+            return 0.0
+        pos_target = order.index(int(tu))
+        total = 0.0
+        for pos, caster_uid in enumerate(order):
+            if pos >= pos_target:
+                break
+            cfg = dict((team_effect_cfg or {}).get(int(caster_uid), {}) or {})
+            total += max(0.0, float(cfg.get("atb_boost_pct", 0.0) or 0.0))
+        return max(0.0, min(95.0, float(total)))
+
+    def _validate_order_tick_plausibility(self) -> None:
+        if not bool(self._persist_order_fields):
+            return
+        if not self._team_order_lists:
+            return
+
+        team_orders = self.team_order_by_lists()
+        tick_by_uid = self._team_spd_tick_by_unit()
+        effect_teams = self.team_turn_effects_by_lists() if self._show_turn_effect_controls else []
+        is_arena_rush = str(self.mode or "").strip().lower() == "arena_rush"
+
+        for team_index, team_order in enumerate(team_orders):
+            order = [int(uid) for uid in (team_order or []) if int(uid) > 0]
+            if len(order) <= 1:
+                continue
+            team_title = self._team_title(int(team_index))
+            effect_cfg = dict(effect_teams[int(team_index)]) if int(team_index) < len(effect_teams) else {}
+
+            floor_by_uid: Dict[int, int] = {}
+            cap_by_uid: Dict[int, int] = {}
+            for uid in order:
+                tick = int(tick_by_uid.get(int(uid), 0) or 0)
+                if tick <= 0:
+                    continue
+                min_tick_spd = int(min_spd_for_tick(int(tick), self.mode) or 0)
+                max_tick_spd = int(max_spd_for_tick(int(tick), self.mode) or 0)
+                floor = int(min_tick_spd)
+                if is_arena_rush and min_tick_spd > 0:
+                    speed_factor = 1.0
+                    if self._has_spd_buff_before_turn(order, effect_cfg, int(uid)):
+                        speed_factor += 0.30
+                    atb_before = self._atb_boost_before_turn_pct(order, effect_cfg, int(uid))
+                    atb_factor = 1.0 - (max(0.0, float(atb_before)) / 100.0)
+                    atb_factor = max(0.05, min(1.0, atb_factor))
+                    floor = int(ceil((float(min_tick_spd) * float(atb_factor)) / max(1e-9, float(speed_factor))))
+                if floor > 0:
+                    floor_by_uid[int(uid)] = int(floor)
+                if max_tick_spd > 0:
+                    cap_by_uid[int(uid)] = int(max_tick_spd)
+
+            for uid in order:
+                ui = int(uid)
+                floor = int(floor_by_uid.get(ui, 0) or 0)
+                cap = int(cap_by_uid.get(ui, 0) or 0)
+                if floor > 0 and cap > 0 and floor > cap:
+                    label = self._unit_label_by_id.get(int(ui), str(ui))
+                    tick = int(tick_by_uid.get(int(ui), 0) or 0)
+                    raise ValueError(
+                        f"Plausibilitaetsfehler ({team_title}): {label} hat ungueltigen Tick {tick} "
+                        f"(minimale SPD {floor} > maximale SPD {cap})."
+                    )
+
+            for idx in range(1, len(order)):
+                prev_uid = int(order[idx - 1])
+                cur_uid = int(order[idx])
+                prev_cap = int(cap_by_uid.get(int(prev_uid), 0) or 0)
+                cur_floor = int(floor_by_uid.get(int(cur_uid), 0) or 0)
+                if prev_cap > 0 and cur_floor > 0 and prev_cap <= cur_floor:
+                    prev_label = self._unit_label_by_id.get(int(prev_uid), str(prev_uid))
+                    cur_label = self._unit_label_by_id.get(int(cur_uid), str(cur_uid))
+                    raise ValueError(
+                        f"Plausibilitaetsfehler ({team_title}): Turnorder Position {idx}->{idx + 1} nicht stimmig. "
+                        f"{prev_label} kann mit max. SPD {prev_cap} nicht vor {cur_label} "
+                        f"(min. SPD {cur_floor}) ziehen."
+                    )
+
     def _collect_artifact_substat_options_by_type(self, account: AccountData | None) -> Dict[int, List[int]]:
         out: Dict[int, Set[int]] = {
             1: set(ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(1, [])),
@@ -1693,6 +1833,9 @@ class BuildDialog(QDialog):
         return vals
 
     def apply_to_store(self) -> None:
+        # Persisting needs widget values for all units.
+        self._ensure_all_editor_pages()
+        self._validate_order_tick_plausibility()
         optimize_order_by_uid = self._optimize_order_by_unit()
         team_turn_order_by_uid = self._team_turn_order_by_unit() if self._persist_order_fields else {}
         team_spd_tick_by_uid = self._team_spd_tick_by_unit() if self._persist_order_fields else {}

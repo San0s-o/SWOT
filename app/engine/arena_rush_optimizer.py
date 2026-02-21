@@ -385,6 +385,7 @@ def _max_speed_cap_by_unit_from_expected_order(
             combat_speed_by_unit=dict(speed_map),
             turn_effects_by_unit=dict(effects),
             spd_buff_increase_pct_by_unit=dict(buff_inc),
+            one_action_per_unit=True,
             max_actions=max(int(len(order) * 6), int(len(order))),
         )
         sim = _first_unique_opening(list(sim_raw))
@@ -507,6 +508,7 @@ def _evaluate_opening(
         combat_speed_by_unit=speed_by_uid,
         turn_effects_by_unit=dict(turn_effects_by_unit or {}),
         spd_buff_increase_pct_by_unit=spd_buff_inc_by_uid,
+        one_action_per_unit=True,
         # Evaluate opening by each unit's first action, not by the first N total actions.
         # Fast openers can otherwise appear multiple times before slower units act once.
         max_actions=max(int(len(expected_order) * 6), int(len(expected_order))),
@@ -755,6 +757,21 @@ def _optimize_arena_rush_single(
                 )
             ):
                 defense_result = defense_rescue
+
+    if not bool(defense_result.ok):
+        abort_msg = (
+            "Arena Rush abgebrochen: Defense nicht erfuellbar. "
+            "Offense wurde nicht gestartet."
+        )
+        detail = str(getattr(defense_result, "message", "") or "").strip()
+        if detail:
+            abort_msg = f"{abort_msg} Grund: {detail}"
+        return ArenaRushResult(
+            ok=False,
+            message=str(abort_msg),
+            defense=defense_result,
+            offenses=[],
+        )
 
     defense_locked_runes = _rune_ids_from_ok_results(defense_result.results)
     defense_locked_artifacts = _artifact_ids_from_ok_results(defense_result.results)
@@ -1471,6 +1488,28 @@ def _optimize_arena_rush_single(
                 )
                 for r in team_res_list
             ]
+        if len(team_res_list) < len(unit_ids):
+            # Keep team visibility in UI even when global/repair solves return
+            # partial or empty rows (e.g. cancellation under heavy load).
+            res_by_uid = {int(r.unit_id): r for r in list(team_res_list or [])}
+            missing_rows: List[GreedyUnitResult] = []
+            for uid in unit_ids:
+                ui = int(uid)
+                if ui in res_by_uid:
+                    continue
+                missing_rows.append(
+                    GreedyUnitResult(
+                        unit_id=ui,
+                        ok=False,
+                        message="No offense result produced (cancelled or not feasible).",
+                        chosen_build_id="",
+                        chosen_build_name="",
+                        runes_by_slot={},
+                        artifacts_by_type={},
+                        final_speed=0,
+                    )
+                )
+            team_res_list = [res_by_uid.get(int(uid)) or missing_rows.pop(0) for uid in unit_ids]
         team_opt = GreedyResult(
             ok=bool(team_ok),
             message=(
@@ -1480,6 +1519,11 @@ def _optimize_arena_rush_single(
             ),
             results=list(team_res_list),
         )
+        if int(penalty) == 0 and len(simulated_order) < len(expected_order):
+            team_opt.message = (
+                f"{str(team_opt.message)} "
+                "Opening order not evaluated (missing successful unit builds)."
+            )
         offense_results.append(
             ArenaRushOffenseResult(
                 team_index=int(team_index),
@@ -1497,9 +1541,19 @@ def _optimize_arena_rush_single(
     offense_ok = all(bool(off.optimization.ok) for off in offense_results) if offense_results else True
     total_penalty = sum(int(off.opening_penalty or 0) for off in offense_results)
     ok_all = bool(defense_ok and offense_ok and total_penalty == 0)
+    opening_eval_teams = int(
+        sum(
+            1
+            for off in offense_results
+            if len(list(off.simulated_opening_order or [])) >= len(list(off.expected_opening_order or []))
+            and len(list(off.expected_opening_order or [])) > 0
+        )
+    )
+    opening_total_teams = int(len(offense_results))
     msg = (
         f"Arena Rush finished: defense_ok={int(defense_ok)}, "
-        f"offense_ok={int(offense_ok)}, opening_penalty={int(total_penalty)}."
+        f"offense_ok={int(offense_ok)}, opening_penalty={int(total_penalty)}, "
+        f"opening_evaluated={int(opening_eval_teams)}/{int(opening_total_teams)}."
     )
     return ArenaRushResult(ok=ok_all, message=msg, defense=defense_result, offenses=offense_results)
 

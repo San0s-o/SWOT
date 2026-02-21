@@ -245,11 +245,6 @@ def on_edit_presets_siege(window) -> None:
         team_size=3,
     )
     if dlg.exec() == QDialog.Accepted:
-        try:
-            dlg.apply_to_store()
-        except ValueError as exc:
-            QMessageBox.critical(window, "Builds", str(exc))
-            return
         _store_compare_snapshot_from_build_dialog(window, "siege", dlg)
         window.presets.save(window.presets_path)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
@@ -481,11 +476,6 @@ def on_edit_presets_wgb(window) -> None:
         team_size=3,
     )
     if dlg.exec() == QDialog.Accepted:
-        try:
-            dlg.apply_to_store()
-        except ValueError as exc:
-            QMessageBox.critical(window, "Builds", str(exc))
-            return
         _store_compare_snapshot_from_build_dialog(window, "wgb", dlg)
         window.presets.save(window.presets_path)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
@@ -691,11 +681,6 @@ def on_edit_presets_rta(window) -> None:
         show_order_sections=False,
     )
     if dlg.exec() == QDialog.Accepted:
-        try:
-            dlg.apply_to_store()
-        except ValueError as exc:
-            QMessageBox.critical(window, "Builds", str(exc))
-            return
         _store_compare_snapshot_from_build_dialog(window, "rta", dlg)
         window.presets.save(window.presets_path)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
