@@ -41,9 +41,9 @@ _GREEN = "#27ae60"
 _ORANGE = "#f39c12"
 _RED = "#e74c3c"
 _PURPLE = "#9b59b6"
-_CHART_BG = QColor(0x2b, 0x2b, 0x2b)
+_CHART_BG = QColor(0x23, 0x27, 0x2e)
 _CHART_TEXT = QColor(0xdd, 0xdd, 0xdd)
-_CHART_GRID = QColor(0x44, 0x44, 0x44)
+_CHART_GRID = QColor(0x2e, 0x2e, 0x2e)
 
 _RUNE_CLASS_NAMES = {
     1: "Normal", 2: "Magic", 3: "Rare", 4: "Hero", 5: "Legend",
@@ -119,13 +119,14 @@ def _make_chart(title: str) -> QChart:
     chart = QChart()
     chart.setTitle(title)
     chart.setAnimationOptions(QChart.SeriesAnimations)
-    chart.setBackgroundBrush(QColor(_CHART_BG))
+    chart.setBackgroundBrush(_CHART_BG)
     chart.setTitleBrush(QColor(_CHART_TEXT))
-    chart.setTitleFont(QFont("Segoe UI", 10, QFont.Bold))
+    chart.setTitleFont(QFont("Segoe UI", 9, QFont.Bold))
     legend = chart.legend()
     legend.setLabelColor(_CHART_TEXT)
+    legend.setFont(QFont("Segoe UI", 8))
     legend.setAlignment(Qt.AlignBottom)
-    chart.setMargins(QMargins(6, 6, 6, 6))
+    chart.setMargins(QMargins(10, 8, 10, 8))
     return chart
 
 
@@ -133,14 +134,14 @@ def _make_chart_view(chart: QChart) -> QChartView:
     view = QChartView(chart)
     view.setRenderHint(QPainter.Antialiasing)
     view.setMinimumHeight(320)
-    view.setStyleSheet(f"background: {_CARD_BG}; border: 1px solid {_CARD_BORDER}; border-radius: 4px;")
+    view.setStyleSheet("background: #23272e; border: 1px solid #2e3138; border-radius: 8px;")
     return view
 
 
 def _style_bar_axis(axis: QBarCategoryAxis | QValueAxis) -> None:
     axis.setLabelsColor(_CHART_TEXT)
     axis.setGridLineColor(_CHART_GRID)
-    axis.setLinePenColor(_CHART_GRID)
+    axis.setLinePenColor(QColor(0x35, 0x35, 0x35))
 
 
 def _stat_label(eff_id: int, value: Any) -> str:
@@ -191,7 +192,7 @@ def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
             f"{tr('ui.prefix')}: {_stat_label(int(rune.prefix_eff[0] or 0), rune.prefix_eff[1] if len(rune.prefix_eff) > 1 else 0)}"
         )
     if rune.sec_eff:
-        lines.append(f"{tr('ui.subs')}:")
+        lines.append(f"<b>{tr('ui.subs')}:</b>")
         for sec in rune.sec_eff:
             if not sec:
                 continue
@@ -206,9 +207,9 @@ def _rune_detail_text(rune: Rune, idx: int, eff: float) -> str:
                 extras += f" <span style=\"color:#f39c12\">({int(val)}+{grind})</span>"
             if gem_flag:
                 extras += " [Gem]"
-                lines.append(f'  <span style="color:{_GEM_COLOR}">\u2022 {label}{extras}</span>')
+                lines.append(f'<span style="color:{_GEM_COLOR}">&nbsp;&bull;&nbsp;{label}{extras}</span>')
             else:
-                lines.append(f"  \u2022 {label}{extras}")
+                lines.append(f"&nbsp;&bull;&nbsp;{label}{extras}")
     return "<br>".join(lines)
 
 
@@ -226,12 +227,12 @@ def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
     lines = [
         f"{tr('overview.rank', idx=idx + 1)} | {tr('overview.efficiency')} {eff:.2f}%",
         f"{tr('ui.artifact_id')}: {int(art.artifact_id or 0)}",
-        f"{slot_name} | {type_name} | {tr('overview.quality')} {quality} | +{int(art.level or 0)}",
+        f"{tr('overview.quality')} {quality} | +{int(art.level or 0)}",
     ]
     if art.pri_effect and len(art.pri_effect) >= 2:
         lines.append(f"{tr('overview.mainstat')} {_artifact_mainstat_label(int(art.pri_effect[0] or 0), art.pri_effect[1])}")
     if art.sec_effects:
-        lines.append(f"{tr('ui.subs')}:")
+        lines.append(f"<b>{tr('ui.subs')}:</b>")
         for sec in art.sec_effects:
             if not sec:
                 continue
@@ -245,11 +246,11 @@ def _artifact_detail_text(art: Artifact, idx: int, eff: float) -> str:
                 (int(sec[3] or 0) > 0 if len(sec) > 3 else False)
                 or (int(sec[4] or 0) > 0 if len(sec) > 4 else False)
             )
-            text = f"\u2022 {artifact_effect_text(eff_id, val, fallback_prefix='Effekt')} ({tr('ui.rolls', n=upgrades)})"
+            text = f"{artifact_effect_text(eff_id, val, fallback_prefix='Effekt')} ({tr('ui.rolls', n=upgrades)})"
             if converted_flag:
-                lines.append(f'  <span style="color:{_GEM_COLOR}">{text}</span>')
+                lines.append(f'<span style="color:{_GEM_COLOR}">&nbsp;&bull;&nbsp;{text}</span>')
             else:
-                lines.append(f"  {text}")
+                lines.append(f"&nbsp;&bull;&nbsp;{text}")
     return "<br>".join(lines)
 
 
@@ -281,8 +282,8 @@ class _IndexedLineChartView(QChartView):
         self._active_key: Optional[Tuple[str, int]] = None
         self._popup = QFrame(None, Qt.ToolTip | Qt.FramelessWindowHint)
         self._popup.setStyleSheet(
-            "QFrame { background: #1f242a; border: 1px solid #3a3f46; border-radius: 6px; }"
-            "QLabel { color: #e6edf3; padding: 8px; font-size: 9pt; }"
+            "QFrame { background: #1f242a; border: 1px solid #3a3f46; border-radius: 5px; }"
+            "QLabel { color: #e6edf3; padding: 6px 10px; }"
         )
         self._popup_layout = QVBoxLayout(self._popup)
         self._popup_layout.setContentsMargins(0, 0, 0, 0)

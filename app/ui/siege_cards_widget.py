@@ -79,7 +79,7 @@ def _rune_rich_tooltip(rune: Rune) -> str:
             gem_flag = int(sec[2] or 0) if len(sec) >= 3 else 0
             grind = int(sec[3] or 0) if len(sec) >= 4 else 0
             total = val + grind
-            txt = f"&nbsp;&nbsp;{key} +{total}"
+            txt = f"&nbsp;&bull;&nbsp;{key} +{total}"
             if grind:
                 txt += f" <span style='color:#f39c12'>({val}+{grind})</span>"
             if gem_flag:
@@ -130,7 +130,7 @@ def _artifact_rich_tooltip(art: Artifact) -> str:
                 continue
             val = sec[1] if len(sec) > 1 else 0
             rolls = int(sec[2] or 0) if len(sec) > 2 else 0
-            lines.append(f"&nbsp;&nbsp;{_artifact_effect_text(eff_id, val)} [{tr('ui.rolls', n=rolls)}]")
+            lines.append(f"&nbsp;&bull;&nbsp;{_artifact_effect_text(eff_id, val)} [{tr('ui.rolls', n=rolls)}]")
     return "<br>".join(lines)
 
 

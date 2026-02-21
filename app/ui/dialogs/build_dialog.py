@@ -11,6 +11,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -105,7 +106,12 @@ class BuildDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setMinimumSize(980, 620)
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            self.setMinimumSize(int(avail.width() * 0.55), int(avail.height() * 0.65))
+        else:
+            self.setMinimumSize(980, 620)
 
         self.preset_store = preset_store
         self.mode = mode

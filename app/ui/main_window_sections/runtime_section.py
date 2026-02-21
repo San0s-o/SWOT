@@ -4,8 +4,8 @@ import sys
 from pathlib import Path
 from typing import Type
 
-from PySide6.QtCore import QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.ui.license_flow import _apply_license_title, _ensure_license_accepted
@@ -15,6 +15,28 @@ from app.ui.update_flow import _start_update_check
 
 def apply_dark_palette(app: QApplication) -> None:
     _apply_dark_palette_impl(app)
+
+
+def _apply_physical_dpi_font_scale(app: QApplication) -> None:
+    """Scale the application font so the UI appears the same physical size
+    on high-resolution monitors (e.g. 2K/4K) that run at 100% OS scaling.
+
+    Qt already handles OS display-scaling (devicePixelRatio). This function
+    covers the remaining gap between the screen's physical pixel density and
+    the standard ~96 DPI reference used at Full HD / 100% scaling.
+    """
+    screen = app.primaryScreen()
+    if not screen:
+        return
+    phys_dpi = screen.physicalDotsPerInch()
+    logic_dpi = screen.logicalDotsPerInch()
+    # extra_scale = how much denser the screen is beyond what the OS already scales
+    extra_scale = phys_dpi / max(logic_dpi, 96.0)
+    extra_scale = max(1.0, min(2.0, extra_scale))
+    if extra_scale > 1.05:
+        font = app.font()
+        font.setPointSizeF(font.pointSizeF() * extra_scale)
+        app.setFont(font)
 
 
 def acquire_single_instance():
@@ -49,7 +71,11 @@ def run_app(main_window_cls: Type):
         )
         sys.exit(0)
 
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
+    _apply_physical_dpi_font_scale(app)
     apply_dark_palette(app)
     icon_path = Path(__file__).resolve().parents[1] / "assets" / "app_icon.png"
     if icon_path.exists():

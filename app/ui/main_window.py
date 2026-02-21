@@ -185,7 +185,15 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(tr("main.title"))
-        self.setMinimumSize(1360, 820)
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            self.setMinimumSize(
+                min(1200, int(avail.width() * 0.75)),
+                min(750, int(avail.height() * 0.80)),
+            )
+        else:
+            self.setMinimumSize(1200, 750)
         self.showMaximized()
 
         self.account: Optional[AccountData] = None

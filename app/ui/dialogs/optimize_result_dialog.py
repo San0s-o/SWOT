@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon
+from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -73,8 +74,14 @@ class OptimizeResultDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(1680, 900)
-        self.setMinimumSize(1560, 860)
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            self.resize(int(avail.width() * 0.92), int(avail.height() * 0.90))
+            self.setMinimumSize(int(avail.width() * 0.75), int(avail.height() * 0.75))
+        else:
+            self.resize(1680, 900)
+            self.setMinimumSize(1200, 700)
 
         self._results = list(results)
         self._results_by_key: Dict[int, GreedyUnitResult] = {
@@ -400,6 +407,7 @@ class OptimizeResultDialog(QDialog):
         table = QTableWidget()
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.NoSelection)
+        table.setAlternatingRowColors(True)
         table.verticalHeader().setVisible(False)
         table.setRowCount(len(stat_keys))
 
