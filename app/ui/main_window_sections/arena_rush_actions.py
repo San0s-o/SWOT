@@ -528,6 +528,59 @@ def collect_arena_offense_selections(window) -> List[TeamSelection]:
     return out
 
 
+def _normalize_team_unit_ids_by_owned_copies(window, unit_ids: List[int]) -> List[int]:
+    """Ensure each selected slot maps to a distinct owned unit uid.
+
+    If the same uid is selected multiple times but additional copies (same
+    monster master id) are owned, duplicate slots are reassigned to free copy uids.
+    """
+    ids = [int(uid) for uid in (unit_ids or []) if int(uid) > 0]
+    if not ids or not getattr(window, "account", None):
+        return ids
+
+    units_by_id = dict(getattr(window.account, "units_by_id", {}) or {})
+    owned_uids_by_master: Dict[int, List[int]] = {}
+    for uid, unit in units_by_id.items():
+        ui = int(uid or 0)
+        if ui <= 0 or unit is None:
+            continue
+        mid = int(getattr(unit, "unit_master_id", 0) or 0)
+        if mid <= 0:
+            continue
+        owned_uids_by_master.setdefault(int(mid), []).append(int(ui))
+    for mid in list(owned_uids_by_master.keys()):
+        owned_uids_by_master[int(mid)] = sorted(owned_uids_by_master[int(mid)])
+
+    used_uids: Set[int] = set()
+    out: List[int] = []
+    for uid in ids:
+        ui = int(uid)
+        unit = units_by_id.get(int(ui))
+        if unit is None:
+            out.append(int(ui))
+            continue
+        mid = int(getattr(unit, "unit_master_id", 0) or 0)
+        if mid <= 0:
+            out.append(int(ui))
+            continue
+        if int(ui) not in used_uids:
+            used_uids.add(int(ui))
+            out.append(int(ui))
+            continue
+        replacement = 0
+        for cand_uid in owned_uids_by_master.get(int(mid), []):
+            cu = int(cand_uid or 0)
+            if cu > 0 and cu not in used_uids:
+                replacement = int(cu)
+                break
+        if replacement > 0:
+            used_uids.add(int(replacement))
+            out.append(int(replacement))
+        else:
+            out.append(int(ui))
+    return out
+
+
 def _set_unit_combo_uid_safely(cmb, uid: int) -> None:
     target_uid = int(uid or 0)
     try:
@@ -603,7 +656,7 @@ def on_take_current_arena_off(window) -> None:
 
 
 def _validate_arena_rush(window) -> Tuple[bool, str, List[int], List[TeamSelection]]:
-    defense_ids = collect_arena_def_selection(window)
+    defense_ids = _normalize_team_unit_ids_by_owned_copies(window, collect_arena_def_selection(window))
     if len(defense_ids) != 4:
         return False, tr("val.arena_def_need_4", have=len(defense_ids)), [], []
     if len(set(defense_ids)) != 4:
@@ -612,14 +665,14 @@ def _validate_arena_rush(window) -> Tuple[bool, str, List[int], List[TeamSelecti
     offense_teams_raw = collect_arena_offense_selections(window)
     offense_teams: List[TeamSelection] = []
     for sel in offense_teams_raw:
-        ids = list(sel.unit_ids or [])
+        ids = _normalize_team_unit_ids_by_owned_copies(window, list(sel.unit_ids or []))
         if not ids:
             continue
         if len(ids) != 4:
             return False, tr("val.arena_off_need_4", team=sel.team_index + 1, have=len(ids)), [], []
         if len(set(ids)) != 4:
             return False, tr("val.arena_off_duplicate", team=sel.team_index + 1), [], []
-        offense_teams.append(sel)
+        offense_teams.append(TeamSelection(team_index=int(sel.team_index), unit_ids=list(ids)))
     if not offense_teams:
         return False, tr("val.arena_need_off"), [], []
     return True, tr("val.arena_ok", off_count=len(offense_teams)), defense_ids, offense_teams

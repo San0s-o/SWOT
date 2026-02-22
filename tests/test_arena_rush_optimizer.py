@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 from app.domain.models import AccountData, Artifact, Rune, Unit
 from app.domain.presets import BuildStore, Build
@@ -25,6 +26,7 @@ from app.engine.greedy_optimizer import (
     _rune_stat_total,
 )
 from app.domain.speed_ticks import LEO_LOW_SPD_TICK, allowed_spd_ticks, max_spd_for_tick, min_spd_for_tick
+from app.ui.main_window_sections import arena_rush_actions as ar_actions
 
 
 def _slots(base: int) -> dict[int, int]:
@@ -1430,3 +1432,62 @@ def test_max_quality_runs_global_in_parallel_multiple_launches(monkeypatch) -> N
     assert len(calls) == 3
     assert len({seed for seed, _w in calls}) == 3
     assert "parallel_runs=" in str(res.message)
+
+
+def _mk_unit_for_arena_actions_test(uid: int, mid: int) -> Unit:
+    return Unit(
+        unit_id=int(uid),
+        unit_master_id=int(mid),
+        attribute=1,
+        unit_level=40,
+        unit_class=6,
+        base_con=100,
+        base_atk=100,
+        base_def=100,
+        base_spd=100,
+        base_res=15,
+        base_acc=0,
+        crit_rate=15,
+        crit_dmg=50,
+    )
+
+
+def test_arena_actions_normalize_team_unit_ids_by_owned_copies_replaces_duplicate_uid() -> None:
+    account = AccountData(
+        units_by_id={
+            1: _mk_unit_for_arena_actions_test(1, 1001),
+            2: _mk_unit_for_arena_actions_test(2, 1001),
+            3: _mk_unit_for_arena_actions_test(3, 1002),
+            4: _mk_unit_for_arena_actions_test(4, 1003),
+        }
+    )
+    window = SimpleNamespace(account=account)
+
+    normalized = ar_actions._normalize_team_unit_ids_by_owned_copies(window, [1, 1, 3, 4])
+
+    assert normalized == [1, 2, 3, 4]
+
+
+def test_arena_actions_validate_accepts_same_monster_with_two_owned_copies(monkeypatch) -> None:
+    account = AccountData(
+        units_by_id={
+            1: _mk_unit_for_arena_actions_test(1, 2001),
+            2: _mk_unit_for_arena_actions_test(2, 2001),
+            3: _mk_unit_for_arena_actions_test(3, 2002),
+            4: _mk_unit_for_arena_actions_test(4, 2003),
+        }
+    )
+    window = SimpleNamespace(account=account)
+
+    monkeypatch.setattr(ar_actions, "collect_arena_def_selection", lambda _window: [1, 1, 3, 4])
+    monkeypatch.setattr(
+        ar_actions,
+        "collect_arena_offense_selections",
+        lambda _window: [ar_actions.TeamSelection(team_index=0, unit_ids=[1, 1, 3, 4])],
+    )
+
+    ok, _msg, defense_ids, offense_teams = ar_actions._validate_arena_rush(window)
+
+    assert ok is True
+    assert defense_ids == [1, 2, 3, 4]
+    assert offense_teams[0].unit_ids == [1, 2, 3, 4]
