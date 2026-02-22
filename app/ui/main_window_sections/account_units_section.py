@@ -355,3 +355,12 @@ def ensure_unit_dropdowns_populated(window, tab: QWidget | None = None) -> None:
     window._populated_unit_combo_ids = populated_ids
     all_combos = list(getattr(window, "_all_unit_combos", []) or [])
     window._unit_dropdowns_populated = bool(all_combos) and len(populated_ids) >= len(all_combos)
+
+    # After first population of siege/wgb combos, restore saved team selections.
+    tab_key = _unit_combo_tab_key(window, target_tab)
+    if tab_key in ("siege", "wgb"):
+        try:
+            from app.ui.main_window_sections.mode_actions import restore_team_selections
+            restore_team_selections(window, mode=tab_key)
+        except Exception:
+            pass

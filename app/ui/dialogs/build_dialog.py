@@ -434,6 +434,10 @@ class BuildDialog(QDialog):
             btn_load_runes.setToolTip(tr("tooltip.load_current_runes"))
             btn_load_runes.clicked.connect(self._on_load_current_runes)
             list_layout.addWidget(btn_load_runes)
+        btn_load_preferred_all = QPushButton(tr("btn.load_preferred_runes_all"))
+        btn_load_preferred_all.setToolTip(tr("tooltip.load_preferred_runes_all"))
+        btn_load_preferred_all.clicked.connect(self._on_load_preferred_runes_for_all)
+        list_layout.addWidget(btn_load_preferred_all)
         btn_restore_saved_preset = QPushButton(tr("btn.restore_saved_preset"))
         btn_restore_saved_preset.setToolTip(tr("tooltip.restore_saved_preset"))
         btn_restore_saved_preset.clicked.connect(self._on_restore_saved_preset)
@@ -1370,6 +1374,12 @@ class BuildDialog(QDialog):
             cmb4.set_checked_values(list(by_slot[4]))
         if cmb6 is not None and by_slot.get(6):
             cmb6.set_checked_values(list(by_slot[6]))
+
+    def _on_load_preferred_runes_for_all(self) -> None:
+        """Load preferred rune sets and mainstats for all units that have preferences."""
+        self._ensure_all_editor_pages()
+        for unit_id in list(self._set1_combo.keys()):
+            self._on_load_preferred_runes_for_unit(int(unit_id))
 
     def _on_save_preferred_runes_for_unit(self, unit_id: int) -> None:
         uid = int(unit_id or 0)

@@ -77,11 +77,10 @@ class OptimizeResultDialog(QDialog):
         screen = QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
-            self.resize(int(avail.width() * 0.92), int(avail.height() * 0.90))
             self.setMinimumSize(int(avail.width() * 0.75), int(avail.height() * 0.75))
         else:
-            self.resize(1680, 900)
             self.setMinimumSize(1200, 700)
+        self.setWindowState(Qt.WindowMaximized)
 
         self._results = list(results)
         self._results_by_key: Dict[int, GreedyUnitResult] = {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
@@ -158,6 +159,7 @@ def on_take_current_siege(window) -> None:
     selections = window._collect_siege_selections()
     _ok, msg, _all_units = window._validate_team_structure("Siege", selections, must_have_team_size=3)
     window.lbl_siege_validate.setText(msg)
+    save_team_selections(window)
 
 
 def collect_siege_selections(window) -> List[TeamSelection]:
@@ -247,6 +249,7 @@ def on_edit_presets_siege(window) -> None:
     if dlg.exec() == QDialog.Accepted:
         _store_compare_snapshot_from_build_dialog(window, "siege", dlg)
         window.presets.save(window.presets_path)
+        save_team_selections(window)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
 
 
@@ -478,6 +481,7 @@ def on_edit_presets_wgb(window) -> None:
     if dlg.exec() == QDialog.Accepted:
         _store_compare_snapshot_from_build_dialog(window, "wgb", dlg)
         window.presets.save(window.presets_path)
+        save_team_selections(window)
         QMessageBox.information(window, tr("dlg.builds_saved_title"), tr("dlg.builds_saved", path=window.presets_path))
 
 
@@ -813,3 +817,88 @@ def _arena_speed_leader_bonus_map(
 def on_optimize_arena_rush(window) -> None:
     from app.ui.main_window_sections.arena_rush_actions import on_optimize_arena_rush as _impl
     return _impl(window)
+
+
+def save_team_selections(window) -> None:
+    """Persist current siege and WGB team selections to app_settings.json."""
+    settings_path = window.config_dir / "app_settings.json"
+    data: dict = {}
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+
+    siege_sel: List[List[int]] = []
+    for row in getattr(window, "siege_team_combos", []):
+        siege_sel.append([int(cmb.currentData() or 0) for cmb in row])
+    if siege_sel:
+        data["siege_team_selections"] = siege_sel
+
+    siege_checks: List[bool] = [
+        bool(chk.isChecked()) for chk in getattr(window, "siege_optimize_checks", [])
+    ]
+    if siege_checks:
+        data["siege_optimize_checks"] = siege_checks
+
+    wgb_sel: List[List[int]] = []
+    for row in getattr(window, "wgb_team_combos", []):
+        wgb_sel.append([int(cmb.currentData() or 0) for cmb in row])
+    if wgb_sel:
+        data["wgb_team_selections"] = wgb_sel
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def restore_team_selections(window, mode: str = "all") -> None:
+    """Restore siege and WGB team selections from app_settings.json."""
+    settings_path = window.config_dir / "app_settings.json"
+    if not settings_path.exists():
+        return
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    if mode in ("all", "siege"):
+        siege_sel = data.get("siege_team_selections")
+        if isinstance(siege_sel, list):
+            for t, row_uids in enumerate(siege_sel):
+                combos = getattr(window, "siege_team_combos", [])
+                if t >= len(combos):
+                    break
+                row = combos[t]
+                for s, uid in enumerate(row_uids if isinstance(row_uids, list) else []):
+                    if s >= len(row):
+                        break
+                    uid = int(uid or 0)
+                    if uid:
+                        idx = row[s].findData(uid, role=Qt.UserRole)
+                        if idx >= 0:
+                            row[s].setCurrentIndex(idx)
+
+        siege_checks = data.get("siege_optimize_checks")
+        if isinstance(siege_checks, list):
+            for t, checked in enumerate(siege_checks):
+                checks = getattr(window, "siege_optimize_checks", [])
+                if t >= len(checks):
+                    break
+                checks[t].setChecked(bool(checked))
+
+    if mode in ("all", "wgb"):
+        wgb_sel = data.get("wgb_team_selections")
+        if isinstance(wgb_sel, list):
+            for t, row_uids in enumerate(wgb_sel):
+                combos = getattr(window, "wgb_team_combos", [])
+                if t >= len(combos):
+                    break
+                row = combos[t]
+                for s, uid in enumerate(row_uids if isinstance(row_uids, list) else []):
+                    if s >= len(row):
+                        break
+                    uid = int(uid or 0)
+                    if uid:
+                        idx = row[s].findData(uid, role=Qt.UserRole)
+                        if idx >= 0:
+                            row[s].setCurrentIndex(idx)

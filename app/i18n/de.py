@@ -69,6 +69,7 @@ STRINGS: dict[str, str] = {
     "btn.load_current_runes": "Aktuelle Runen übernehmen",
     "btn.restore_saved_preset": "Gespeichertes Preset laden",
     "btn.load_preferred_runes": "Bevorzugte Runen laden",
+    "btn.load_preferred_runes_all": "Bevorzugte Runen für alle laden",
     "btn.save_preferred_runes": "Bevorzugte Runen speichern",
 
     # -- Labels --------------------------------------------------
@@ -104,6 +105,7 @@ STRINGS: dict[str, str] = {
     "tooltip.load_current_runes": "Übernimmt die aktuell angelegten Runen-Sets und Mainstats für alle Monster.",
     "tooltip.restore_saved_preset": "Stellt die beim Öffnen gespeicherten Build-Einstellungen wieder her.",
     "tooltip.load_preferred_runes": "Lädt bevorzugte Runen-Kombis und Mainstats aus monster_rune_set_preferences.json für dieses Monster.",
+    "tooltip.load_preferred_runes_all": "Lädt bevorzugte Runen-Kombis und Mainstats aus monster_rune_set_preferences.json für alle Monster.",
     "tooltip.load_preferred_runes_missing": "Keine Runen-Prefs für dieses Monster in monster_rune_set_preferences.json gefunden.",
     "tooltip.save_preferred_runes": "Speichert die aktuell gewählten Runen-Sets und Mainstats als Monster-Prefs in monster_rune_set_preferences.json.",
     "tooltip.set_multi": "Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).",
