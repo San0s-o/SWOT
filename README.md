@@ -186,9 +186,9 @@ python -m app.tools.update_monster_db
 
 Aktualisiert:
 - `app/assets/monsters.json` (inkl. Leader Skill, Archetype, Turn-Effect-Caps)
-- `app/config/monster_turn_effect_capabilities.json`
-- `app/config/arena_speed_lead_cache.json`
-- `app/config/arena_archetype_cache.json`
+- `app/config/excluded/monster_turn_effect_capabilities.json`
+- `app/config/excluded/arena_speed_lead_cache.json`
+- `app/config/excluded/arena_archetype_cache.json`
 
 Zur Laufzeit findet kein Online-Nachladen/Scraping statt.
 

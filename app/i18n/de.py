@@ -57,6 +57,7 @@ STRINGS: dict[str, str] = {
     "btn.quit": "Beenden",
     "btn.later": "Später",
     "btn.release_page": "Release-Seite",
+    "btn.install_update": "Auto-Update",
     "btn.new_team": "Neues Team",
     "btn.edit_team": "Team bearbeiten",
     "btn.delete_team": "Team löschen",
@@ -351,6 +352,7 @@ STRINGS: dict[str, str] = {
     "update.title": "Update verfügbar",
     "update.text": "Neue Version verfügbar: {latest}\nInstalliert: {current}",
     "update.open_release": "GitHub-Release jetzt öffnen?",
+    "update.auto_failed": "Auto-Update fehlgeschlagen.",
 
     # -- License dialog ------------------------------------------
     "license.title": "Lizenz Aktivierung",
@@ -484,6 +486,14 @@ STRINGS: dict[str, str] = {
     "svc.download_http_fail": "Download fehlgeschlagen (HTTP {status}).",
     "svc.download_failed": "Download fehlgeschlagen: {detail}",
     "svc.download_ok": "Update erfolgreich heruntergeladen.",
+    "svc.auto_zip_only_frozen": "Auto-Update per ZIP ist nur in der EXE-Version verfügbar.",
+    "svc.auto_install_dir_missing": "Installationsordner nicht gefunden.",
+    "svc.auto_exe_missing": "Aktuelle EXE wurde nicht gefunden.",
+    "svc.auto_install_failed": "Automatische Installation fehlgeschlagen: {detail}",
+    "svc.auto_relaunch_failed": "Update installiert, aber Neustart fehlgeschlagen: {detail}",
+    "svc.auto_zip_installed": "Update installiert. App wird neu gestartet.",
+    "svc.auto_installer_failed": "Installer konnte nicht gestartet werden: {detail}",
+    "svc.auto_installer_started": "Installer gestartet. Bitte Installation abschließen.",
 
     # -- License service messages --------------------------------
     "lic.invalid_response": "Ungültige Server-Antwort ({status}).",
