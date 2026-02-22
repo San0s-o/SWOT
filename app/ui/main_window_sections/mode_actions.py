@@ -593,7 +593,7 @@ def on_rta_add_monster(window) -> None:
     uid = int(window.rta_add_combo.currentData() or 0)
     if uid == 0:
         return
-    if window.rta_selected_list.count() >= 15:
+    if window.rta_selected_list.count() >= 25:
         QMessageBox.warning(window, "RTA", tr("dlg.max_15_rta"))
         return
     for i in range(window.rta_selected_list.count()):
@@ -618,7 +618,7 @@ def on_take_current_rta(window) -> None:
         return
     active_uids = window.account.rta_active_unit_ids()
     window.rta_selected_list.clear()
-    for uid in active_uids[:15]:
+    for uid in active_uids[:25]:
         item = QListWidgetItem(window._unit_text(uid))
         item.setData(Qt.UserRole, uid)
         item.setIcon(window._unit_icon_for_unit_id(uid))
@@ -627,7 +627,7 @@ def on_take_current_rta(window) -> None:
     if ids and len(ids) == len(set(ids)):
         window.lbl_rta_validate.setText(tr("rta.ok", count=len(ids)))
     else:
-        window.lbl_rta_validate.setText(tr("status.rta_taken", count=min(len(active_uids), 15)))
+        window.lbl_rta_validate.setText(tr("status.rta_taken", count=min(len(active_uids), 25)))
 
 
 def collect_rta_unit_ids(window) -> List[int]:

@@ -133,60 +133,66 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
     acc.sky_tribe_totem_level = _extract_sky_tribe_totem_level(data)
     acc.sky_tribe_totem_spd_pct = _sky_tribe_totem_spd_pct_from_level(acc.sky_tribe_totem_level)
 
-    unit_list = data.get("unit_list", []) or []
-    for u in unit_list:
-        unit_id = _safe_int(u.get("unit_id"))
-        unit_master_id = _safe_int(u.get("unit_master_id"))
-        if unit_id == 0 or unit_master_id == 0:
-            continue
-
-        unit = Unit(
-            unit_id=unit_id,
-            unit_master_id=unit_master_id,
-            attribute=_safe_int(u.get("attribute")),
-            unit_level=_safe_int(u.get("unit_level")),
-            unit_class=_safe_int(u.get("class")),
-            base_con=_safe_int(u.get("con")),
-            base_atk=_safe_int(u.get("atk")),
-            base_def=_safe_int(u.get("def")),
-            base_spd=_safe_int(u.get("spd")),
-            base_res=_safe_int(u.get("resist")),
-            base_acc=_safe_int(u.get("accuracy")),
-            crit_rate=_safe_int(u.get("critical_rate")),
-            crit_dmg=_safe_int(u.get("critical_damage")),
-        )
-        acc.units_by_id[unit_id] = unit
-
-        for r in (u.get("runes") or []):
-            rune_id = _safe_int(r.get("rune_id"))
-            if rune_id == 0:
-                continue
-            try:
-                rune = Rune(
-                    rune_id=rune_id,
-                    slot_no=_safe_int(r.get("slot_no")),
-                    set_id=_safe_int(r.get("set_id")),
-                    rank=_safe_int(r.get("rank")),
-                    rune_class=_safe_int(r.get("class")),
-                    upgrade_curr=_safe_int(r.get("upgrade_curr")),
-                    pri_eff=tuple(r.get("pri_eff") or [0, 0]),
-                    prefix_eff=tuple(r.get("prefix_eff") or [0, 0]),
-                    sec_eff=[tuple(x) for x in (r.get("sec_eff") or [])],
-                    occupied_type=_safe_int(r.get("occupied_type")),
-                    occupied_id=_safe_int(r.get("occupied_id")),
-                    origin_class=_parse_rune_origin_class(r),
-                )
-                acc.runes.append(rune)
-            except Exception:
+    # Some exports split owned units between the active box and monster storage.
+    # We need both sources so stored monsters (e.g. Shi Hou) appear in the UI.
+    unit_sources = [
+        data.get("unit_list", []) or [],
+        data.get("unit_storage_normal_list", []) or [],
+    ]
+    for units in unit_sources:
+        for u in units:
+            unit_id = _safe_int(u.get("unit_id"))
+            unit_master_id = _safe_int(u.get("unit_master_id"))
+            if unit_id == 0 or unit_master_id == 0:
                 continue
 
-        for a in (u.get("artifacts") or []):
-            try:
-                art = _parse_artifact(a)
-                if art and art.slot in (1, 2):
-                    acc.artifacts.append(art)
-            except Exception:
-                continue
+            unit = Unit(
+                unit_id=unit_id,
+                unit_master_id=unit_master_id,
+                attribute=_safe_int(u.get("attribute")),
+                unit_level=_safe_int(u.get("unit_level")),
+                unit_class=_safe_int(u.get("class")),
+                base_con=_safe_int(u.get("con")),
+                base_atk=_safe_int(u.get("atk")),
+                base_def=_safe_int(u.get("def")),
+                base_spd=_safe_int(u.get("spd")),
+                base_res=_safe_int(u.get("resist")),
+                base_acc=_safe_int(u.get("accuracy")),
+                crit_rate=_safe_int(u.get("critical_rate")),
+                crit_dmg=_safe_int(u.get("critical_damage")),
+            )
+            acc.units_by_id[unit_id] = unit
+
+            for r in (u.get("runes") or []):
+                rune_id = _safe_int(r.get("rune_id"))
+                if rune_id == 0:
+                    continue
+                try:
+                    rune = Rune(
+                        rune_id=rune_id,
+                        slot_no=_safe_int(r.get("slot_no")),
+                        set_id=_safe_int(r.get("set_id")),
+                        rank=_safe_int(r.get("rank")),
+                        rune_class=_safe_int(r.get("class")),
+                        upgrade_curr=_safe_int(r.get("upgrade_curr")),
+                        pri_eff=tuple(r.get("pri_eff") or [0, 0]),
+                        prefix_eff=tuple(r.get("prefix_eff") or [0, 0]),
+                        sec_eff=[tuple(x) for x in (r.get("sec_eff") or [])],
+                        occupied_type=_safe_int(r.get("occupied_type")),
+                        occupied_id=_safe_int(r.get("occupied_id")),
+                        origin_class=_parse_rune_origin_class(r),
+                    )
+                    acc.runes.append(rune)
+                except Exception:
+                    continue
+
+            for a in (u.get("artifacts") or []):
+                try:
+                    art = _parse_artifact(a)
+                    if art and art.slot in (1, 2):
+                        acc.artifacts.append(art)
+                except Exception:
+                    continue
 
     for r in (data.get("runes") or []):
         rune_id = _safe_int(r.get("rune_id"))
