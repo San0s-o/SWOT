@@ -57,7 +57,7 @@ STRINGS: dict[str, str] = {
     "btn.quit": "Quit",
     "btn.later": "Later",
     "btn.release_page": "Release Page",
-    "btn.install_update": "Auto Update",
+    "btn.install_update": "Update",
     "btn.new_team": "New Team",
     "btn.edit_team": "Edit Team",
     "btn.delete_team": "Delete Team",
@@ -348,7 +348,14 @@ STRINGS: dict[str, str] = {
     "update.title": "Update available",
     "update.text": "New version available: {latest}\nInstalled: {current}",
     "update.open_release": "Open GitHub release now?",
-    "update.auto_failed": "Auto update failed.",
+    "update.auto_failed": "Update failed.",
+    "update.wizard.step_info": "Info",
+    "update.wizard.step_download": "Download",
+    "update.wizard.step_done": "Done",
+    "update.wizard.new_version": "New version: {latest}  (current: {current})",
+    "update.wizard.release_notes": "Release Notes:",
+    "update.wizard.downloading": "Downloading...",
+    "update.wizard.installing": "Installing...",
 
     # -- License dialog ------------------------------------------
     "license.title": "License Activation",
@@ -478,7 +485,7 @@ STRINGS: dict[str, str] = {
     "svc.download_http_fail": "Download failed (HTTP {status}).",
     "svc.download_failed": "Download failed: {detail}",
     "svc.download_ok": "Update downloaded successfully.",
-    "svc.auto_zip_only_frozen": "ZIP auto update is only available in the packaged app.",
+    "svc.auto_zip_only_frozen": "ZIP update is only available in the packaged app.",
     "svc.auto_install_dir_missing": "Install directory not found.",
     "svc.auto_exe_missing": "Current executable not found.",
     "svc.auto_install_failed": "Automatic install failed: {detail}",
@@ -486,6 +493,8 @@ STRINGS: dict[str, str] = {
     "svc.auto_zip_installed": "Update installed. Restarting app.",
     "svc.auto_installer_failed": "Could not launch installer: {detail}",
     "svc.auto_installer_started": "Installer started. Please finish installation.",
+    "svc.auto_updater_launch_failed": "Could not launch updater: {detail}",
+    "svc.auto_updater_state_invalid": "Updater start failed: {detail}",
 
     # -- License service messages --------------------------------
     "lic.invalid_response": "Invalid server response ({status}).",

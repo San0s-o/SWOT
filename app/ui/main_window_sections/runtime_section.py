@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from app.ui.app_identity import apply_windows_app_user_model_id, resolve_app_icon
 from app.ui.license_flow import _apply_license_title, _ensure_license_accepted
 from app.ui.theme import apply_dark_palette as _apply_dark_palette_impl
 from app.ui.update_flow import _start_update_check
@@ -61,6 +62,7 @@ def acquire_single_instance():
 
 
 def run_app(main_window_cls: Type):
+    apply_windows_app_user_model_id()
     instance_lock = acquire_single_instance()
     if instance_lock is None:
         _tmp = QApplication(sys.argv)
@@ -78,9 +80,9 @@ def run_app(main_window_cls: Type):
     app = QApplication(sys.argv)
     _apply_physical_dpi_font_scale(app)
     apply_dark_palette(app)
-    icon_path = Path(__file__).resolve().parents[1] / "assets" / "app_icon.png"
-    if icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
+    app_icon = resolve_app_icon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     import app.i18n as i18n
     config_dir = Path(__file__).resolve().parents[1] / "config"
     i18n.init(config_dir)
