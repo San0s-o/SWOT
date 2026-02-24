@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QComboBox, QFileDialog, QMessageBox, QWidget
 from app.importer.sw_json_importer import load_account_from_data
 from app.domain.presets import SET_NAMES
 from app.i18n import tr
+from app.ui.dpi import dp
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 
@@ -201,7 +202,7 @@ def populate_combo_with_units(window, cmb: QComboBox) -> None:
     else:
         cmb.setModel(model)
     cmb.setModelColumn(0)
-    cmb.setIconSize(QSize(40, 40))
+    cmb.setIconSize(QSize(dp(40), dp(40)))
     idx = cmb.findData(prev_uid, role=Qt.UserRole)
     cmb.setCurrentIndex(idx if idx >= 0 else 0)
     if isinstance(cmb, _UnitSearchComboBox):

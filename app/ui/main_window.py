@@ -152,6 +152,7 @@ from app.ui.rta_overview_widget import RtaOverviewWidget
 from app.ui.rune_optimization_widget import RuneOptimizationWidget
 from app.ui.artifact_optimization_widget import ArtifactOptimizationWidget
 from app.i18n import tr
+from app.ui.dpi import dp
 
 
 @dataclass
@@ -236,7 +237,7 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         top.addStretch(1)
         btn_help = QPushButton("?")
-        btn_help.setFixedSize(32, 32)
+        btn_help.setFixedSize(dp(32), dp(32))
         btn_help.setStyleSheet(
             "QPushButton { background: #3a3a3a; color: #ffffff; border: 1px solid #555555;"
             " border-radius: 16px; font-size: 15pt; font-weight: bold;"
@@ -278,6 +279,8 @@ class MainWindow(QMainWindow):
         self.tab_siege_raw = QWidget()
         self.siege_inner_tabs.addTab(self.tab_siege_raw, tr("tab.subtab_current"))
         sv = QVBoxLayout(self.tab_siege_raw)
+        sv.setContentsMargins(0, 0, 0, 0)
+        sv.setSpacing(0)
         self.siege_cards = SiegeDefCardsWidget()
         sv.addWidget(self.siege_cards)
 
@@ -419,36 +422,35 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _apply_inner_tab_style(tab_widget: "QTabWidget") -> None:
-        tab_widget.setStyleSheet(
-            """
-            QTabWidget { border: none; background: transparent; }
-            QTabWidget::pane {
+        from app.ui.dpi import dp as _dp
+        tab_widget.setStyleSheet(f"""
+            QTabWidget {{ border: none; background: transparent; }}
+            QTabWidget::pane {{
                 border: none;
                 border-top: 1px solid #2e3138;
                 background: #1f2126;
-            }
-            QTabBar { qproperty-drawBase: 0; background: #1a1d22; }
-            QTabBar::tab {
+            }}
+            QTabBar {{ qproperty-drawBase: 0; background: #1a1d22; }}
+            QTabBar::tab {{
                 background: #1a1d22;
                 color: #7a8494;
                 border: none;
                 border-right: 1px solid #2e3138;
                 border-bottom: 2px solid transparent;
-                min-width: 90px;
-                padding: 6px 18px;
+                min-width: {_dp(90)}px;
+                padding: {_dp(6)}px {_dp(18)}px;
                 margin-right: 0px;
-            }
-            QTabBar::tab:selected {
+            }}
+            QTabBar::tab:selected {{
                 background: #1f2126;
                 color: #e8ecf1;
                 border-bottom: 2px solid #4a90e2;
-            }
-            QTabBar::tab:hover:!selected {
+            }}
+            QTabBar::tab:hover:!selected {{
                 background: #222630;
                 color: #c8d0da;
-            }
-            """
-        )
+            }}
+        """)
 
     # ============================================================
     # Tab reordering

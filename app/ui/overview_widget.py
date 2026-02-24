@@ -29,6 +29,7 @@ from app.engine.efficiency import (
     rune_efficiency_max,
 )
 from app.i18n import tr
+from app.ui.dpi import dp
 
 # -- colours ------------------------------------------------
 _BG = "#1e1e1e"
@@ -91,8 +92,8 @@ class _SummaryCard(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(dp(14), dp(12), dp(14), dp(12))
+        layout.setSpacing(dp(6))
 
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 9pt; border: none; background: transparent;")
@@ -137,7 +138,7 @@ def _make_chart(title: str) -> QChart:
 def _make_chart_view(chart: QChart) -> QChartView:
     view = QChartView(chart)
     view.setRenderHint(QPainter.Antialiasing)
-    view.setMinimumHeight(320)
+    view.setMinimumHeight(dp(320))
     view.setStyleSheet("background: #23272e; border: 1px solid #2e3138; border-radius: 8px;")
     return view
 
@@ -297,7 +298,7 @@ class _IndexedLineChartView(QChartView):
         self._popup_label.setWordWrap(False)
         self._popup_layout.addWidget(self._popup_label)
         self.setRenderHint(QPainter.Antialiasing)
-        self.setMinimumHeight(320)
+        self.setMinimumHeight(dp(320))
         self.setStyleSheet(f"background: {_CARD_BG}; border: 1px solid {_CARD_BORDER}; border-radius: 4px;")
         self.setMouseTracking(True)
 
@@ -399,19 +400,19 @@ class OverviewWidget(QWidget):
         self._account: Optional[AccountData] = None
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)
-        outer.setSpacing(8)
+        outer.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        outer.setSpacing(dp(8))
 
         # top section: cards left, rune set distribution right
         self._top_overview_row = QHBoxLayout()
-        self._top_overview_row.setSpacing(8)
+        self._top_overview_row.setSpacing(dp(8))
         outer.addLayout(self._top_overview_row)
 
         self._cards_host = QWidget()
         self._cards_host.setStyleSheet(f"background: {_BG};")
         self._cards_grid = QGridLayout(self._cards_host)
         self._cards_grid.setContentsMargins(0, 0, 0, 0)
-        self._cards_grid.setSpacing(8)
+        self._cards_grid.setSpacing(dp(8))
         self._top_overview_row.addWidget(self._cards_host, 3)
 
         self._card_units = _SummaryCard(tr("overview.monsters"), "\u2014")
@@ -452,7 +453,7 @@ class OverviewWidget(QWidget):
         self._top_overview_row.addWidget(self._rune_set_host, 2)
 
         controls_row = QHBoxLayout()
-        controls_row.setSpacing(8)
+        controls_row.setSpacing(dp(8))
         self._lbl_top_n = QLabel(tr("overview.chart_top_label"))
         self._lbl_top_n.setStyleSheet(f"color: {_TEXT_DIM};")
         self._top_n_combo = QComboBox()
@@ -486,7 +487,7 @@ class OverviewWidget(QWidget):
         container = QWidget()
         container.setStyleSheet(f"background: {_BG};")
         self._grid = QGridLayout(container)
-        self._grid.setSpacing(8)
+        self._grid.setSpacing(dp(8))
         scroll.setWidget(container)
 
         # placeholders for charts
@@ -589,7 +590,7 @@ class OverviewWidget(QWidget):
         self._rune_set_view = self._build_rune_set_chart(filtered_runes)
         self._art_eff_view = self._build_art_eff_chart(art_items)
 
-        self._rune_set_view.setMinimumHeight(300)
+        self._rune_set_view.setMinimumHeight(dp(300))
         self._rune_set_host_layout.addWidget(self._rune_set_view, 1)
 
         self._grid.addWidget(self._rune_eff_view, 0, 0, 1, 2)

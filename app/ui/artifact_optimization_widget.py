@@ -35,6 +35,7 @@ from app.domain.artifact_effects import (
 )
 from app.engine.efficiency import artifact_efficiency
 from app.i18n import tr
+from app.ui.dpi import dp
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 
@@ -189,8 +190,8 @@ class ArtifactOptimizationWidget(QWidget):
         self._updating_filters = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        layout.setSpacing(dp(8))
 
         top = QHBoxLayout()
         self.lbl_info = QLabel("")
@@ -199,13 +200,13 @@ class ArtifactOptimizationWidget(QWidget):
         self.lbl_filter_type = QLabel("")
         top.addWidget(self.lbl_filter_type)
         self.combo_filter_type = QComboBox()
-        self.combo_filter_type.setMinimumWidth(120)
+        self.combo_filter_type.setMinimumWidth(dp(120))
         self.combo_filter_type.currentIndexChanged.connect(self._on_filters_changed)
         top.addWidget(self.combo_filter_type)
         self.lbl_filter_monster = QLabel("")
         top.addWidget(self.lbl_filter_monster)
         self.combo_filter_monster = _UnitSearchComboBox()
-        self.combo_filter_monster.setMinimumWidth(200)
+        self.combo_filter_monster.setMinimumWidth(dp(200))
         self.combo_filter_monster.currentIndexChanged.connect(self._on_filters_changed)
         top.addWidget(self.combo_filter_monster)
         self.btn_reset_filters = QPushButton("")

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.i18n import tr
+from app.ui.dpi import dp
 from app.ui.main_window_sections.arena_rush_actions import (
     on_take_current_arena_def as _sec_on_take_current_arena_def,
     on_take_current_arena_off as _sec_on_take_current_arena_off,
@@ -57,8 +58,8 @@ def _make_settings_frame(*items) -> QFrame:
     frame.setObjectName("OptSettings")
     frame.setStyleSheet(_SETTINGS_FRAME_STYLE)
     layout = QHBoxLayout(frame)
-    layout.setContentsMargins(8, 3, 8, 3)
-    layout.setSpacing(5)
+    layout.setContentsMargins(dp(8), dp(3), dp(8), dp(3))
+    layout.setSpacing(dp(5))
     for item in items:
         if isinstance(item, str):
             lbl = QLabel(item)
@@ -125,7 +126,7 @@ def init_arena_rush_builder_ui(
         def_grid.addWidget(cmb, 0, 1 + s)
         window.arena_def_combos.append(cmb)
     def_row_btn = QPushButton("✕")
-    def_row_btn.setFixedSize(28, 26)
+    def_row_btn.setFixedSize(dp(28), dp(26))
     def_row_btn.setToolTip(tr("tooltip.clear_defense"))
     def_row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
     def_row_btn.clicked.connect(lambda: [_clear_combo(c) for c in window.arena_def_combos])
@@ -164,7 +165,7 @@ def init_arena_rush_builder_ui(
             off_grid.addWidget(cmb, t, 2 + s)
             row.append(cmb)
         row_btn = QPushButton("✕")
-        row_btn.setFixedSize(28, 26)
+        row_btn.setFixedSize(dp(28), dp(26))
         row_btn.setToolTip(tr("tooltip.clear_defense"))
         row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
         row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])

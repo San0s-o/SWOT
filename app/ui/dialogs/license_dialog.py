@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from app.i18n import tr
 from app.services.license_service import LicenseValidation, save_license_key, validate_license_key
 from app.ui.async_worker import _TaskWorker
+from app.ui.dpi import dp
 
 
 class LicenseDialog(QDialog):
@@ -21,7 +22,7 @@ class LicenseDialog(QDialog):
         self.validation_result: LicenseValidation | None = None
         self._validation_worker: _TaskWorker | None = None
         self.setWindowTitle(tr("license.title"))
-        self.resize(520, 180)
+        self.resize(dp(520), dp(180))
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(tr("license.enter_key")))

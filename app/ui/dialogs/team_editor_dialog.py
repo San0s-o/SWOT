@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from app.domain.models import AccountData
 from app.domain.team_store import Team
 from app.i18n import tr
+from app.ui.dpi import dp
 
 
 class TeamEditorDialog(QDialog):
@@ -43,7 +44,7 @@ class TeamEditorDialog(QDialog):
 
         title = tr("btn.edit_team") if team else tr("btn.new_team")
         self.setWindowTitle(title)
-        self.resize(600, 420)
+        self.resize(dp(600), dp(420))
 
         layout = QVBoxLayout(self)
 
@@ -55,7 +56,7 @@ class TeamEditorDialog(QDialog):
 
         control_row = QHBoxLayout()
         self.unit_combo = QComboBox()
-        self.unit_combo.setIconSize(QSize(32, 32))
+        self.unit_combo.setIconSize(QSize(dp(32), dp(32)))
         control_row.addWidget(self.unit_combo, 1)
         self.btn_add_unit = QPushButton(tr("btn.add"))
         self.btn_add_unit.clicked.connect(self._add_unit_from_combo)
@@ -66,7 +67,7 @@ class TeamEditorDialog(QDialog):
         layout.addLayout(control_row)
 
         self.unit_list = QListWidget()
-        self.unit_list.setIconSize(QSize(32, 32))
+        self.unit_list.setIconSize(QSize(dp(32), dp(32)))
         layout.addWidget(self.unit_list, 1)
 
         self._populate_unit_combo()

@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QScrollArea, QVBoxLayout
 
 from app.i18n import tr
+from app.ui.dpi import dp
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 
@@ -57,7 +58,7 @@ def apply_tab_style(window) -> None:
 def show_help_dialog(window) -> None:
     dlg = QDialog(window)
     dlg.setWindowTitle(tr("help.title"))
-    dlg.resize(620, 520)
+    dlg.resize(dp(620), dp(520))
     layout = QVBoxLayout(dlg)
 
     scroll = QScrollArea()
@@ -69,7 +70,7 @@ def show_help_dialog(window) -> None:
     content.setTextFormat(Qt.RichText)
     content.setWordWrap(True)
     content.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-    content.setContentsMargins(16, 12, 16, 12)
+    content.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
     content.setStyleSheet("font-size: 10pt; line-height: 1.5;")
     content.setText(tr("help.content"))
     scroll.setWidget(content)

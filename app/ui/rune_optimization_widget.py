@@ -25,6 +25,7 @@ from app.domain.models import AccountData, Rune
 from app.domain.presets import SET_NAMES, EFFECT_ID_TO_MAINSTAT_KEY
 from app.engine.efficiency import rune_efficiency, rune_efficiency_max
 from app.i18n import tr
+from app.ui.dpi import dp
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 _QUALITY_BASE_NAME = {
@@ -202,8 +203,8 @@ class RuneOptimizationWidget(QWidget):
         self._updating_filters = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        layout.setSpacing(dp(8))
 
         top = QHBoxLayout()
         self.lbl_info = QLabel("")
@@ -212,19 +213,19 @@ class RuneOptimizationWidget(QWidget):
         self.lbl_filter_set = QLabel("")
         top.addWidget(self.lbl_filter_set)
         self.combo_filter_set = QComboBox()
-        self.combo_filter_set.setMinimumWidth(150)
+        self.combo_filter_set.setMinimumWidth(dp(150))
         self.combo_filter_set.currentIndexChanged.connect(self._on_filters_changed)
         top.addWidget(self.combo_filter_set)
         self.lbl_filter_slot = QLabel("")
         top.addWidget(self.lbl_filter_slot)
         self.combo_filter_slot = QComboBox()
-        self.combo_filter_slot.setMinimumWidth(90)
+        self.combo_filter_slot.setMinimumWidth(dp(90))
         self.combo_filter_slot.currentIndexChanged.connect(self._on_filters_changed)
         top.addWidget(self.combo_filter_slot)
         self.lbl_filter_monster = QLabel("")
         top.addWidget(self.lbl_filter_monster)
         self.combo_filter_monster = _UnitSearchComboBox()
-        self.combo_filter_monster.setMinimumWidth(200)
+        self.combo_filter_monster.setMinimumWidth(dp(200))
         self.combo_filter_monster.currentIndexChanged.connect(self._on_filters_changed)
         top.addWidget(self.combo_filter_monster)
         self.btn_reset_filters = QPushButton("")

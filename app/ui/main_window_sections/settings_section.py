@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.i18n import tr
+from app.ui.dpi import dp
 
 
 _ABOUT_CREATOR = "San0s"
@@ -45,10 +46,10 @@ def init_settings_ui(window) -> None:
     scroll.setFrameShape(QScrollArea.NoFrame)
 
     container = QWidget()
-    container.setMaximumWidth(900)
+    container.setMaximumWidth(dp(900))
     main_layout = QVBoxLayout(container)
-    main_layout.setContentsMargins(16, 12, 16, 12)
-    main_layout.setSpacing(16)
+    main_layout.setContentsMargins(dp(16), dp(12), dp(16), dp(12))
+    main_layout.setSpacing(dp(16))
 
     # --- Section 1: Account / JSON Import -----------------------
     window.grp_settings_account = QGroupBox(tr("settings.group_account"))
@@ -103,7 +104,7 @@ def init_settings_ui(window) -> None:
     import app.i18n as i18n
 
     window.combo_settings_language = QComboBox()
-    window.combo_settings_language.setFixedWidth(160)
+    window.combo_settings_language.setFixedWidth(dp(160))
     for code, name in i18n.available_languages().items():
         window.combo_settings_language.addItem(name, code)
     idx = window.combo_settings_language.findData(i18n.get_language())
@@ -174,7 +175,7 @@ def init_settings_ui(window) -> None:
                 _renderer.render(_painter)
                 _painter.end()
                 window.btn_settings_open_discord_dm.setIcon(QIcon(_pix))
-                window.btn_settings_open_discord_dm.setIconSize(QSize(18, 18))
+                window.btn_settings_open_discord_dm.setIconSize(QSize(dp(18), dp(18)))
         except ImportError:
             pass
     about_layout.addWidget(window.btn_settings_open_discord_dm)
@@ -192,6 +193,13 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_about_data_sources.setOpenExternalLinks(True)
     window.lbl_settings_about_data_sources.setTextInteractionFlags(Qt.TextBrowserInteraction)
     about_layout.addWidget(window.lbl_settings_about_data_sources)
+
+    window.lbl_settings_about_com2us = QLabel("")
+    window.lbl_settings_about_com2us.setWordWrap(True)
+    window.lbl_settings_about_com2us.setTextFormat(Qt.RichText)
+    window.lbl_settings_about_com2us.setOpenExternalLinks(True)
+    window.lbl_settings_about_com2us.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    about_layout.addWidget(window.lbl_settings_about_com2us)
 
     window.lbl_settings_about_data_dir = QLabel("")
     window.lbl_settings_about_data_dir.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -296,6 +304,7 @@ def _refresh_settings_about(window) -> None:
     window.lbl_settings_about_discord.setText(tr("settings.about_discord", handle=_ABOUT_DISCORD))
     window.lbl_settings_about_open_source.setText(tr("settings.about_open_source"))
     window.lbl_settings_about_data_sources.setText(tr("settings.about_data_sources"))
+    window.lbl_settings_about_com2us.setText(tr("settings.about_com2us"))
 
     data_dir = str(window.account_persistence.data_dir)
     window.lbl_settings_about_data_dir.setText(tr("settings.about_data_dir", path=data_dir))

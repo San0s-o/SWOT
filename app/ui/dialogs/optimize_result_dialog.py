@@ -28,6 +28,7 @@ from app.domain.presets import EFFECT_ID_TO_MAINSTAT_KEY, SET_NAMES
 from app.engine.efficiency import rune_efficiency
 from app.engine.greedy_optimizer import GreedyUnitResult
 from app.i18n import tr
+from app.ui.dpi import dp
 
 
 def _stat_label_tr(key: str) -> str:
@@ -73,13 +74,9 @@ class OptimizeResultDialog(QDialog):
         baseline_artifacts_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
     ):
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
         self.setWindowTitle(title)
-        screen = QApplication.primaryScreen()
-        if screen:
-            avail = screen.availableGeometry()
-            self.setMinimumSize(int(avail.width() * 0.75), int(avail.height() * 0.75))
-        else:
-            self.setMinimumSize(1200, 700)
+        self.setMinimumSize(dp(800), dp(500))
         self.setWindowState(Qt.WindowMaximized)
 
         self._results = list(results)
@@ -137,7 +134,7 @@ class OptimizeResultDialog(QDialog):
         root.addLayout(body, 1)
 
         self.nav_list = QListWidget()
-        self.nav_list.setMinimumWidth(280)
+        self.nav_list.setMinimumWidth(dp(280))
         self.nav_list.currentRowChanged.connect(self._on_nav_selected)
         body.addWidget(self.nav_list, 0)
 
@@ -147,14 +144,14 @@ class OptimizeResultDialog(QDialog):
         self.team_icon_bar = QFrame()
         self.team_icon_bar.setFrameShape(QFrame.StyledPanel)
         self.team_icon_layout = QHBoxLayout(self.team_icon_bar)
-        self.team_icon_layout.setContentsMargins(8, 8, 8, 8)
-        self.team_icon_layout.setSpacing(10)
+        self.team_icon_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        self.team_icon_layout.setSpacing(dp(10))
         right.addWidget(self.team_icon_bar)
 
         self.detail_container = QWidget()
         self.detail_layout = QHBoxLayout(self.detail_container)
         self.detail_layout.setContentsMargins(0, 0, 0, 0)
-        self.detail_layout.setSpacing(8)
+        self.detail_layout.setSpacing(dp(8))
         right.addWidget(self.detail_container, 1)
 
         self._populate_nav()
@@ -241,13 +238,13 @@ class OptimizeResultDialog(QDialog):
             card.setFrameShape(QFrame.StyledPanel)
             card.setProperty("selected", int(result_key) == int(selected_result_key))
             v = QVBoxLayout(card)
-            v.setContentsMargins(6, 6, 6, 6)
-            v.setSpacing(4)
+            v.setContentsMargins(dp(6), dp(6), dp(6), dp(6))
+            v.setSpacing(dp(4))
 
             icon_lbl = QLabel()
             icon = self._unit_icon_fn(result.unit_id)
             if not icon.isNull():
-                icon_lbl.setPixmap(icon.pixmap(72, 72))
+                icon_lbl.setPixmap(icon.pixmap(dp(72), dp(72)))
             icon_lbl.setAlignment(Qt.AlignCenter)
             v.addWidget(icon_lbl)
 
@@ -374,7 +371,7 @@ class OptimizeResultDialog(QDialog):
     ) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(8, 8, 8, 8)
+        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
 
         label = self._unit_label_fn(unit_id)
         title = QLabel(f"<b>{label}</b>" if result.ok else f"<b>{label} ({tr('label.error')})</b>")
@@ -509,10 +506,10 @@ class OptimizeResultDialog(QDialog):
     def _build_runes_tab(self, result: GreedyUnitResult, unit_id: int) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(8, 8, 8, 8)
+        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
 
         grid = QGridLayout()
-        grid.setSpacing(6)
+        grid.setSpacing(dp(6))
         slots = sorted((result.runes_by_slot or {}).items())
         for idx, (slot, rune_id) in enumerate(slots):
             rune = self._rune_lookup.get(rune_id)
@@ -527,8 +524,8 @@ class OptimizeResultDialog(QDialog):
     def _build_artifacts_tab(self, result: GreedyUnitResult) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(8, 8, 8, 8)
-        v.setSpacing(6)
+        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        v.setSpacing(dp(6))
         v.addWidget(QLabel(f"<b>{tr('ui.artifacts_title')}</b>"))
 
         for art_type in (1, 2):
@@ -544,8 +541,8 @@ class OptimizeResultDialog(QDialog):
             frame.setFrameShape(QFrame.StyledPanel)
             frame.setStyleSheet("QFrame { border: 1px solid #444; border-radius: 3px; padding: 4px; }")
             fv = QVBoxLayout(frame)
-            fv.setContentsMargins(6, 4, 6, 4)
-            fv.setSpacing(2)
+            fv.setContentsMargins(dp(6), dp(4), dp(6), dp(4))
+            fv.setSpacing(dp(2))
 
             kind = _artifact_kind_label(art_type)
             focus = ""
@@ -587,21 +584,21 @@ class OptimizeResultDialog(QDialog):
         frame.setFrameShape(QFrame.StyledPanel)
         frame.setStyleSheet("QFrame { border: 1px solid #444; border-radius: 3px; padding: 2px; }")
         main_v = QVBoxLayout(frame)
-        main_v.setSpacing(2)
-        main_v.setContentsMargins(6, 4, 6, 4)
+        main_v.setSpacing(dp(2))
+        main_v.setContentsMargins(dp(6), dp(4), dp(6), dp(4))
 
         owner_uid = self._mode_rune_owner.get(rune.rune_id)
         if not owner_uid and rune.occupied_type == 1 and rune.occupied_id:
             owner_uid = int(rune.occupied_id)
 
         header = QHBoxLayout()
-        header.setSpacing(4)
+        header.setSpacing(dp(4))
         set_icon = self._set_icon_fn(rune.set_id)
         icon_lbl = QLabel()
         if not set_icon.isNull():
-            icon_lbl.setPixmap(set_icon.pixmap(28, 28))
+            icon_lbl.setPixmap(set_icon.pixmap(dp(28), dp(28)))
         else:
-            icon_lbl.setFixedSize(28, 28)
+            icon_lbl.setFixedSize(dp(28), dp(28))
         header.addWidget(icon_lbl)
         set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
         header.addWidget(QLabel(f"<b>{tr('ui.slot')} {slot}</b> | {set_name} | +{rune.upgrade_curr}"))
@@ -610,7 +607,7 @@ class OptimizeResultDialog(QDialog):
             monster_icon = self._unit_icon_fn(owner_uid)
             if not monster_icon.isNull():
                 monster_icon_lbl = QLabel()
-                monster_icon_lbl.setPixmap(monster_icon.pixmap(32, 32))
+                monster_icon_lbl.setPixmap(monster_icon.pixmap(dp(32), dp(32)))
                 header.addWidget(monster_icon_lbl)
         main_v.addLayout(header)
 

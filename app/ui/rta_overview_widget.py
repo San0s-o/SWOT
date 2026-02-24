@@ -14,6 +14,7 @@ from app.domain.models import AccountData, Unit, Rune, Artifact, compute_unit_st
 from app.domain.monster_db import MonsterDB
 from app.ui.siege_cards_widget import MonsterCard, _icon_for, _build_stat_breakdown
 from app.i18n import tr
+from app.ui.dpi import dp
 
 
 MIN_COLUMNS = 4
@@ -37,12 +38,12 @@ class RtaOverviewWidget(QWidget):
         self._columns = MIN_COLUMNS
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
-        outer.setSpacing(4)
+        outer.setContentsMargins(dp(4), dp(4), dp(4), dp(4))
+        outer.setSpacing(dp(4))
 
         # ── speed-lead button bar ────────────────────────────
         self._lead_bar = QHBoxLayout()
-        self._lead_bar.setSpacing(4)
+        self._lead_bar.setSpacing(dp(4))
         self._lead_label = QLabel(tr("rta.spd_lead"))
         self._lead_label.setTextFormat(Qt.RichText)
         self._lead_bar.addWidget(self._lead_label)
@@ -59,7 +60,7 @@ class RtaOverviewWidget(QWidget):
         self._container = QWidget()
         self._grid = QGridLayout(self._container)
         self._grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self._grid.setSpacing(6)
+        self._grid.setSpacing(dp(6))
         self._scroll.setWidget(self._container)
 
         self._lead_buttons: List[QPushButton] = []

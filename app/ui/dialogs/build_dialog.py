@@ -54,6 +54,7 @@ from app.domain.artifact_effects import (
     artifact_effect_is_legacy,
 )
 from app.i18n import tr
+from app.ui.dpi import dp
 from app.ui.widgets.selection_combos import _MainstatMultiCombo, _NoScrollComboBox, _SetMultiCombo
 
 
@@ -106,6 +107,11 @@ class BuildDialog(QDialog):
         skill_icons_dir: str | None = None,
     ):
         super().__init__(parent)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowMinimizeButtonHint
+        )
         self.setWindowTitle(title)
         screen = QApplication.primaryScreen()
         if screen:
@@ -198,8 +204,8 @@ class BuildDialog(QDialog):
                 lw.setDragDropMode(QAbstractItemView.InternalMove)
                 lw.setDefaultDropAction(Qt.MoveAction)
                 lw.setSelectionMode(QAbstractItemView.SingleSelection)
-                lw.setIconSize(QSize(36, 36))
-                lw.setMinimumHeight(140)
+                lw.setIconSize(QSize(dp(36), dp(36)))
+                lw.setMinimumHeight(dp(140))
                 lw.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
                 sortable: List[Tuple[int, int, int, str, int, int]] = []
                 for pos, (uid, label) in enumerate(team_units):
@@ -230,13 +236,13 @@ class BuildDialog(QDialog):
 
                     row_widget = QWidget()
                     row_layout = QHBoxLayout(row_widget)
-                    row_layout.setContentsMargins(2, 2, 2, 2)
-                    row_layout.setSpacing(4)
+                    row_layout.setContentsMargins(dp(2), dp(2), dp(2), dp(2))
+                    row_layout.setSpacing(dp(4))
 
                     icon_lbl = QLabel()
                     icon = self._unit_icon_fn(uid)
                     if not icon.isNull():
-                        icon_lbl.setPixmap(icon.pixmap(28, 28))
+                        icon_lbl.setPixmap(icon.pixmap(dp(28), dp(28)))
                     row_layout.addWidget(icon_lbl)
 
                     txt_lbl = QLabel(label)
@@ -250,8 +256,8 @@ class BuildDialog(QDialog):
                     tick_lbl = QLabel(tr("label.spd_tick_short"))
 
                     tick_cmb = _NoScrollComboBox()
-                    tick_cmb.setMinimumWidth(80)
-                    tick_cmb.setMaximumWidth(100)
+                    tick_cmb.setMinimumWidth(dp(80))
+                    tick_cmb.setMaximumWidth(dp(100))
                     tick_cmb.addItem("-", 0)
                     for tick in allowed_spd_ticks(self.mode):
                         tick_i = int(tick)
@@ -276,7 +282,7 @@ class BuildDialog(QDialog):
                             _skill_icon = self._load_skill_icon(spd_buff_icon_file)
                             if _skill_icon:
                                 spd_buff_chk.setIcon(_skill_icon)
-                                spd_buff_chk.setIconSize(QSize(20, 20))
+                                spd_buff_chk.setIconSize(QSize(dp(20), dp(20)))
                             else:
                                 spd_buff_chk.setText("S")
                             spd_buff_chk.setChecked(bool(effect_spd_buff))
@@ -292,7 +298,7 @@ class BuildDialog(QDialog):
                             _atb_icon = self._load_skill_icon(atb_boost_icon_file)
                             if _atb_icon:
                                 atb_boost_chk.setIcon(_atb_icon)
-                                atb_boost_chk.setIconSize(QSize(20, 20))
+                                atb_boost_chk.setIconSize(QSize(dp(20), dp(20)))
                             else:
                                 atb_boost_chk.setText("A")
                             atb_boost_chk.setChecked(bool(effect_atb_boost_pct > 0))
@@ -305,7 +311,7 @@ class BuildDialog(QDialog):
                             atb_boost_spin.setSingleStep(5)
                             atb_boost_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
                             atb_boost_spin.setSuffix("%")
-                            atb_boost_spin.setMaximumWidth(56)
+                            atb_boost_spin.setMaximumWidth(dp(56))
                             if int(effect_atb_boost_pct) > 0:
                                 atb_boost_spin.setValue(min(int(effect_atb_boost_pct), int(max_atb_boost_pct)))
                             else:
@@ -371,13 +377,16 @@ class BuildDialog(QDialog):
                         off_grid.addWidget(off_lw, list_row, col)
                     order_outer.addLayout(off_grid)
             elif teams:
-                # Siege/WGB: all teams in a horizontal grid
+                # Siege/WGB: teams in a grid, max 5 per row
+                _teams_per_row = 5
                 teams_grid = QGridLayout()
                 for t, team_units in enumerate(teams):
                     team_title = self._order_team_titles[t] if t < len(self._order_team_titles) and self._order_team_titles[t] else f"Team {t+1}"
-                    teams_grid.addWidget(QLabel(f"<b>{team_title}</b>"), 0, t)
+                    col = t % _teams_per_row
+                    row_base = (t // _teams_per_row) * 2
+                    teams_grid.addWidget(QLabel(f"<b>{team_title}</b>"), row_base, col)
                     lw = _build_team_list(t, team_units)
-                    teams_grid.addWidget(lw, 1, t)
+                    teams_grid.addWidget(lw, row_base + 1, col)
                 order_outer.addLayout(teams_grid)
 
             if str(self.mode).strip().lower() == "arena_rush":
@@ -415,7 +424,7 @@ class BuildDialog(QDialog):
         self._unit_editor_stack = QStackedWidget()
         self._unit_list = QListWidget()
         self._unit_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._unit_list.setIconSize(QSize(34, 34))
+        self._unit_list.setIconSize(QSize(dp(34), dp(34)))
         self._unit_list.setDragDropMode(QAbstractItemView.InternalMove)
         self._unit_list.setDefaultDropAction(Qt.MoveAction)
         self._unit_list.setToolTip(tr("tooltip.optimize_order_priority"))
@@ -427,7 +436,7 @@ class BuildDialog(QDialog):
         list_box = QGroupBox(tr("group.build_monster_list"))
         list_box.setToolTip(tr("tooltip.optimize_order_priority"))
         list_layout = QVBoxLayout(list_box)
-        list_layout.setContentsMargins(8, 8, 8, 8)
+        list_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
         list_layout.addWidget(self._unit_list, 1)
         if self._can_load_current_runes():
             btn_load_runes = QPushButton(tr("btn.load_current_runes"))
@@ -446,7 +455,7 @@ class BuildDialog(QDialog):
 
         detail_box = QGroupBox(tr("group.build_editor"))
         detail_layout = QVBoxLayout(detail_box)
-        detail_layout.setContentsMargins(8, 8, 8, 8)
+        detail_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
         detail_layout.addWidget(self._unit_editor_stack, 1)
         editor_split.addWidget(detail_box)
         editor_split.setStretchFactor(0, 0)
@@ -643,7 +652,7 @@ class BuildDialog(QDialog):
         # when an explicit build mainstat selection exists or user action sets it.
         _ = defaults
         cmb.setToolTip(tr("tooltip.mainstat_multi"))
-        cmb.setMinimumWidth(190)
+        cmb.setMinimumWidth(dp(190))
         return cmb
 
     def _make_art_focus_combo(self) -> QComboBox:
@@ -651,7 +660,7 @@ class BuildDialog(QDialog):
         cmb.addItem("Any", "")
         for key in ARTIFACT_MAIN_KEYS:
             cmb.addItem(str(key), str(key))
-        cmb.setMinimumWidth(190)
+        cmb.setMinimumWidth(dp(190))
         return cmb
 
     def _set_art_focus_combo_value(self, cmb: QComboBox, value: str) -> None:
@@ -732,7 +741,7 @@ class BuildDialog(QDialog):
         spin.setMaximum(99999)
         spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         spin.setValue(int(value))
-        spin.setMaximumWidth(110)
+        spin.setMaximumWidth(dp(110))
         return spin
 
     def _build_unit_editor(self, unit_id: int, build: Build) -> QWidget:
@@ -741,8 +750,8 @@ class BuildDialog(QDialog):
         content = QWidget()
         scroll.setWidget(content)
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(10, 10, 10, 10)
-        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(dp(10), dp(10), dp(10), dp(10))
+        content_layout.setSpacing(dp(10))
 
         cmb_set1 = _SetMultiCombo()
         cmb_set2 = _SetMultiCombo()
@@ -750,9 +759,9 @@ class BuildDialog(QDialog):
         cmb_set1.setToolTip(tr("tooltip.set_multi"))
         cmb_set2.setToolTip(tr("tooltip.set_multi"))
         cmb_set3.setToolTip(tr("tooltip.set3"))
-        cmb_set1.setMinimumWidth(190)
-        cmb_set2.setMinimumWidth(190)
-        cmb_set3.setMinimumWidth(190)
+        cmb_set1.setMinimumWidth(dp(190))
+        cmb_set2.setMinimumWidth(dp(190))
+        cmb_set3.setMinimumWidth(dp(190))
 
         slot1_ids, slot2_ids, slot3_ids = self._parse_set_options_to_slot_ids(build.set_options or [])
         cmb_set1.set_checked_ids(slot1_ids)
@@ -841,7 +850,7 @@ class BuildDialog(QDialog):
         pref_btn_row = QWidget()
         pref_btn_layout = QHBoxLayout(pref_btn_row)
         pref_btn_layout.setContentsMargins(0, 0, 0, 0)
-        pref_btn_layout.setSpacing(6)
+        pref_btn_layout.setSpacing(dp(6))
         btn_load_pref_runes = QPushButton(tr("btn.load_preferred_runes"))
         btn_load_pref_runes.setToolTip(
             tr("tooltip.load_preferred_runes") if self._has_rune_pref_for_unit(int(unit_id))
@@ -895,15 +904,15 @@ class BuildDialog(QDialog):
             cell = QWidget()
             row = QHBoxLayout(cell)
             row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(6)
+            row.setSpacing(dp(6))
             lbl = QLabel(label_text)
-            lbl.setMinimumWidth(56)
+            lbl.setMinimumWidth(dp(56))
             row.addWidget(lbl)
             base_lbl = _base_prefix(stat_key)
             base_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            base_lbl.setMinimumWidth(56)
+            base_lbl.setMinimumWidth(dp(56))
             row.addWidget(base_lbl)
-            spin.setMaximumWidth(92)
+            spin.setMaximumWidth(dp(92))
             row.addWidget(spin)
             row.addStretch(1)
             return cell
@@ -1805,12 +1814,12 @@ class BuildDialog(QDialog):
     def _build_team_header_with_speed_lead(self, team_index: int, team_title: str, team_units: List[Tuple[int, str]]) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(dp(6))
         row.addWidget(QLabel(f"<b>{team_title}</b>"))
         row.addStretch(1)
         row.addWidget(QLabel("SPD Lead"))
         cmb = _NoScrollComboBox()
-        cmb.setMinimumWidth(180)
+        cmb.setMinimumWidth(dp(180))
         cmb.addItem("-", 0)
         for uid, label in team_units:
             pct = int(self._order_speed_lead_pct_by_unit.get(int(uid), 0) or 0)
@@ -1831,7 +1840,7 @@ class BuildDialog(QDialog):
         pct_spin.setSuffix("%")
         pct_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         pct_spin.setReadOnly(True)
-        pct_spin.setMaximumWidth(64)
+        pct_spin.setMaximumWidth(dp(64))
         preferred_pct = int(self._order_speed_lead_pct_by_team[int(team_index)]) if int(team_index) < len(self._order_speed_lead_pct_by_team) else 0
         if preferred_pct <= 0:
             selected_uid = int(cmb.currentData() or 0)

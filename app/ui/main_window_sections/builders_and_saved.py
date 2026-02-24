@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.i18n import tr
+from app.ui.dpi import dp
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 from app.ui.main_window_sections.arena_rush_ui import (
@@ -93,8 +94,8 @@ def _make_settings_frame(*widgets_with_labels) -> QFrame:
     frame.setObjectName("OptSettings")
     frame.setStyleSheet(_SETTINGS_FRAME_STYLE)
     layout = QHBoxLayout(frame)
-    layout.setContentsMargins(8, 3, 8, 3)
-    layout.setSpacing(5)
+    layout.setContentsMargins(dp(8), dp(3), dp(8), dp(3))
+    layout.setSpacing(dp(5))
     for item in widgets_with_labels:
         if isinstance(item, str):
             lbl = QLabel(item)
@@ -244,7 +245,7 @@ def init_siege_builder_ui(window) -> None:
                 grid.addWidget(cmb, t + 1, 2 + s)
                 row.append(cmb)
             row_btn = QPushButton("✕")
-            row_btn.setFixedSize(28, 26)
+            row_btn.setFixedSize(dp(28), dp(26))
             row_btn.setToolTip(tr("tooltip.clear_defense"))
             row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
             row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])
@@ -365,7 +366,7 @@ def init_wgb_builder_ui(window) -> None:
                 grid.addWidget(cmb, t + 1, 1 + s)
                 row.append(cmb)
             row_btn = QPushButton("✕")
-            row_btn.setFixedSize(28, 26)
+            row_btn.setFixedSize(dp(28), dp(26))
             row_btn.setToolTip(tr("tooltip.clear_defense"))
             row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
             row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])
@@ -470,7 +471,7 @@ def init_rta_builder_ui(window) -> None:
     window.rta_selected_list.setDragDropMode(QAbstractItemView.InternalMove)
     window.rta_selected_list.setDefaultDropAction(Qt.MoveAction)
     window.rta_selected_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-    window.rta_selected_list.setIconSize(QSize(40, 40))
+    window.rta_selected_list.setIconSize(QSize(dp(40), dp(40)))
     box_layout.addWidget(window.rta_selected_list)
 
     btn_row = QHBoxLayout()

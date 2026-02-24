@@ -620,4 +620,9 @@ STRINGS: dict[str, str] = {
         "(monsters, skills, skill icons)."
     ),
     "settings.about_data_dir": "Data Directory: {path}",
+    "settings.about_com2us": (
+        "Summoners War, all monsters, icons and game content are property of "
+        "<a href='https://www.com2us.com/'>Com2uS</a>. "
+        "This tool is an unofficial third-party project and is not affiliated with Com2uS."
+    ),
 }

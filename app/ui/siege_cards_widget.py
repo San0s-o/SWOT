@@ -23,6 +23,7 @@ from app.domain.artifact_effects import (
 )
 from app.engine.efficiency import rune_efficiency
 from app.i18n import tr
+from app.ui.dpi import dp
 
 
 # ── colour palette for main-stat pie slices ──────────────────
@@ -258,7 +259,7 @@ class RunePieChart(QWidget):
     def __init__(self, stats: List[Tuple[str, int]], parent: QWidget | None = None):
         super().__init__(parent)
         self._stats = stats
-        self.setFixedSize(108, 108)
+        self.setFixedSize(dp(108), dp(108))
 
     def paintEvent(self, event):
         if not self._stats:
@@ -348,14 +349,12 @@ class MonsterCard(QFrame):
                 border-top: 3px solid {_elem_accent};
                 border-radius: 6px;
             }}
-            QLabel {{ color: #ddd; font-size: 9pt; }}
+            QLabel {{ color: #ddd; font-size: {dp(12)}px; }}
             QPushButton {{
                 background: #323232;
                 border: 1px solid #4a4a4a;
-                border-radius: 4px;
-                padding: 2px;
-                min-width: 34px;
-                min-height: 34px;
+                border-radius: {dp(4)}px;
+                padding: {dp(2)}px;
             }}
             QPushButton:hover {{
                 background: #484848;
@@ -365,26 +364,26 @@ class MonsterCard(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
+        layout.setSpacing(dp(4))
 
         # ── monster icon + name ──────────────────────────────
         top = QHBoxLayout()
-        top.setSpacing(6)
+        top.setSpacing(dp(6))
         if not monster_icon.isNull():
             icon_lbl = QLabel()
-            icon_lbl.setPixmap(monster_icon.pixmap(52, 52))
-            icon_lbl.setFixedSize(54, 54)
+            icon_lbl.setPixmap(monster_icon.pixmap(dp(52), dp(52)))
+            icon_lbl.setFixedSize(dp(54), dp(54))
             top.addWidget(icon_lbl)
 
         info = QVBoxLayout()
         info.setSpacing(0)
         elem_col = _ELEMENT_COLOURS.get(element, "#ddd")
-        name_lbl = QLabel(f"<b style='font-size:11pt; color:{elem_col}'>{name}</b>")
+        name_lbl = QLabel(f"<b style='font-size:{dp(15)}px; color:{elem_col}'>{name}</b>")
         name_lbl.setTextFormat(Qt.RichText)
         info.addWidget(name_lbl)
         meta_lbl = QLabel(f"{element} | Lv {unit.unit_level}")
-        meta_lbl.setStyleSheet("font-size: 9pt; color: #aaa;")
+        meta_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #aaa;")
         info.addWidget(meta_lbl)
         top.addLayout(info)
         top.addStretch()
@@ -392,7 +391,7 @@ class MonsterCard(QFrame):
 
         # ── rune set summary + pie side by side ───────────────
         mid = QHBoxLayout()
-        mid.setSpacing(8)
+        mid.setSpacing(dp(8))
 
         # pie chart
         main_stats: List[Tuple[str, int]] = []
@@ -414,7 +413,7 @@ class MonsterCard(QFrame):
         for sid in set_ids:
             set_counts[sid] = set_counts.get(sid, 0) + 1
         sets_row = QHBoxLayout()
-        sets_row.setSpacing(2)
+        sets_row.setSpacing(dp(2))
         shown_sets: List[str] = []
         for sid, cnt in set_counts.items():
             sn = SET_NAMES.get(sid, "")
@@ -423,11 +422,11 @@ class MonsterCard(QFrame):
                 icon = self._rune_set_icon(sid)
                 if not icon.isNull():
                     ilbl = QLabel()
-                    ilbl.setPixmap(icon.pixmap(20, 20))
+                    ilbl.setPixmap(icon.pixmap(dp(20), dp(20)))
                     ilbl.setToolTip(sn)
                     sets_row.addWidget(ilbl)
         set_text = " / ".join(dict.fromkeys(shown_sets))
-        set_lbl = QLabel(f"<b style='font-size:9pt'>{set_text}</b>")
+        set_lbl = QLabel(f"<b style='font-size:{dp(12)}px'>{set_text}</b>")
         set_lbl.setTextFormat(Qt.RichText)
         sets_row.addWidget(set_lbl)
         sets_row.addStretch()
@@ -439,13 +438,13 @@ class MonsterCard(QFrame):
         else:
             eff_lbl = QLabel(tr("card.avg_rune_eff_none"))
         eff_lbl.setTextFormat(Qt.RichText)
-        eff_lbl.setStyleSheet("font-size: 8pt; color: #bbb;")
+        eff_lbl.setStyleSheet(f"font-size: {dp(11)}px; color: #bbb;")
         stats_box.addWidget(eff_lbl)
 
         # stats grid (clickable to toggle view mode)
         self._stats_grid = QGridLayout()
-        self._stats_grid.setSpacing(5)
-        self._stats_grid.setContentsMargins(0, 4, 0, 0)
+        self._stats_grid.setSpacing(dp(5))
+        self._stats_grid.setContentsMargins(0, dp(4), 0, 0)
         self._refresh_stats()
         stats_box.addLayout(self._stats_grid)
         mid.addLayout(stats_box, 1)
@@ -453,12 +452,12 @@ class MonsterCard(QFrame):
 
         # ── rune slot buttons (with rich tooltip on hover) ────
         rune_bar = QHBoxLayout()
-        rune_bar.setSpacing(4)
+        rune_bar.setSpacing(dp(4))
         rune_by_slot = {int(r.slot_no or 0): r for r in equipped_runes}
         for slot in range(1, 7):
             btn = QPushButton(str(slot))
-            btn.setFixedSize(36, 36)
-            btn.setIconSize(QSize(24, 24))
+            btn.setFixedSize(dp(36), dp(36))
+            btn.setIconSize(QSize(dp(24), dp(24)))
             rune = rune_by_slot.get(slot)
             if rune:
                 icon = self._rune_set_icon(int(rune.set_id or 0))
@@ -481,12 +480,12 @@ class MonsterCard(QFrame):
 
         # artifacts (type 1 = attribute, type 2 = type)
         art_bar = QHBoxLayout()
-        art_bar.setSpacing(4)
+        art_bar.setSpacing(dp(4))
         art_by_type: Dict[int, Artifact] = {int(a.type_ or 0): a for a in self._artifacts}
         for art_type in (1, 2):
             art = art_by_type.get(art_type)
             btn = QPushButton(_artifact_kind_label(art_type))
-            btn.setFixedHeight(28)
+            btn.setFixedHeight(dp(28))
             if art:
                 focus = _artifact_focus(art)
                 txt = _artifact_kind_label(art_type)
@@ -522,7 +521,7 @@ class MonsterCard(QFrame):
                 key_lbl = QLabel(f"<b>{display_label}</b>")
                 key_lbl.setTextFormat(Qt.RichText)
                 key_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                key_lbl.setStyleSheet("font-size: 9pt; color: #e8c252;")
+                key_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #e8c252;")
 
                 vals = cs.get(label, {})
                 base_v = int(vals.get("base", 0))
@@ -536,20 +535,20 @@ class MonsterCard(QFrame):
                 if mode == 0:  # Gesamt
                     val_lbl = QLabel(f"{total_v:,}{suffix}".replace(",", "."))
                     val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    val_lbl.setStyleSheet("font-size: 9pt; color: #ddd;")
+                    val_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #ddd;")
                     self._stats_grid.addWidget(val_lbl, row, 1)
                 elif mode == 1:  # Gesamt+LS
                     val_lbl = QLabel(f"{total_ls_v:,}{suffix}".replace(",", "."))
                     val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    val_lbl.setStyleSheet("font-size: 9pt; color: #ffcc66;")
+                    val_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #ffcc66;")
                     self._stats_grid.addWidget(val_lbl, row, 1)
                 else:  # Detail: Base + green bonus
                     base_lbl = QLabel(f"{base_v:,}{suffix}".replace(",", "."))
                     base_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    base_lbl.setStyleSheet("font-size: 9pt; color: #ddd;")
+                    base_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #ddd;")
                     bonus_lbl = QLabel(f"+{rune_art_v:,}{suffix}".replace(",", "."))
                     bonus_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    bonus_lbl.setStyleSheet("font-size: 9pt; color: #6dcc5a;")
+                    bonus_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #6dcc5a;")
                     self._stats_grid.addWidget(base_lbl, row, 1)
                     self._stats_grid.addWidget(bonus_lbl, row, 2)
 
@@ -557,7 +556,7 @@ class MonsterCard(QFrame):
             # spacer row between groups
             if group[0] == "HP":
                 spacer = QLabel("")
-                spacer.setFixedHeight(6)
+                spacer.setFixedHeight(dp(6))
                 self._stats_grid.addWidget(spacer, row, 0)
                 row += 1
 
@@ -589,26 +588,26 @@ class TeamCard(QGroupBox):
         title: str | None = None,
     ):
         super().__init__(title or tr("card.defense", n=team_index), parent)
-        self.setStyleSheet("""
-            TeamCard {
+        self.setStyleSheet(f"""
+            TeamCard {{
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: {dp(13)}px;
                 color: #eee;
                 border: 1px solid #666;
                 border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 12px;
-            }
-            TeamCard::title {
+                margin-top: {dp(10)}px;
+                padding-top: {dp(12)}px;
+            }}
+            TeamCard::title {{
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 6px;
-            }
+                left: {dp(10)}px;
+                padding: 0 {dp(6)}px;
+            }}
         """)
 
         row = QHBoxLayout(self)
-        row.setSpacing(8)
-        row.setContentsMargins(8, 8, 8, 8)
+        row.setSpacing(dp(8))
+        row.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
         for unit, name, element, icon, runes, artifacts, stats in units:
             card = MonsterCard(
                 unit,
@@ -634,7 +633,7 @@ class SiegeDefCardsWidget(QWidget):
 
         # ── speed-lead button bar (hidden by default, shown for RTA) ──
         self._lead_bar = QHBoxLayout()
-        self._lead_bar.setSpacing(4)
+        self._lead_bar.setSpacing(dp(4))
         self._lead_label = QLabel(tr("rta.spd_lead"))
         self._lead_label.setTextFormat(Qt.RichText)
         self._lead_bar.addWidget(self._lead_label)
@@ -660,6 +659,8 @@ class SiegeDefCardsWidget(QWidget):
         self._container = QWidget()
         self._layout = QVBoxLayout(self._container)
         self._layout.setAlignment(Qt.AlignTop)
+        self._layout.setContentsMargins(dp(4), dp(4), dp(4), dp(4))
+        self._layout.setSpacing(dp(8))
         self._scroll.setWidget(self._container)
 
     def eventFilter(self, watched, event) -> bool:
@@ -906,7 +907,7 @@ class SiegeDefCardsWidget(QWidget):
 
         grid = QGridLayout()
         grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        grid.setSpacing(6)
+        grid.setSpacing(dp(6))
         for idx, (unit, name, element, icon, runes, artifacts, stats, _spd) in enumerate(all_units):
             row, col = divmod(idx, int(self._rta_grid_columns))
             card = MonsterCard(

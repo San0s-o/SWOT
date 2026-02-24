@@ -9,6 +9,7 @@ from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.ui.app_identity import apply_windows_app_user_model_id, resolve_app_icon
+from app.ui.dpi import init_dpi_scale as _init_dpi_scale, _REF_DPI
 from app.ui.license_flow import _apply_license_title, _ensure_license_accepted
 from app.ui.theme import apply_dark_palette as _apply_dark_palette_impl
 from app.ui.update_flow import _start_update_check
@@ -19,22 +20,27 @@ def apply_dark_palette(app: QApplication) -> None:
 
 
 def _apply_physical_dpi_font_scale(app: QApplication) -> None:
-    """Scale the application font so the UI appears the same physical size
-    on high-resolution monitors (e.g. 2K/4K) that run at 100% OS scaling.
+    """Scale the application font so it stays proportional to dp()-scaled widgets
+    on all monitors.
 
-    Qt already handles OS display-scaling (devicePixelRatio). This function
-    covers the remaining gap between the screen's physical pixel density and
-    the standard ~96 DPI reference used at Full HD / 100% scaling.
+    dp() scales pixel values by phys_dpi / max(logic_dpi, _REF_DPI).  Fonts
+    specified in pt are rendered at logical DPI, so they do NOT shrink on lower-
+    density screens.  This function applies the same scale factor to the base
+    font, keeping text proportional to widgets on both below-reference (Full HD)
+    and above-reference (4K) displays.
+
+    Qt already handles OS display-scaling (devicePixelRatio), so we only need to
+    cover the gap between physical density and the 2K reference.
     """
     screen = app.primaryScreen()
     if not screen:
         return
     phys_dpi = screen.physicalDotsPerInch()
     logic_dpi = screen.logicalDotsPerInch()
-    # extra_scale = how much denser the screen is beyond what the OS already scales
-    extra_scale = phys_dpi / max(logic_dpi, 96.0)
-    extra_scale = max(1.0, min(2.0, extra_scale))
-    if extra_scale > 1.05:
+    # Same formula as dp() in dpi.py – scale in both directions.
+    extra_scale = phys_dpi / max(logic_dpi, _REF_DPI)
+    extra_scale = max(0.5, min(2.0, extra_scale))
+    if abs(extra_scale - 1.0) > 0.05:
         font = app.font()
         font.setPointSizeF(font.pointSizeF() * extra_scale)
         app.setFont(font)
@@ -78,6 +84,7 @@ def run_app(main_window_cls: Type):
     )
     QApplication.setAttribute(Qt.AA_DontUseNativeDialogs)
     app = QApplication(sys.argv)
+    _init_dpi_scale(app)
     _apply_physical_dpi_font_scale(app)
     apply_dark_palette(app)
     app_icon = resolve_app_icon()

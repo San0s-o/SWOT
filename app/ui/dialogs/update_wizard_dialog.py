@@ -29,6 +29,7 @@ from app.services.update_service import (
     download_release_asset,
 )
 from app.ui.async_worker import _TaskWorker
+from app.ui.dpi import dp
 
 STEP_INFO = 0
 STEP_DOWNLOAD = 1
@@ -80,8 +81,8 @@ class UpdateWizardDialog(QDialog):
         self._downloaded_path = None
 
         self.setWindowTitle(tr("update.title"))
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(340)
+        self.setMinimumWidth(dp(500))
+        self.setMinimumHeight(dp(340))
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         app = QApplication.instance()
         if app is not None and not app.windowIcon().isNull():
@@ -96,8 +97,8 @@ class UpdateWizardDialog(QDialog):
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(dp(20), dp(16), dp(20), dp(16))
+        root.setSpacing(dp(10))
 
         root.addWidget(self._make_step_indicator())
 
@@ -122,8 +123,8 @@ class UpdateWizardDialog(QDialog):
     def _make_step_indicator(self) -> QWidget:
         widget = QWidget()
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 4, 0, 4)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, dp(4), 0, dp(4))
+        layout.setSpacing(dp(6))
 
         self._step_bubbles: list[QLabel] = []
         self._step_labels: list[QLabel] = []
@@ -134,7 +135,7 @@ class UpdateWizardDialog(QDialog):
         ]
         for i, name in enumerate(steps):
             bubble = QLabel(str(i + 1))
-            bubble.setFixedSize(24, 24)
+            bubble.setFixedSize(dp(24), dp(24))
             bubble.setAlignment(Qt.AlignCenter)
             self._step_bubbles.append(bubble)
 
@@ -155,8 +156,8 @@ class UpdateWizardDialog(QDialog):
     def _make_info_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, dp(8), 0, dp(8))
+        layout.setSpacing(dp(6))
 
         release = self._check_result.release
         latest = self._check_result.latest_version
@@ -172,7 +173,7 @@ class UpdateWizardDialog(QDialog):
             layout.addWidget(lbl_name)
 
         if release and release.body:
-            layout.addSpacing(6)
+            layout.addSpacing(dp(6))
             lbl_notes_header = QLabel(tr("update.wizard.release_notes"))
             lbl_notes_header.setStyleSheet("color: #ccc; font-size: 11px;")
             layout.addWidget(lbl_notes_header)
@@ -190,8 +191,8 @@ class UpdateWizardDialog(QDialog):
     def _make_download_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, dp(8), 0, dp(8))
+        layout.setSpacing(dp(8))
         layout.setAlignment(Qt.AlignCenter)
 
         self._lbl_download_status = QLabel(tr("update.wizard.downloading"))
@@ -202,7 +203,7 @@ class UpdateWizardDialog(QDialog):
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 0)
         self._progress_bar.setTextVisible(True)
-        self._progress_bar.setFixedHeight(22)
+        self._progress_bar.setFixedHeight(dp(22))
         layout.addWidget(self._progress_bar)
 
         self._lbl_download_bytes = QLabel("")
@@ -216,7 +217,7 @@ class UpdateWizardDialog(QDialog):
     def _make_done_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 8)
+        layout.setContentsMargins(0, dp(8), 0, dp(8))
         layout.setAlignment(Qt.AlignCenter)
 
         self._lbl_done = QLabel("")
