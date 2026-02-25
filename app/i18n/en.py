@@ -29,6 +29,7 @@ STRINGS: dict[str, str] = {
     "tab.subtab_saved": "Saved",
     "rune_opt.subtab_runes": "Runes",
     "rune_opt.subtab_artifacts": "Artifacts",
+    "rune_opt.subtab_gem_suggestions": "Gem Suggestions",
     # -- Legacy tab keys (for compatibility) ---------------------
     "tab.siege_current": "Siege Defenses (current)",
     "tab.rta_current": "RTA (current)",
@@ -206,6 +207,33 @@ STRINGS: dict[str, str] = {
     "rune_opt.hint_no_filter_rows": "No runes match the selected set/slot/monster filter.",
     "rune_opt.count": "Runes at +12 or higher: {n}",
     "rune_opt.count_filtered": "Runes at +12 or higher: {shown} / {total}",
+
+    # -- Gem Suggestions -----------------------------------------
+    "gem_sug.account_pattern": "Account gem pattern ({total} gems total): {stats}",
+    "gem_sug.account_pattern_none": "No gems found in account yet.",
+    "gem_sug.count_filtered": "Gem suggestions: {shown} / {total}",
+    "gem_sug.hint_no_rows": "No runes at +12 or higher without a gem found.",
+    "gem_sug.hint_no_filter_rows": "No runes match the selected filter.",
+    "gem_sug.col.swap": "Suggested Gem Swap",
+    "gem_sug.col.account_freq": "Acct. Freq.",
+    "gem_sug.col.inventory": "Gem Stock",
+    "gem_sug.col.swap_only": "Swap Only",
+    "gem_sug.col.hero_grind": "Hero Grind",
+    "gem_sug.col.legend_grind": "Legend Grind",
+    "gem_sug.col.hero_eff_after": "Hero Eff. after Gem",
+    "gem_sug.col.legend_eff_after": "Legend Eff. after Gem",
+    "gem_sug.col.hero_gain": "Hero Gain",
+    "gem_sug.col.legend_gain": "Legend Gain",
+    "gem_sug.filter_avail_label": "Gem Stock:",
+    "gem_sug.filter_avail_have": "Available (≥1×)",
+    "gem_sug.filter_avail_missing": "Not available (0×)",
+    "gem_sug.inventory_unknown": "n/a",
+    "gem_sug.inventory_none": "0×",
+    "gem_sug.inventory_tooltip": (
+        "Gem stock from JSON import (craft_stuff). "
+        "n/a = not included in this export. "
+        "Note: IDs may differ depending on game version."
+    ),
 
     # -- Artifact overview ---------------------------------------
     "art_opt.col.type": "Type",

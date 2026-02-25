@@ -1,7 +1,8 @@
 """Rune and artifact efficiency calculations."""
 from __future__ import annotations
 
-from typing import Dict, List, Literal
+import dataclasses
+from typing import Dict, List, Literal, Optional, Tuple
 
 from app.domain.models import Rune, Artifact
 
@@ -295,6 +296,30 @@ def artifact_efficiency(art: Artifact) -> float:
 # ============================================================
 # Batch helpers
 # ============================================================
+
+def rune_efficiency_gem_swap(
+    rune: Rune,
+    sub_idx: int,
+    new_eff_id: int,
+    tier: Literal["hero", "legend"] | None = None,
+) -> float:
+    """Return the efficiency if sec_eff[sub_idx] is replaced by a gem of new_eff_id.
+
+    The gem value is set to gem_max[tier or 'hero'][new_eff_id].
+    If tier is 'hero' or 'legend', all grindable substats are also maximised
+    (same behaviour as rune_efficiency_max).
+    """
+    is_ancient = _is_ancient_rune(rune)
+    gem_caps = _GEM_MAX_ANCIENT if is_ancient else _GEM_MAX
+    ref_tier = tier if tier else "hero"
+    gem_val = float(gem_caps[ref_tier].get(new_eff_id, 0))
+    if not gem_val:
+        return _rune_efficiency_internal(rune, max_tier=tier)
+    new_sec = list(rune.sec_eff)
+    new_sec[sub_idx] = (new_eff_id, gem_val, 1, 0)
+    modified = dataclasses.replace(rune, sec_eff=new_sec)
+    return _rune_efficiency_internal(modified, max_tier=tier)
+
 
 def rune_efficiencies(runes: List[Rune]) -> List[float]:
     return [rune_efficiency(r) for r in runes]

@@ -63,6 +63,13 @@ class AccountData:
     sky_tribe_totem_level: int = 0
     sky_tribe_totem_spd_pct: int = 0
 
+    # Enchanted gem inventory: craft_stuff_id → quantity
+    # Populated from the "craft_stuff" list in the SW JSON export (if present).
+    # None means craft_stuff was not included in this JSON export at all;
+    # an empty dict means it was included but the player owns 0 gems.
+    craft_stuff: Dict[int, int] = field(default_factory=dict)
+    craft_stuff_imported: bool = False   # True once craft_stuff was parsed from JSON
+
     # Mode-specific rune equipment: unit_id -> [rune_id, ...]
     # These come from equip_info_list (siege/guild) and world_arena_rune_equip_list (RTA)
     guild_rune_equip: Dict[int, List[int]] = field(default_factory=dict)

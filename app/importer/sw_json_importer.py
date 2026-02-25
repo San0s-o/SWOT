@@ -81,6 +81,44 @@ def _extract_sky_tribe_totem_level(data: Dict[str, Any]) -> int:
     return 0
 
 
+def _extract_craft_stuff_entries(data: Dict[str, Any]) -> tuple[list[Any], bool]:
+    """Return craft entries and whether craft data was explicitly present.
+
+    Some export variants place the craft inventory under alternative keys or
+    nested account objects. We treat any explicit key presence as "imported",
+    even when the list is empty.
+    """
+    candidate_nodes: list[Any] = [data]
+    for key in ("wizard_info", "wizard", "user", "account", "account_info", "summoner"):
+        node = data.get(key)
+        if isinstance(node, dict):
+            candidate_nodes.append(node)
+
+    craft_keys = (
+        "craft_stuff",
+        "craft_stuff_list",
+        "craft_item_list",
+        "craft_items",
+        "rune_craft_item_list",
+    )
+    for node in candidate_nodes:
+        if not isinstance(node, dict):
+            continue
+        for key in craft_keys:
+            if key not in node:
+                continue
+            raw = node.get(key)
+            if isinstance(raw, list):
+                return raw, True
+            if isinstance(raw, dict):
+                # Accept map-form payloads: {item_id: qty}
+                mapped = [{"id": k, "quantity": v} for k, v in raw.items()]
+                return mapped, True
+            return [], True
+
+    return [], False
+
+
 def _parse_artifact(a: Dict[str, Any], occupied_id_override: int | None = None) -> Artifact | None:
     art_id = _safe_int(a.get("artifact_id") or a.get("rid"))
     if art_id == 0:
@@ -306,6 +344,35 @@ def _normalize_account_data(data: Dict[str, Any]) -> AccountData:
                 continue
 
     acc.artifacts = list(full_arts_by_id.values())
+
+    # ── Enchanted gem inventory (craft_stuff) ────────────────────
+    # craft_stuff is a list of {"id": N, "quantity": M} objects in the SW JSON.
+    # Each id corresponds to a crafting material; enchanted gems have IDs in a
+    # specific range.  We store all entries so the UI can look up gem counts.
+    raw_craft, craft_present = _extract_craft_stuff_entries(data)
+    if craft_present:
+        acc.craft_stuff_imported = True
+        for item in (raw_craft or []):
+            if not isinstance(item, dict):
+                continue
+            item_id = _safe_int(
+                item.get("id")
+                or item.get("craft_type_id")
+                or item.get("item_id")
+                or item.get("type_id")
+                or item.get("stuff_id")
+                or 0
+            )
+            qty = _safe_int(
+                item.get("quantity")
+                or item.get("quantity_num")
+                or item.get("count")
+                or item.get("amount")
+                or item.get("num")
+                or 0
+            )
+            if item_id > 0 and qty > 0:
+                acc.craft_stuff[item_id] = acc.craft_stuff.get(item_id, 0) + qty
 
     acc.guildsiege_defense_unit_list = [
         _safe_int(x) for x in (data.get("guildsiege_defense_unit_list") or [])

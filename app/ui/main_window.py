@@ -151,6 +151,7 @@ from app.ui.overview_widget import OverviewWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
 from app.ui.rune_optimization_widget import RuneOptimizationWidget
 from app.ui.artifact_optimization_widget import ArtifactOptimizationWidget
+from app.ui.gem_suggestion_widget import GemSuggestionWidget
 from app.i18n import tr
 from app.ui.dpi import dp
 
@@ -401,6 +402,16 @@ class MainWindow(QMainWindow):
         )
         _artifacts_layout.addWidget(self.artifact_optimization_widget)
 
+        _sub_gem_suggestions = QWidget()
+        self.rune_art_inner_tabs.addTab(_sub_gem_suggestions, tr("rune_opt.subtab_gem_suggestions"))
+        _gem_layout = QVBoxLayout(_sub_gem_suggestions)
+        _gem_layout.setContentsMargins(0, 0, 0, 0)
+        self.gem_suggestion_widget = GemSuggestionWidget(
+            rune_set_icon_fn=self._rune_set_icon,
+            monster_name_fn=self._monster_name_for_unit_id,
+        )
+        _gem_layout.addWidget(self.gem_suggestion_widget)
+
         # Team Manager (fixed + custom teams)
         self.tab_team_builder = QWidget()
         self._init_team_tab_ui()
@@ -568,6 +579,7 @@ class MainWindow(QMainWindow):
     def _refresh_rune_optimization(self) -> None:
         self.rune_optimization_widget.set_account(self.account)
         self.artifact_optimization_widget.set_account(self.account)
+        self.gem_suggestion_widget.set_account(self.account)
 
     # ============================================================
     # Custom Builders UI

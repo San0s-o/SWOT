@@ -170,6 +170,16 @@ class _UnitSearchComboBox(_NoScrollComboBox):
         line_edit = self.lineEdit()
         if line_edit is not None:
             key = event.key()
+            if key in (Qt.Key_Return, Qt.Key_Enter):
+                popup = self._completer.popup()
+                if popup is not None and popup.isVisible():
+                    idx = self._completer.currentIndex()
+                    if idx.isValid():
+                        self._apply_completion_index(idx)
+                else:
+                    self._sync_line_edit_to_current()
+                event.accept()
+                return
             if key == Qt.Key_Backspace:
                 line_edit.backspace()
                 event.accept()

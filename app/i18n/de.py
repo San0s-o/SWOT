@@ -29,6 +29,7 @@ STRINGS: dict[str, str] = {
     "tab.subtab_saved": "Gespeichert",
     "rune_opt.subtab_runes": "Runen",
     "rune_opt.subtab_artifacts": "Artefakte",
+    "rune_opt.subtab_gem_suggestions": "Gem Vorschläge",
     # -- Alte Tab-Keys (für Kompatibilität) ----------------------
     "tab.siege_current": "Siege Verteidigungen (aktuell)",
     "tab.rta_current": "RTA (aktuell)",
@@ -206,6 +207,33 @@ STRINGS: dict[str, str] = {
     "rune_opt.hint_no_filter_rows": "Keine Runen für den gewählten Set-/Slot-/Monster-Filter gefunden.",
     "rune_opt.count": "Runen ab +12: {n}",
     "rune_opt.count_filtered": "Runen ab +12: {shown} / {total}",
+
+    # -- Gem Vorschläge ------------------------------------------
+    "gem_sug.account_pattern": "Account Gem-Muster ({total} Gems insgesamt): {stats}",
+    "gem_sug.account_pattern_none": "Noch keine Gems im Account gefunden.",
+    "gem_sug.count_filtered": "Gem-Vorschläge: {shown} / {total}",
+    "gem_sug.hint_no_rows": "Keine Runen ab +12 ohne Gem gefunden.",
+    "gem_sug.hint_no_filter_rows": "Keine Runen für den gewählten Filter gefunden.",
+    "gem_sug.col.swap": "Empf. Gem-Tausch",
+    "gem_sug.col.account_freq": "Konto-Freq.",
+    "gem_sug.col.inventory": "Gem Bestand",
+    "gem_sug.col.swap_only": "Nur Tausch",
+    "gem_sug.col.hero_grind": "Hero Grind",
+    "gem_sug.col.legend_grind": "Legend Grind",
+    "gem_sug.col.hero_eff_after": "Hero Eff. nach Gem",
+    "gem_sug.col.legend_eff_after": "Legend Eff. nach Gem",
+    "gem_sug.col.hero_gain": "Hero Gewinn",
+    "gem_sug.col.legend_gain": "Legend Gewinn",
+    "gem_sug.filter_avail_label": "Gem Bestand:",
+    "gem_sug.filter_avail_have": "Vorhanden (≥1×)",
+    "gem_sug.filter_avail_missing": "Nicht vorhanden (0×)",
+    "gem_sug.inventory_unknown": "n/v",
+    "gem_sug.inventory_none": "0×",
+    "gem_sug.inventory_tooltip": (
+        "Gem Bestand aus dem JSON-Import (craft_stuff). "
+        "n/v = nicht im Export enthalten. "
+        "Hinweis: Die IDs können je nach Spielversion abweichen."
+    ),
 
     # -- Artefakt-Übersicht --------------------------------------
     "art_opt.col.type": "Typ",
