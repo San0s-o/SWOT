@@ -151,7 +151,6 @@ from app.ui.overview_widget import OverviewWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
 from app.ui.rune_optimization_widget import RuneOptimizationWidget
 from app.ui.artifact_optimization_widget import ArtifactOptimizationWidget
-from app.ui.gem_suggestion_widget import GemSuggestionWidget
 from app.i18n import tr
 from app.ui.dpi import dp
 
@@ -383,9 +382,9 @@ class MainWindow(QMainWindow):
         self._apply_inner_tab_style(self.rune_art_inner_tabs)
         rov.addWidget(self.rune_art_inner_tabs)
 
-        _sub_runes = QWidget()
-        self.rune_art_inner_tabs.addTab(_sub_runes, tr("rune_opt.subtab_runes"))
-        _runes_layout = QVBoxLayout(_sub_runes)
+        self.tab_rune_sub_runes = QWidget()
+        self.rune_art_inner_tabs.addTab(self.tab_rune_sub_runes, tr("rune_opt.subtab_runes"))
+        _runes_layout = QVBoxLayout(self.tab_rune_sub_runes)
         _runes_layout.setContentsMargins(0, 0, 0, 0)
         self.rune_optimization_widget = RuneOptimizationWidget(
             rune_set_icon_fn=self._rune_set_icon,
@@ -393,24 +392,18 @@ class MainWindow(QMainWindow):
         )
         _runes_layout.addWidget(self.rune_optimization_widget)
 
-        _sub_artifacts = QWidget()
-        self.rune_art_inner_tabs.addTab(_sub_artifacts, tr("rune_opt.subtab_artifacts"))
-        _artifacts_layout = QVBoxLayout(_sub_artifacts)
+        self.tab_rune_sub_artifacts = QWidget()
+        self.rune_art_inner_tabs.addTab(self.tab_rune_sub_artifacts, tr("rune_opt.subtab_artifacts"))
+        _artifacts_layout = QVBoxLayout(self.tab_rune_sub_artifacts)
         _artifacts_layout.setContentsMargins(0, 0, 0, 0)
         self.artifact_optimization_widget = ArtifactOptimizationWidget(
             monster_name_fn=self._monster_name_for_unit_id,
         )
         _artifacts_layout.addWidget(self.artifact_optimization_widget)
 
-        _sub_gem_suggestions = QWidget()
-        self.rune_art_inner_tabs.addTab(_sub_gem_suggestions, tr("rune_opt.subtab_gem_suggestions"))
-        _gem_layout = QVBoxLayout(_sub_gem_suggestions)
-        _gem_layout.setContentsMargins(0, 0, 0, 0)
-        self.gem_suggestion_widget = GemSuggestionWidget(
-            rune_set_icon_fn=self._rune_set_icon,
-            monster_name_fn=self._monster_name_for_unit_id,
+        self.rune_art_inner_tabs.currentChanged.connect(
+            lambda _: self._on_tab_changed(self.tabs.currentIndex())
         )
-        _gem_layout.addWidget(self.gem_suggestion_widget)
 
         # Team Manager (fixed + custom teams)
         self.tab_team_builder = QWidget()
@@ -579,7 +572,10 @@ class MainWindow(QMainWindow):
     def _refresh_rune_optimization(self) -> None:
         self.rune_optimization_widget.set_account(self.account)
         self.artifact_optimization_widget.set_account(self.account)
-        self.gem_suggestion_widget.set_account(self.account)
+
+    def _refresh_rune_artifacts_only(self) -> None:
+        self.rune_optimization_widget.set_account(self.account)
+        self.artifact_optimization_widget.set_account(self.account)
 
     # ============================================================
     # Custom Builders UI

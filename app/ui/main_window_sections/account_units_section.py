@@ -288,6 +288,7 @@ def _resolve_active_inner_tab(window, outer_tab) -> QWidget:
         ("tab_wgb", "wgb_inner_tabs"),
         ("tab_rta", "rta_inner_tabs"),
         ("tab_arena_rush", "arena_rush_inner_tabs"),
+        ("tab_rune_optimization", "rune_art_inner_tabs"),
     ]:
         group = getattr(window, group_attr, None)
         inner = getattr(window, inner_attr, None)
@@ -309,8 +310,11 @@ def on_tab_changed(window, index: int) -> None:
     elif tab is window.tab_rta_overview and bool(window._lazy_view_dirty.get("rta_overview", False)):
         window.rta_overview.set_context(window.account, window.monster_db, window.assets_dir)
         window._lazy_view_dirty["rta_overview"] = False
-    elif tab is window.tab_rune_optimization and bool(window._lazy_view_dirty.get("rune_optimization", False)):
-        window._refresh_rune_optimization()
+    elif tab in (
+        getattr(window, "tab_rune_sub_runes", None),
+        getattr(window, "tab_rune_sub_artifacts", None),
+    ) and bool(window._lazy_view_dirty.get("rune_optimization", False)):
+        window._refresh_rune_artifacts_only()
         window._lazy_view_dirty["rune_optimization"] = False
     elif tab is window.tab_saved_siege and bool(window._lazy_view_dirty.get("saved_siege", False)):
         window._on_saved_opt_changed("siege")

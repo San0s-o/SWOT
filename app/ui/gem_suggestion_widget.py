@@ -211,6 +211,17 @@ def _set_name_for(rune: Rune) -> str:
     return str(SET_NAMES.get(sid, f"Set {sid}"))
 
 
+def _mainstat_text(rune: Rune) -> str:
+    try:
+        eff_id = int((rune.pri_eff or (0, 0))[0] or 0)
+        value = int((rune.pri_eff or (0, 0))[1] or 0)
+        if eff_id <= 0:
+            return "-"
+        return f"+{value} {_stat_name(eff_id)}"
+    except Exception:
+        return "-"
+
+
 _QUALITY_BASE_NAME = {
     1: "Normal", 2: "Magic", 3: "Rare", 4: "Hero", 5: "Legend", 6: "Legend",
     11: "Normal", 12: "Magic", 13: "Rare", 14: "Hero", 15: "Legend", 16: "Legend",
@@ -325,12 +336,239 @@ class _RichTextDelegate(QStyledItemDelegate):
 # Core logic
 # ---------------------------------------------------------------------------
 
+_OFFENSIVE_SET_IDS = {4, 5, 8}  # Blade, Rage, Fatal
+_DEFENSIVE_SET_IDS = {1, 2, 7, 14, 16, 17, 18, 20, 21, 22, 23, 24}
+_OFFENSIVE_STATS = {3, 4, 8, 9, 10}  # ATK flat/%, SPD, CR, CD
+_DEFENSIVE_STATS = {1, 2, 5, 6, 11}  # HP flat/%, DEF flat/%, RES
+_OFFENSIVE_MAINSTATS = {4, 9, 10}  # ATK%, CR, CD
+_DEFENSIVE_MAINSTATS = {2, 6}      # HP%, DEF%
+_STAT_FAMILY_BY_ID = {
+    1: "hp", 2: "hp",
+    3: "atk", 4: "atk",
+    5: "def", 6: "def",
+    8: "spd",
+    9: "cr",
+    10: "cd",
+    11: "res",
+    12: "acc",
+}
+_STAT_IDS_BY_FAMILY = {
+    "hp": {1, 2},
+    "atk": {3, 4},
+    "def": {5, 6},
+    "spd": {8},
+    "cr": {9},
+    "cd": {10},
+    "res": {11},
+    "acc": {12},
+}
+# SW odd-slot base families (gem cannot be from the same family as slot base stat)
+_BLOCKED_FAMILY_BY_ODD_SLOT = {
+    1: "def",
+    3: "atk",
+}
+_PERCENT_CORE_STATS = {2, 4, 6}
+_NON_GRINDABLE_STATS = {9, 10, 11, 12}
+_ROLLED_VALUE_HINT = {
+    1: 260,
+    2: 8,
+    3: 16,
+    4: 8,
+    5: 16,
+    6: 8,
+    8: 8,
+    9: 7,
+    10: 7,
+    11: 8,
+    12: 8,
+}
+_SUPPORT_SET_IDS = {3, 6, 10, 11, 13, 15, 19, 22, 23, 24, 25}
+# Guide-oriented archetype priorities (aggregated from common SW rune guides):
+# - offense: SPD/CR/CD/ATK%
+# - defense: SPD/HP%/DEF%
+# - support: SPD/ACC/HP%/DEF%
+_GUIDE_OFFENSE_WEIGHT = {
+    8: 1.00, 9: 0.95, 10: 0.95, 4: 0.90,
+    3: 0.45, 12: 0.35, 2: 0.35, 6: 0.30,
+    1: 0.20, 5: 0.20, 11: 0.10,
+}
+_GUIDE_DEFENSE_WEIGHT = {
+    8: 1.00, 2: 0.95, 6: 0.90, 11: 0.70,
+    1: 0.55, 5: 0.45, 12: 0.45,
+    4: 0.25, 3: 0.20, 9: 0.25, 10: 0.20,
+}
+_GUIDE_SUPPORT_WEIGHT = {
+    8: 1.00, 12: 0.95, 2: 0.85, 6: 0.70,
+    11: 0.55, 1: 0.50, 5: 0.40,
+    4: 0.25, 9: 0.20, 10: 0.15, 3: 0.15,
+}
+_GRINDABLE_STAT_IDS = {1, 2, 3, 4, 5, 6, 8}
+_REDDIT_CORE_GRINDABLE_PRIORITY = {2, 4, 6, 8}
+_DAMAGE_FOCUS_SET_IDS = {5, 8}  # Rage, Fatal
+_LEGEND_GEM_VALUE = {
+    1: 550, 2: 11, 3: 30, 4: 11, 5: 30, 6: 11, 8: 12, 9: 9, 10: 10, 11: 11, 12: 11,
+}
+_LEGEND_GEM_VALUE_ANCIENT = {
+    1: 640, 2: 15, 3: 44, 4: 15, 5: 44, 6: 15, 8: 11, 9: 10, 10: 12, 11: 13, 12: 13,
+}
+
+
 def _has_gem(rune: Rune) -> bool:
     return any(len(s) >= 3 and int(s[2] or 0) == 1 for s in (rune.sec_eff or []))
 
 
+def _blocked_gem_stats_for_rune(rune: Rune) -> set[int]:
+    """Return stat IDs that cannot be gemmed on this rune due to slot/mainstat family."""
+    slot_no = int(rune.slot_no or 0)
+    # For odd slots use canonical slot families to avoid importer inconsistencies.
+    family = _BLOCKED_FAMILY_BY_ODD_SLOT.get(slot_no)
+    if family:
+        return set(_STAT_IDS_BY_FAMILY.get(family, set()))
+    if slot_no == 5:
+        return set()
+    mainstat_id = int(rune.pri_eff[0]) if rune.pri_eff else 0
+    main_family = _STAT_FAMILY_BY_ID.get(mainstat_id, "")
+    if not main_family:
+        return set()
+    return set(_STAT_IDS_BY_FAMILY.get(main_family, {mainstat_id}))
+
+
+def _sub_removal_penalty(eff_id: int, base: int, grind: int) -> float:
+    """Penalty to avoid replacing likely rolled/valuable substats."""
+    sid = int(eff_id or 0)
+    val = int(base or 0)
+    grd = int(grind or 0)
+    penalty = 0.0
+    rolled_hint = int(_ROLLED_VALUE_HINT.get(sid, 9999))
+    if val >= rolled_hint:
+        penalty += 0.9
+    # Avoid throwing away rolled non-grindable lines (CR/CD/RES/ACC).
+    if sid in _NON_GRINDABLE_STATS and val >= rolled_hint:
+        penalty += 2.2
+    if grd > 0:
+        penalty += 0.8
+    if sid in _PERCENT_CORE_STATS:
+        penalty *= 1.6
+    return float(penalty)
+
+
+def _is_rolled_substat(eff_id: int, base: int) -> bool:
+    sid = int(eff_id or 0)
+    val = int(base or 0)
+    rolled_hint = int(_ROLLED_VALUE_HINT.get(sid, 9999))
+    return val >= rolled_hint
+
+
+def _projected_offense_score_for_swap(rune: Rune, sub_idx: int, new_eff_id: int) -> float:
+    """Damage-oriented heuristic for Rage/Fatal ranking."""
+    vals = {3: 0.0, 4: 0.0, 9: 0.0, 10: 0.0}  # ATK flat/%, CR, CD
+
+    def _acc(eid: int, value: float) -> None:
+        if eid in vals:
+            vals[eid] += float(value)
+
+    try:
+        _acc(int(rune.pri_eff[0] or 0), float(rune.pri_eff[1] or 0))
+    except Exception:
+        pass
+    try:
+        _acc(int(rune.prefix_eff[0] or 0), float(rune.prefix_eff[1] or 0))
+    except Exception:
+        pass
+
+    is_ancient = int(getattr(rune, "origin_class", 0) or 0) in _ANCIENT_CLASS_IDS
+    gem_values = _LEGEND_GEM_VALUE_ANCIENT if is_ancient else _LEGEND_GEM_VALUE
+    gem_val = float(gem_values.get(int(new_eff_id or 0), 0.0))
+    for i, sec in enumerate(rune.sec_eff or []):
+        if not sec:
+            continue
+        eid = int(sec[0] or 0) if len(sec) > 0 else 0
+        base = float(sec[1] or 0) if len(sec) > 1 else 0.0
+        grind = float(sec[3] or 0) if len(sec) > 3 else 0.0
+        if i == int(sub_idx):
+            eid = int(new_eff_id or 0)
+            base = float(gem_val)
+            grind = 0.0
+        _acc(eid, base + grind)
+
+    atk_flat = float(vals[3])
+    atk_pct = float(vals[4])
+    cr = max(0.0, min(100.0, float(vals[9])))
+    cd = max(0.0, float(vals[10]))
+    atk_factor = 1.0 + (atk_pct / 100.0) + (atk_flat / 300.0)
+    crit_factor = 1.0 + ((cr / 100.0) * (cd / 100.0))
+    return float(atk_factor * crit_factor)
+
+
+def _candidate_preference_bonus(
+    rune: Rune,
+    new_stat_id: int,
+    gem_counts: Counter | None,
+    max_gem_count: int,
+    grind_counts: Counter | None = None,
+    max_grind_count: int = 0,
+) -> float:
+    """Heuristic bonus: guide archetype + account gem/grind history."""
+    bonus = 0.0
+    new_id = int(new_stat_id or 0)
+    set_id = int(rune.set_id or 0)
+    mainstat_id = int(rune.pri_eff[0]) if rune.pri_eff else 0
+
+    # Set archetype bias
+    if set_id in _OFFENSIVE_SET_IDS:
+        if new_id in _OFFENSIVE_STATS:
+            bonus += 0.45
+        elif new_id in _DEFENSIVE_STATS:
+            bonus -= 0.25
+    elif set_id in _DEFENSIVE_SET_IDS:
+        if new_id in _DEFENSIVE_STATS:
+            bonus += 0.45
+        elif new_id in _OFFENSIVE_STATS:
+            bonus -= 0.25
+
+    # Mainstat bias (stronger than set bias)
+    if mainstat_id in _OFFENSIVE_MAINSTATS:
+        if new_id in _OFFENSIVE_STATS:
+            bonus += 0.65
+        elif new_id in _DEFENSIVE_STATS:
+            bonus -= 0.35
+    elif mainstat_id in _DEFENSIVE_MAINSTATS:
+        if new_id in _DEFENSIVE_STATS:
+            bonus += 0.65
+        elif new_id in _OFFENSIVE_STATS:
+            bonus -= 0.35
+
+    # Internet guide archetype boost.
+    if set_id in _OFFENSIVE_SET_IDS or mainstat_id in _OFFENSIVE_MAINSTATS:
+        bonus += 0.85 * float(_GUIDE_OFFENSE_WEIGHT.get(new_id, 0.0))
+    elif set_id in _DEFENSIVE_SET_IDS or mainstat_id in _DEFENSIVE_MAINSTATS:
+        bonus += 0.85 * float(_GUIDE_DEFENSE_WEIGHT.get(new_id, 0.0))
+    elif set_id in _SUPPORT_SET_IDS:
+        bonus += 0.85 * float(_GUIDE_SUPPORT_WEIGHT.get(new_id, 0.0))
+    else:
+        bonus += 0.45 * float(_GUIDE_SUPPORT_WEIGHT.get(new_id, 0.0))
+    # Reddit/common guide consensus:
+    # prioritize grindable core stats for long-term efficiency.
+    if new_id in _REDDIT_CORE_GRINDABLE_PRIORITY:
+        bonus += 0.35
+
+    # Account history bias: favor stats that are already commonly gemmed.
+    if gem_counts and max_gem_count > 0:
+        freq = int(gem_counts.get(new_id, 0))
+        bonus += 0.35 * (float(freq) / float(max_gem_count))
+
+    # Account history bias: prefer what this account actually grinds.
+    if grind_counts and max_grind_count > 0:
+        freq = int(grind_counts.get(new_id, 0))
+        bonus += 0.65 * (float(freq) / float(max_grind_count))
+
+    return float(bonus)
+
+
 def _find_top_gem_swaps(
     rune: Rune,
+    gem_counts: Counter | None = None,
+    grind_counts: Counter | None = None,
     limit: int = 3,
 ) -> list[Tuple[int, int, float, float, float, float, float, float]]:
     """Find top gem swap options for a rune that has no gem yet.
@@ -344,27 +582,37 @@ def _find_top_gem_swaps(
         return []
 
     base_eff = float(rune_efficiency(rune))
-    mainstat_id = int(rune.pri_eff[0]) if rune.pri_eff else 0
+    blocked_by_slot_main = _blocked_gem_stats_for_rune(rune)
 
-    options: list[Tuple[int, int, float, float, float, float, float, float]] = []
+    max_gem_count = 0
+    if gem_counts:
+        max_gem_count = max((int(v or 0) for v in gem_counts.values()), default=0)
+    max_grind_count = 0
+    if grind_counts:
+        max_grind_count = max((int(v or 0) for v in grind_counts.values()), default=0)
+    scored_options: list[tuple[float, Tuple[int, int, float, float, float, float, float, float]]] = []
 
     for sub_idx in range(len(subs)):
         sub = subs[sub_idx]
         if not sub:
             continue
         current_sub_id = int(sub[0] or 0)
+        current_val = int(sub[1] or 0) if len(sub) > 1 else 0
+        current_grind = int(sub[3] or 0) if len(sub) > 3 else 0
+        # Hard rule: do not gem over rolled substats.
+        if _is_rolled_substat(current_sub_id, current_val):
+            continue
+        base_dmg_score = _projected_offense_score_for_swap(rune, sub_idx, current_sub_id)
         # Stats in OTHER substats â†’ can't create a duplicate
         other_ids = {
             int(subs[j][0] or 0)
             for j in range(len(subs))
             if j != sub_idx and subs[j]
         }
-        excluded = other_ids | {mainstat_id}
+        excluded = other_ids | blocked_by_slot_main
         candidates = _ALL_STAT_IDS - excluded
 
         for new_id in candidates:
-            if new_id == current_sub_id:
-                continue
             swap_eff = float(rune_efficiency_gem_swap(rune, sub_idx, new_id, None))
             hero_eff = float(rune_efficiency_gem_swap(rune, sub_idx, new_id, "hero"))
             legend_eff = float(rune_efficiency_gem_swap(rune, sub_idx, new_id, "legend"))
@@ -372,21 +620,72 @@ def _find_top_gem_swaps(
             gain_hero = hero_eff - base_eff
             gain_legend = legend_eff - base_eff
 
-            options.append(
+            bonus = _candidate_preference_bonus(
+                rune=rune,
+                new_stat_id=new_id,
+                gem_counts=gem_counts,
+                max_gem_count=max_gem_count,
+                grind_counts=grind_counts,
+                max_grind_count=max_grind_count,
+            )
+            same_stat_upgrade = int(new_id) == int(current_sub_id)
+            removal_penalty = 0.0
+            if not same_stat_upgrade:
+                removal_penalty = _sub_removal_penalty(current_sub_id, current_val, current_grind)
+            same_stat_bonus = 0.0
+            if same_stat_upgrade:
+                same_stat_bonus += 0.9
+                if int(current_sub_id) in _PERCENT_CORE_STATS:
+                    same_stat_bonus += 0.8
+            grindable_upgrade_bonus = 0.0
+            if int(new_id) in _GRINDABLE_STAT_IDS and int(current_sub_id) not in _GRINDABLE_STAT_IDS:
+                # Tends towards "triple grindable" style rune shaping from common Reddit advice.
+                grindable_upgrade_bonus += 0.45
+            damage_gain_bonus = 0.0
+            if int(rune.set_id or 0) in _DAMAGE_FOCUS_SET_IDS:
+                new_dmg_score = _projected_offense_score_for_swap(rune, sub_idx, int(new_id))
+                damage_gain_bonus += 14.0 * float(new_dmg_score - base_dmg_score)
+                if int(new_id) in _DEFENSIVE_STATS and int(new_id) != int(current_sub_id):
+                    damage_gain_bonus -= 2.4
+            rank_score = (
+                float(gain_legend)
+                + (0.03 * float(gain_hero))
+                + float(bonus)
+                + float(same_stat_bonus)
+                + float(grindable_upgrade_bonus)
+                + float(damage_gain_bonus)
+                - float(removal_penalty)
+            )
+            scored_options.append(
                 (
-                    sub_idx,
-                    new_id,
-                    swap_eff,
-                    hero_eff,
-                    legend_eff,
-                    gain_swap,
-                    gain_hero,
-                    gain_legend,
+                    rank_score,
+                    (
+                        sub_idx,
+                        new_id,
+                        swap_eff,
+                        hero_eff,
+                        legend_eff,
+                        gain_swap,
+                        gain_hero,
+                        gain_legend,
+                    ),
                 )
             )
 
-    options.sort(key=lambda x: (x[7], x[6]), reverse=True)
-    return options[: max(1, int(limit or 1))]
+    scored_options.sort(key=lambda x: (x[0], x[1][7], x[1][6]), reverse=True)
+    ordered = [entry[1] for entry in scored_options]
+
+    # Prefer "improve existing stat" when it gives real value,
+    # before suggesting a risky stat replacement.
+    same_stat_positive = [
+        opt for opt in ordered
+        if int(opt[1]) == int((subs[int(opt[0])] or [0])[0]) and float(opt[7]) > 0.0
+    ]
+    if same_stat_positive:
+        best_same = max(same_stat_positive, key=lambda opt: (float(opt[7]), float(opt[6])))
+        ordered = [best_same] + [opt for opt in ordered if opt is not best_same]
+
+    return ordered[: max(1, int(limit or 1))]
 
 
 def _analyze_gem_patterns(runes: list[Rune]) -> Counter:
@@ -400,6 +699,22 @@ def _analyze_gem_patterns(runes: list[Rune]) -> Counter:
                 eff_id = int(sec[0] or 0)
                 if eff_id > 0:
                     counts[eff_id] += 1
+    return counts
+
+
+def _analyze_grind_patterns(runes: list[Rune]) -> Counter:
+    """Count how often each stat ID appears with an applied grind (>0)."""
+    counts: Counter = Counter()
+    for rune in runes:
+        for sec in (rune.sec_eff or []):
+            if not sec or len(sec) < 4:
+                continue
+            grind = int(sec[3] or 0)
+            if grind <= 0:
+                continue
+            eff_id = int(sec[0] or 0)
+            if eff_id > 0:
+                counts[eff_id] += 1
     return counts
 
 
@@ -424,16 +739,17 @@ class GemSuggestionWidget(QWidget):
     _COL_QUALITY = 2
     _COL_SLOT = 3
     _COL_UPGRADE = 4
-    _COL_SUBSTATS = 5
-    _COL_MONSTER = 6
-    _COL_CURRENT_EFF = 7
-    _COL_SWAP = 8
-    _COL_ACCT_FREQ = 9
-    _COL_INVENTORY = 10
-    _COL_SWAP_ONLY = 11
-    _COL_HERO_GRIND = 12
-    _COL_LEGEND_GRIND = 13
-    _NUM_COLS = 14
+    _COL_MAINSTAT = 5
+    _COL_SUBSTATS = 6
+    _COL_MONSTER = 7
+    _COL_CURRENT_EFF = 8
+    _COL_SWAP = 9
+    _COL_ACCT_FREQ = 10
+    _COL_INVENTORY = 11
+    _COL_SWAP_ONLY = 12
+    _COL_HERO_GRIND = 13
+    _COL_LEGEND_GRIND = 14
+    _NUM_COLS = 15
 
     def __init__(
         self,
@@ -536,6 +852,7 @@ class GemSuggestionWidget(QWidget):
                 tr("rune_opt.col.quality"),
                 tr("rune_opt.col.slot"),
                 tr("rune_opt.col.upgrade"),
+                tr("gem_sug.col.mainstat"),
                 tr("rune_opt.col.substats"),
                 tr("rune_opt.col.monster"),
                 tr("rune_opt.col.current_eff"),
@@ -786,6 +1103,7 @@ class GemSuggestionWidget(QWidget):
 
         # --- Account gem pattern analysis ---
         gem_counts = _analyze_gem_patterns(account_runes)
+        grind_counts = _analyze_grind_patterns(account_runes)
         total_gemmed = sum(gem_counts.values())
         if gem_counts:
             top = gem_counts.most_common(6)
@@ -813,7 +1131,12 @@ class GemSuggestionWidget(QWidget):
         # (avail = _AVAIL_UNKNOWN if not imported, else set-specific gem count >= 0)
         swap_data: list[tuple] = []
         for rune in all_candidates:
-            options = _find_top_gem_swaps(rune, limit=3)
+            options = _find_top_gem_swaps(
+                rune,
+                gem_counts=gem_counts,
+                grind_counts=grind_counts,
+                limit=4,
+            )
             option_rows: list[dict] = []
             for swap in options:
                 _, new_id, *_ = swap
@@ -906,6 +1229,7 @@ class GemSuggestionWidget(QWidget):
             self.table.setItem(row, self._COL_QUALITY, QTableWidgetItem(_quality_text(rune)))
             self.table.setItem(row, self._COL_SLOT, _int_item(int(rune.slot_no or 0)))
             self.table.setItem(row, self._COL_UPGRADE, _int_item(int(rune.upgrade_curr or 0)))
+            self.table.setItem(row, self._COL_MAINSTAT, QTableWidgetItem(_mainstat_text(rune)))
             sub_item = QTableWidgetItem(_substats_html(rune))
             sub_item.setData(Qt.UserRole, _substats_text(rune))
             sub_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -940,6 +1264,9 @@ class GemSuggestionWidget(QWidget):
         self.table.setColumnWidth(self._COL_ICON, 170)
         self.table.setColumnWidth(
             self._COL_QUALITY, max(140, self.table.columnWidth(self._COL_QUALITY))
+        )
+        self.table.setColumnWidth(
+            self._COL_MAINSTAT, max(110, self.table.columnWidth(self._COL_MAINSTAT))
         )
         self.table.setColumnWidth(
             self._COL_SUBSTATS, max(440, self.table.columnWidth(self._COL_SUBSTATS))

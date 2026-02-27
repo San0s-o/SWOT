@@ -217,6 +217,7 @@ STRINGS: dict[str, str] = {
     "gem_sug.col.swap": "Suggested Gem Swap",
     "gem_sug.col.account_freq": "Acct. Freq.",
     "gem_sug.col.inventory": "Gem Stock",
+    "gem_sug.col.mainstat": "Main Stat",
     "gem_sug.col.swap_only": "Swap Only",
     "gem_sug.col.hero_grind": "Hero Grind",
     "gem_sug.col.legend_grind": "Legend Grind",
