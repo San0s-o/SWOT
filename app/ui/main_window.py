@@ -123,7 +123,6 @@ from app.ui.main_window_sections.settings_section import (
 from app.ui.main_window_sections.worker_controls_section import (
     max_solver_workers as _sec_max_solver_workers,
     default_solver_workers as _sec_default_solver_workers,
-    gpu_search_available as _sec_gpu_search_available,
     populate_worker_combo as _sec_populate_worker_combo,
     effective_workers as _sec_effective_workers,
     sync_worker_controls as _sec_sync_worker_controls,
@@ -169,10 +168,6 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _default_solver_workers() -> int:
         return _sec_default_solver_workers()
-
-    @staticmethod
-    def _gpu_search_available() -> bool:
-        return _sec_gpu_search_available()
 
     def _populate_worker_combo(self, combo: QComboBox) -> None:
         return _sec_populate_worker_combo(self, combo)

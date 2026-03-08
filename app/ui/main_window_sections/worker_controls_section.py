@@ -17,15 +17,6 @@ def default_solver_workers() -> int:
     return max(1, min(m, m // 2 if m > 1 else 1))
 
 
-def gpu_search_available() -> bool:
-    try:
-        import torch  # type: ignore
-
-        return bool(torch.cuda.is_available())
-    except Exception:
-        return False
-
-
 def populate_worker_combo(window, combo: QComboBox) -> None:
     combo.clear()
     max_w = max_solver_workers()
@@ -39,14 +30,14 @@ def populate_worker_combo(window, combo: QComboBox) -> None:
 
 def effective_workers(window, quality_profile: str, combo: QComboBox) -> int:
     prof = str(quality_profile or "").strip().lower()
-    if prof in ("max_quality", "ultra_quality", "gpu_search_max"):
+    if prof in ("max_quality", "ultra_quality"):
         return int(combo.currentData() or default_solver_workers())
     return int(default_solver_workers())
 
 
 def _is_max_quality_profile(profile_value: str) -> bool:
     prof = str(profile_value or "").strip().lower()
-    return prof in ("max_quality", "ultra_quality", "gpu_search_max")
+    return prof in ("max_quality", "ultra_quality")
 
 
 def sync_worker_controls(window) -> None:

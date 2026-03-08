@@ -261,7 +261,7 @@ def on_optimize_siege(window) -> None:
     try:
         quality_profile = str(window.combo_quality_profile_siege.currentData() or "balanced")
         pass_count = int(window.spin_multi_pass_siege.value())
-        if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+        if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
             pass_count = 1
         workers = window._effective_workers(quality_profile, window.combo_workers_siege)
         running_text = tr("result.opt_running", mode="Siege")
@@ -490,7 +490,7 @@ def on_optimize_wgb(window) -> None:
         return
     quality_profile = str(window.combo_quality_profile_wgb.currentData() or "balanced")
     pass_count = int(window.spin_multi_pass_wgb.value())
-    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
         pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_wgb)
     running_text = tr("result.opt_running", mode="WGB")
@@ -695,7 +695,7 @@ def on_optimize_rta(window) -> None:
         return
     quality_profile = str(window.combo_quality_profile_rta.currentData() or "balanced")
     pass_count = int(window.spin_multi_pass_rta.value())
-    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
         pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_rta)
     running_text = tr("result.opt_running", mode="RTA")

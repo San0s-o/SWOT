@@ -1542,7 +1542,7 @@ class GreedyRequest:
     multi_pass_time_factor: float = 0.2
     multi_pass_strategy: str = "greedy_refine"  # greedy_only | greedy_refine
     rune_top_per_set: int = 200
-    quality_profile: str = "balanced"  # fast | balanced | max_quality | gpu_search_fast | gpu_search_balanced | gpu_search_max
+    quality_profile: str = "balanced"  # fast | balanced | max_quality | gpu_combo
     speed_slack_for_quality: int = DEFAULT_SPEED_SLACK_FOR_QUALITY
     progress_callback: Optional[Callable[[int, int], None]] = None
     is_cancelled: Optional[Callable[[], bool]] = None
@@ -2116,6 +2116,7 @@ def _solve_single_unit_best(
     base_acc: int,
     max_final_speed: Optional[int],
     min_final_speed: Optional[int] = None,
+    account: Optional[AccountData] = None,
     rta_rune_ids_for_unit: Optional[Set[int]] = None,
     rta_artifact_ids_for_unit: Optional[Set[int]] = None,
     speed_hard_priority: bool = True,
@@ -3332,11 +3333,15 @@ def _run_pass_with_profile(
     speed_slack_for_quality: int = 0,
     objective_mode: str = "balanced",
     rune_top_per_set_override: Optional[int] = None,
+    rune_pool_override: Optional[List[Any]] = None,
 ) -> List[GreedyUnitResult]:
     unit_ids = _reorder_for_turn_order(req, unit_ids)
 
     # initial pool
-    pool = _allowed_runes_for_mode(account, req, unit_ids, rune_top_per_set_override=rune_top_per_set_override)
+    if rune_pool_override is not None:
+        pool = list(rune_pool_override)
+    else:
+        pool = _allowed_runes_for_mode(account, req, unit_ids, rune_top_per_set_override=rune_top_per_set_override)
     artifact_pool = _allowed_artifacts_for_mode(account, unit_ids, req=req)
     # Reserve fixed assignments for their owner unit so no other unit can consume them.
     reserved_rune_owner: Dict[int, int] = {}
@@ -3466,6 +3471,7 @@ def _run_pass_with_profile(
             base_acc=base_acc,
             max_final_speed=max_speed_cap,
             min_final_speed=min_speed_floor,
+            account=account,
             rta_rune_ids_for_unit=rta_rids,
             rta_artifact_ids_for_unit=rta_aids,
             speed_hard_priority=unit_speed_hard_priority,
@@ -3585,12 +3591,13 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
         "fast",
         "balanced",
         "max_quality",
-        "gpu_search",
-        "gpu_search_fast",
-        "gpu_search_balanced",
-        "gpu_search_max",
+        "gpu_combo",
     ):
         profile = "balanced"
+    if profile == "gpu_combo":
+        from app.engine.gpu_combo_optimizer import optimize_gpu_combo
+
+        return optimize_gpu_combo(account, presets, req)
     if profile == "max_quality":
         from app.engine.global_optimizer import optimize_global
         run_count = int(max(1, int(req.multi_pass_count or 1))) if bool(req.multi_pass_enabled) else 1
@@ -3685,10 +3692,6 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
             f"best_run={int(best_idx + 1)}."
         )
         return GreedyResult(bool(best_result.ok), msg, list(best_result.results or []))
-    if profile.startswith("gpu_search"):
-        from app.engine.gpu_search_optimizer import optimize_gpu_search
-
-        return optimize_gpu_search(account, presets, req)
     strategy = str(getattr(req, "multi_pass_strategy", "greedy_refine") or "greedy_refine").strip().lower()
     if strategy not in ("greedy_only", "greedy_refine"):
         strategy = "greedy_refine"

@@ -135,10 +135,6 @@ def init_team_tab_ui(window) -> None:
     window.combo_quality_profile_team.addItem("Fast", "fast")
     window.combo_quality_profile_team.addItem("Balanced", "balanced")
     window.combo_quality_profile_team.addItem("Max Qualität", "max_quality")
-    if window._gpu_search_available():
-        window.combo_quality_profile_team.addItem("GPU Fast", "gpu_search_fast")
-        window.combo_quality_profile_team.addItem("GPU Balanced", "gpu_search_balanced")
-        window.combo_quality_profile_team.addItem("GPU Max", "gpu_search_max")
     window.combo_quality_profile_team.setCurrentIndex(1)
     window.combo_quality_profile_team.currentIndexChanged.connect(window._sync_worker_controls)
     pass_row.addWidget(window.combo_quality_profile_team)
@@ -281,7 +277,7 @@ def optimize_team(window) -> None:
         return
     quality_profile = str(window.combo_quality_profile_team.currentData() or "balanced")
     pass_count = int(window.spin_multi_pass_team.value())
-    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality", "gpu_search_max"):
+    if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
         pass_count = 1
     workers = window._effective_workers(quality_profile, window.combo_workers_team)
     running_text = tr("result.team_opt_running", name=team.name)

@@ -135,7 +135,7 @@ def main() -> int:
     parser.add_argument("--speed-slack", type=int, default=1, help="Allowed SPD loss per unit to improve quality.")
     parser.add_argument("--rune-top-per-set", type=int, default=200, help="Top-N runes per set in candidate pool (0 = all).")
     parser.add_argument("--quality-profile", type=str, default="balanced",
-                        choices=["fast", "balanced", "max_quality", "gpu_search"],
+                        choices=["fast", "balanced", "max_quality", "gpu_combo"],
                         help="Preset profile for optimization behavior.")
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 8) // 2), help="OR-Tools worker threads.")
     parser.add_argument("--warmup", type=int, default=1, help="Warmup runs.")
