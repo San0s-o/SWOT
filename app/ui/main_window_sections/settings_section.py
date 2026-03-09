@@ -1,10 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, QThreadPool, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
@@ -23,6 +25,7 @@ from app.ui.dpi import dp
 
 _ABOUT_CREATOR = "San0s"
 _ABOUT_DISCORD = "san0s"
+_CLOUD_OPTIN_KEY = "cloud_learning_enabled_full"
 
 
 def _open_discord_dm(window) -> None:
@@ -34,6 +37,41 @@ def _open_discord_dm(window) -> None:
         window.statusBar().showMessage(tr("settings.discord_opened", handle=_ABOUT_DISCORD), 6000)
     else:
         window.statusBar().showMessage(tr("settings.discord_open_failed", handle=_ABOUT_DISCORD), 6000)
+
+
+def _settings_path(window) -> Path:
+    return Path(window.config_dir) / "app_settings.json"
+
+
+def _load_app_settings(window) -> dict:
+    path = _settings_path(window)
+    if not path.exists():
+        return {}
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return dict(data)
+    except Exception:
+        return {}
+    return {}
+
+
+def _save_app_settings(window, updates: dict) -> None:
+    data = _load_app_settings(window)
+    data.update(dict(updates or {}))
+    path = _settings_path(window)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _cloud_learning_optin(window) -> bool:
+    data = _load_app_settings(window)
+    return bool(data.get(_CLOUD_OPTIN_KEY, True))
+
+
+def _set_cloud_learning_optin(window, enabled: bool) -> None:
+    _save_app_settings(window, {_CLOUD_OPTIN_KEY: bool(enabled)})
 
 
 # ================================================================
@@ -92,6 +130,18 @@ def init_settings_ui(window) -> None:
 
     window.lbl_settings_license_feedback = QLabel("")
     license_layout.addWidget(window.lbl_settings_license_feedback)
+
+    window.chk_settings_cloud_learning = QCheckBox(tr("settings.cloud_learning_optin"))
+    window.chk_settings_cloud_learning.setChecked(_cloud_learning_optin(window))
+    window.chk_settings_cloud_learning.toggled.connect(
+        lambda checked: on_settings_cloud_learning_toggled(window, bool(checked))
+    )
+    license_layout.addWidget(window.chk_settings_cloud_learning)
+
+    window.lbl_settings_cloud_learning_hint = QLabel("")
+    window.lbl_settings_cloud_learning_hint.setWordWrap(True)
+    license_layout.addWidget(window.lbl_settings_cloud_learning_hint)
+
     main_layout.addWidget(window.grp_settings_license)
 
     # --- Section 3: Language ------------------------------------
@@ -257,6 +307,8 @@ def refresh_settings_license_status(window) -> None:
     if not key:
         window.lbl_settings_license_type.setText(tr("settings.label_no_license"))
         window.lbl_settings_license_key.setText("")
+        window.chk_settings_cloud_learning.setVisible(False)
+        window.lbl_settings_cloud_learning_hint.setText("")
         return
 
     # Mask key: show first 5 and last 4 chars
@@ -266,7 +318,10 @@ def refresh_settings_license_status(window) -> None:
         masked = key
     window.lbl_settings_license_key.setText(tr("settings.label_license_key", license_key=masked))
 
-    if "trial" in license_type.lower():
+    is_trial = "trial" in license_type.lower()
+    is_full = bool(license_type) and not is_trial
+
+    if is_trial:
         if expires_at:
             remaining = _format_trial_remaining(expires_at)
             type_text = tr("settings.label_license_type_trial", remaining=remaining)
@@ -275,9 +330,20 @@ def refresh_settings_license_status(window) -> None:
     elif license_type:
         type_text = tr("settings.label_license_type_full")
     else:
-        type_text = license_type or "—"
+        type_text = license_type or "â€”"
 
     window.lbl_settings_license_type.setText(tr("settings.label_license_type", type=type_text))
+    if is_full:
+        enabled = _cloud_learning_optin(window)
+        window.chk_settings_cloud_learning.blockSignals(True)
+        window.chk_settings_cloud_learning.setChecked(bool(enabled))
+        window.chk_settings_cloud_learning.blockSignals(False)
+        window.chk_settings_cloud_learning.setVisible(True)
+        window.chk_settings_cloud_learning.setEnabled(True)
+        window.lbl_settings_cloud_learning_hint.setText(tr("settings.cloud_learning_optin_hint"))
+    else:
+        window.chk_settings_cloud_learning.setVisible(False)
+        window.lbl_settings_cloud_learning_hint.setText(tr("settings.cloud_learning_optin_unavailable"))
 
 
 def _refresh_settings_about(window) -> None:
@@ -298,7 +364,7 @@ def _refresh_settings_about(window) -> None:
     elif license_type:
         about_license_type = tr("settings.label_license_type_full")
     else:
-        about_license_type = "—"
+        about_license_type = "â€”"
     window.lbl_settings_about_license.setText(tr("settings.about_license", type=about_license_type))
     window.lbl_settings_about_creator.setText(tr("settings.about_creator", name=_ABOUT_CREATOR))
     window.lbl_settings_about_discord.setText(tr("settings.about_discord", handle=_ABOUT_DISCORD))
@@ -313,6 +379,23 @@ def _refresh_settings_about(window) -> None:
 # ================================================================
 # Actions
 # ================================================================
+
+def on_settings_cloud_learning_toggled(window, enabled: bool) -> None:
+    from app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        window.chk_settings_cloud_learning.blockSignals(True)
+        window.chk_settings_cloud_learning.setChecked(False)
+        window.chk_settings_cloud_learning.blockSignals(False)
+        window.statusBar().showMessage(tr("settings.cloud_learning_optin_unavailable"), 5000)
+        return
+
+    _set_cloud_learning_optin(window, bool(enabled))
+    if bool(enabled):
+        window.statusBar().showMessage(tr("settings.cloud_learning_saved_on"), 4000)
+    else:
+        window.statusBar().showMessage(tr("settings.cloud_learning_saved_off"), 4000)
+
 
 def on_settings_import_json(window) -> None:
     window.on_import()
@@ -502,6 +585,7 @@ def retranslate_settings(window) -> None:
 
     window.grp_settings_license.setTitle(tr("settings.group_license"))
     window.btn_settings_activate.setText(tr("btn.activate"))
+    window.chk_settings_cloud_learning.setText(tr("settings.cloud_learning_optin"))
 
     window.grp_settings_language.setTitle(tr("settings.group_language"))
     window.lbl_settings_language.setText(tr("settings.label_language"))
@@ -530,3 +614,4 @@ def retranslate_settings(window) -> None:
         window.combo_settings_language.blockSignals(True)
         window.combo_settings_language.setCurrentIndex(idx)
         window.combo_settings_language.blockSignals(False)
+

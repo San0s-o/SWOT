@@ -31,6 +31,7 @@ Runen-Optimierer und Team-Builder für Summoners War. Verteilt Runen und Artefak
 | **Team Builder** | Eigene Teams für PvE oder sonstige Planung |
 | **Build-Presets** | Pro Monster: erlaubte Sets, Mainstats, Artefakt-Substats, Min-Stats, Priorität, Turn-Order |
 | **Runen-Optimierung** | Automatische Zuweisung via OR-Tools Constraint Solver, inkl. Artefakt-Zuweisung |
+| **Cloud Learning (Full)** | `gpu_combo` kann für Full-Lizenzen anonymisierte Lernmetriken hochladen und kontextbezogene globale Priors laden (Trial bleibt lokal) |
 | **Optimierungen speichern** | Ergebnisse werden gespeichert und können jederzeit eingesehen und verglichen werden |
 
 ---
@@ -137,7 +138,7 @@ Bei `Fast` und `Balanced` ist die **Drag & Drop Reihenfolge** in der Monsterlist
 ### Arena Rush Besonderheiten
 
 - Kein Multi-Pass (Durchläufe-Steuerung ist ausgeblendet)
-- Nur Profile **Max Qualität** und **Ultra (langsam)** verfügbar
+- Nur Profile **KI (GPU/CPU)** und **Max Qualität** verfügbar
 - Optimiert alle Offense-Teams gleichzeitig gegen die definierte Defense
 
 ---
@@ -156,8 +157,8 @@ Bei `Fast` und `Balanced` ist die **Drag & Drop Reihenfolge** in der Monsterlist
 
 | Profil | Beschreibung |
 |---|---|
+| `KI (GPU/CPU)` | GPU-Combo-Profil (hybride GPU/CPU-Suche) für Arena-Rush Defense/Offense |
 | `Max Qualität` | Globale OR-Tools-Optimierung über alle Offense-Teams |
-| `Ultra (langsam)` | Erweiterter Suchraum, höhere Qualität, längere Laufzeit |
 
 ---
 
@@ -171,6 +172,28 @@ Bei `Fast` und `Balanced` ist die **Drag & Drop Reihenfolge** in der Monsterlist
 ## Lizenz
 
 Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Eingabe aufgefordert. Der Key wird einmalig online aktiviert und an dein Gerät gebunden. Lizenz und Key sind im **Einstellungen**-Tab einsehbar und verwaltbar.
+
+## Cloud Learning (Full-Lizenz)
+
+- Nur **Full-Lizenzen** nehmen am Cloud-Learning teil.
+- **Trial-Lizenzen** nutzen weiterhin nur lokales Lernen (kein Upload/Download von Trainingsdaten).
+- Gespeichert werden nur abgeleitete Optimizer-Metriken (KPIs/Gewichtsvektor), keine kompletten Account-Dumps.
+
+Supabase Setup:
+
+```bash
+-- zuerst:
+supabase/sql/license_schema.sql
+-- danach:
+supabase/sql/cloud_learning_schema.sql
+```
+
+Deploy der zusätzlichen Edge Functions:
+
+```bash
+supabase functions deploy learning_upload
+supabase functions deploy learning_priors
+```
 
 ---
 

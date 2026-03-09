@@ -611,6 +611,11 @@ STRINGS: dict[str, str] = {
     "settings.label_no_license": "No license active.",
     "settings.license_activated": "License activated successfully.",
     "settings.license_activation_failed": "Activation failed: {message}",
+    "settings.cloud_learning_optin": "Enable cloud learning (share data online to improve)",
+    "settings.cloud_learning_optin_hint": "Full license only: if disabled, learning remains fully local.",
+    "settings.cloud_learning_optin_unavailable": "Cloud learning is available for full licenses only.",
+    "settings.cloud_learning_saved_on": "Cloud learning enabled.",
+    "settings.cloud_learning_saved_off": "Cloud learning disabled (local only).",
 
     "settings.label_language": "Language:",
 

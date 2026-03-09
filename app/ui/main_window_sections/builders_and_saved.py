@@ -311,7 +311,8 @@ def init_siege_builder_ui(window) -> None:
     window.combo_quality_profile_siege.addItem("Balanced", "balanced")
     window.combo_quality_profile_siege.addItem("Max Qualität", "max_quality")
     window.combo_quality_profile_siege.addItem("KI (GPU/CPU)", "gpu_combo")
-    window.combo_quality_profile_siege.setCurrentIndex(1)
+    idx_gpu_siege = window.combo_quality_profile_siege.findData("gpu_combo")
+    window.combo_quality_profile_siege.setCurrentIndex(idx_gpu_siege if idx_gpu_siege >= 0 else 0)
     window.combo_quality_profile_siege.currentIndexChanged.connect(window._sync_worker_controls)
     window.lbl_siege_profile = QLabel("Profil")
     btn_row.addWidget(_make_settings_frame(
@@ -411,7 +412,8 @@ def init_wgb_builder_ui(window) -> None:
     window.combo_quality_profile_wgb.addItem("Balanced", "balanced")
     window.combo_quality_profile_wgb.addItem("Max Qualität", "max_quality")
     window.combo_quality_profile_wgb.addItem("KI (GPU/CPU)", "gpu_combo")
-    window.combo_quality_profile_wgb.setCurrentIndex(1)
+    idx_gpu_wgb = window.combo_quality_profile_wgb.findData("gpu_combo")
+    window.combo_quality_profile_wgb.setCurrentIndex(idx_gpu_wgb if idx_gpu_wgb >= 0 else 0)
     window.combo_quality_profile_wgb.currentIndexChanged.connect(window._sync_worker_controls)
     window.lbl_wgb_profile = QLabel("Profil")
     btn_row.addWidget(_make_settings_frame(
@@ -507,7 +509,8 @@ def init_rta_builder_ui(window) -> None:
     window.combo_quality_profile_rta.addItem("Balanced", "balanced")
     window.combo_quality_profile_rta.addItem("Max Qualität", "max_quality")
     window.combo_quality_profile_rta.addItem("KI (GPU/CPU)", "gpu_combo")
-    window.combo_quality_profile_rta.setCurrentIndex(1)
+    idx_gpu_rta = window.combo_quality_profile_rta.findData("gpu_combo")
+    window.combo_quality_profile_rta.setCurrentIndex(idx_gpu_rta if idx_gpu_rta >= 0 else 0)
     window.combo_quality_profile_rta.currentIndexChanged.connect(window._sync_worker_controls)
     window.lbl_rta_profile = QLabel("Profil")
     btn_row.addWidget(_make_settings_frame(

@@ -985,9 +985,6 @@ def _arena_rush_defense_candidate_budget(
 ) -> int:
     profile = str(quality_profile or "").strip().lower()
     team_count = max(0, int(offense_team_count or 0))
-    if profile == "ultra_quality":
-        # Keep within practical runtime budget.
-        return max(2, min(8, int(4 + min(4, team_count))))
     if profile == "max_quality":
         return max(1, min(3, int(1 + min(2, team_count // 2))))
     return 1
@@ -1001,7 +998,7 @@ def on_optimize_arena_rush(window) -> None:
         QMessageBox.critical(window, tr("val.title_arena"), tr("dlg.validate_first", msg=msg))
         return
 
-    quality_profile = str(window.combo_quality_profile_arena_rush.currentData() or "balanced")
+    quality_profile = str(window.combo_quality_profile_arena_rush.currentData() or "gpu_combo")
     workers = window._effective_workers(quality_profile, window.combo_workers_arena_rush)
     running_text = tr("result.opt_running", mode=tr("arena_rush.mode"))
     window.lbl_arena_rush_validate.setText(running_text)
@@ -1087,19 +1084,20 @@ def on_optimize_arena_rush(window) -> None:
         progress_cb,
     ):
         profile_key = str(quality_profile).strip().lower()
-        solver_quality_profile = "max_quality" if profile_key in ("max_quality", "ultra_quality") else profile_key
+        offense_solver_profile = "max_quality" if profile_key == "max_quality" else profile_key
+        defense_solver_profile = "gpu_combo" if profile_key == "gpu_combo" else "max_quality"
         defense_candidate_count = _arena_rush_defense_candidate_budget(
             quality_profile=profile_key,
             offense_team_count=len(offense_payload),
         )
         # Runtime-tuned defaults: give offense solve enough room for strict
         # turn-order/tick/build constraints while keeping runtime practical.
-        if profile_key == "ultra_quality":
-            time_limit_per_unit_s = 3.0
-            offense_pass_count = 2
-        elif profile_key == "max_quality":
+        if profile_key == "max_quality":
             time_limit_per_unit_s = 2.5
             offense_pass_count = 2
+        elif profile_key == "gpu_combo":
+            time_limit_per_unit_s = 2.2
+            offense_pass_count = 1
         else:
             time_limit_per_unit_s = 2.0
             offense_pass_count = 1
@@ -1123,8 +1121,8 @@ def on_optimize_arena_rush(window) -> None:
             time_limit_per_unit_s=float(time_limit_per_unit_s),
             defense_pass_count=1,
             offense_pass_count=int(max(1, int(offense_pass_count))),
-            defense_quality_profile="max_quality",
-            offense_quality_profile=str(solver_quality_profile),
+            defense_quality_profile=str(defense_solver_profile),
+            offense_quality_profile=str(offense_solver_profile),
             defense_candidate_count=int(defense_candidate_count),
             rune_top_per_set=int(rune_top_per_set),
             # Keep Arena Rush local-only and user-cancellable without truncating

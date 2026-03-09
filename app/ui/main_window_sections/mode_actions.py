@@ -259,7 +259,7 @@ def on_optimize_siege(window) -> None:
     window._siege_optimization_running = True
     window.btn_optimize_siege.setEnabled(False)
     try:
-        quality_profile = str(window.combo_quality_profile_siege.currentData() or "balanced")
+        quality_profile = str(window.combo_quality_profile_siege.currentData() or "gpu_combo")
         pass_count = int(window.spin_multi_pass_siege.value())
         if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
             pass_count = 1
@@ -488,7 +488,7 @@ def on_edit_presets_wgb(window) -> None:
 def on_optimize_wgb(window) -> None:
     if not window.account:
         return
-    quality_profile = str(window.combo_quality_profile_wgb.currentData() or "balanced")
+    quality_profile = str(window.combo_quality_profile_wgb.currentData() or "gpu_combo")
     pass_count = int(window.spin_multi_pass_wgb.value())
     if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
         pass_count = 1
@@ -693,7 +693,7 @@ def on_edit_presets_rta(window) -> None:
 def on_optimize_rta(window) -> None:
     if not window.account:
         return
-    quality_profile = str(window.combo_quality_profile_rta.currentData() or "balanced")
+    quality_profile = str(window.combo_quality_profile_rta.currentData() or "gpu_combo")
     pass_count = int(window.spin_multi_pass_rta.value())
     if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
         pass_count = 1

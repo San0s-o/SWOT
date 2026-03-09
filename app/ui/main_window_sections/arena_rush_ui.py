@@ -229,9 +229,10 @@ def init_arena_rush_builder_ui(
     window._populate_worker_combo(window.combo_workers_arena_rush)
     window.lbl_arena_rush_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_arena_rush = QComboBox()
+    window.combo_quality_profile_arena_rush.addItem("KI (GPU/CPU)", "gpu_combo")
     window.combo_quality_profile_arena_rush.addItem("Max Qualität", "max_quality")
-    window.combo_quality_profile_arena_rush.addItem("Ultra (langsam)", "ultra_quality")
-    window.combo_quality_profile_arena_rush.setCurrentIndex(0)
+    idx_gpu_arena = window.combo_quality_profile_arena_rush.findData("gpu_combo")
+    window.combo_quality_profile_arena_rush.setCurrentIndex(idx_gpu_arena if idx_gpu_arena >= 0 else 0)
     window.combo_quality_profile_arena_rush.setEnabled(True)
     window.combo_quality_profile_arena_rush.currentIndexChanged.connect(window._sync_worker_controls)
     window.lbl_arena_rush_profile = QLabel("Profil")
@@ -250,4 +251,3 @@ def init_arena_rush_builder_ui(
     window.arena_rush_result_cards = SiegeDefCardsWidget()
     window.arena_rush_result_cards.setVisible(False)
     v.addWidget(window.arena_rush_result_cards, 1)
-

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Dict, List
 
@@ -135,14 +135,16 @@ def init_team_tab_ui(window) -> None:
     window.combo_quality_profile_team.addItem("Fast", "fast")
     window.combo_quality_profile_team.addItem("Balanced", "balanced")
     window.combo_quality_profile_team.addItem("Max Qualität", "max_quality")
-    window.combo_quality_profile_team.setCurrentIndex(1)
+    window.combo_quality_profile_team.addItem("KI (GPU/CPU)", "gpu_combo")
+    idx_gpu_team = window.combo_quality_profile_team.findData("gpu_combo")
+    window.combo_quality_profile_team.setCurrentIndex(idx_gpu_team if idx_gpu_team >= 0 else 0)
     window.combo_quality_profile_team.currentIndexChanged.connect(window._sync_worker_controls)
     pass_row.addWidget(window.combo_quality_profile_team)
     window._sync_worker_controls()
     pass_row.addStretch(1)
     layout.addLayout(pass_row)
 
-    window.lbl_team_opt_status = QLabel("—")
+    window.lbl_team_opt_status = QLabel("â€”")
     layout.addWidget(window.lbl_team_opt_status)
 
     window.lbl_team_units = QLabel(tr("label.import_account_first"))
@@ -275,7 +277,7 @@ def optimize_team(window) -> None:
     if not window.account or not team:
         QMessageBox.warning(window, tr("label.team"), tr("dlg.load_import_and_team"))
         return
-    quality_profile = str(window.combo_quality_profile_team.currentData() or "balanced")
+    quality_profile = str(window.combo_quality_profile_team.currentData() or "gpu_combo")
     pass_count = int(window.spin_multi_pass_team.value())
     if str(quality_profile or "").strip().lower() in ("max_quality", "ultra_quality"):
         pass_count = 1
@@ -366,3 +368,4 @@ def ensure_siege_team_defaults(window) -> None:
         added = True
     if added:
         window.team_store.save(window.team_config_path)
+

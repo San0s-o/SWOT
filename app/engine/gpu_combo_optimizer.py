@@ -1,4 +1,4 @@
-"""GPU-native rune/artifact combination optimizer.
+﻿"""GPU-native rune/artifact combination optimizer.
 
 Uses numpy for vectorised scoring and optional onnxruntime-directml for
 GPU-parallel evaluation of candidate rune+artifact combinations.  Falls back
@@ -10,7 +10,7 @@ Fully GPU-native approach (no OR-Tools in the loop):
 3.  For each unit, generate massive batches of random + heuristic-guided
     rune+artifact combinations (evolutionary search).
 4.  Evaluate all combinations in one vectorised pass: set validation, mainstat
-    check, speed tick bounds, min stat thresholds, scoring – on GPU if available.
+    check, speed tick bounds, min stat thresholds, scoring â€“ on GPU if available.
 5.  Build GreedyUnitResult directly from the best GPU-found combination.
 6.  Persist per-account learning data so the scoring weights improve over time.
 """
@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import json
 import random
+import hashlib
+import statistics
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -54,6 +56,7 @@ from app.engine.greedy_optimizer import (
     _run_pass_with_profile,
 )
 from app.i18n import tr
+from app.services.cloud_learning_service import fetch_cloud_prior, upload_learning_run
 
 # ---------------------------------------------------------------------------
 # Stat IDs used for the fixed-size encoding vector
@@ -93,6 +96,24 @@ _ART_VEC_LEN = 4
 _LEARN_DIR = Path(__file__).resolve().parents[1] / "data" / "gpu_learn"
 _WEIGHTS_PATH = _LEARN_DIR / "scoring_weights.json"
 _HISTORY_PATH = _LEARN_DIR / "history.jsonl"
+_WEIGHTS_SCHEMA_VERSION = 2
+_GLOBAL_CONTEXT_KEY = "global"
+_MIN_HISTORY_FOR_CANDIDATE = 6
+_MIN_HISTORY_FOR_AB = 8
+_MAX_REPLAY_CASES = 2
+_AB_ACCEPT_MARGIN = 0.002
+_AB_MAX_RUNE_EFF_DROP = 0.30
+_AB_MAX_OK_RATIO_DROP = 0.0
+_CLOUD_ALPHA_MIN = 0.05
+_CLOUD_ALPHA_MAX = 0.60
+_ADAPTIVE_HISTORY_WINDOW = 24
+_ADAPTIVE_MIN_BATCH_GPU = 80_000
+_ADAPTIVE_MAX_BATCH_GPU = 900_000
+_ADAPTIVE_MIN_BATCH_CPU = 60_000
+_ADAPTIVE_MAX_BATCH_CPU = 500_000
+_ADAPTIVE_DEFAULT_SOLVER_TOP = 80
+_ADAPTIVE_MIN_SOLVER_TOP = 50
+_ADAPTIVE_MAX_SOLVER_TOP = 150
 
 # Combination batch sizes for GPU pre-screening
 _GPU_BATCH_SIZE = 500_000
@@ -101,7 +122,7 @@ _CPU_BATCH_SIZE = 300_000
 # How many top-K elite combinations to maintain per unit
 _ELITE_SIZE = 300
 
-# Mainstat key → effect_id reverse mapping
+# Mainstat key â†’ effect_id reverse mapping
 _MAINSTAT_KEY_TO_ID: Dict[str, int] = {v: k for k, v in EFFECT_ID_TO_MAINSTAT_KEY.items()}
 
 
@@ -188,7 +209,7 @@ def _get_gpu_scorer(provider: str) -> _GpuScorer:
 
 
 # ---------------------------------------------------------------------------
-# Rune → numpy vector encoding
+# Rune â†’ numpy vector encoding
 # ---------------------------------------------------------------------------
 def _encode_rune(r: Rune) -> np.ndarray:
     """Encode a single rune into a fixed-size float32 vector."""
@@ -236,7 +257,7 @@ def _encode_artifacts(arts: List[Artifact]) -> np.ndarray:
 # ---------------------------------------------------------------------------
 @dataclass
 class ScoringWeights:
-    stat_weights: np.ndarray  # shape (_N_STATS,) – per-stat importance
+    stat_weights: np.ndarray  # shape (_N_STATS,) â€“ per-stat importance
     quality_weight: float
     efficiency_weight: float
     set_bonus_weight: float
@@ -254,7 +275,7 @@ class ScoringWeights:
             6.0,   # ATK%
             0.5,   # DEF flat
             6.0,   # DEF%
-            10.0,  # SPD – moderate (solver handles speed precisely)
+            10.0,  # SPD â€“ moderate (solver handles speed precisely)
             8.0,   # CR
             7.0,   # CD
             3.0,   # RES
@@ -268,33 +289,82 @@ class ScoringWeights:
             speed_priority=1.0,   # low: let solver optimise speed
         )
 
-    def save(self) -> None:
-        _LEARN_DIR.mkdir(parents=True, exist_ok=True)
-        data = {
+    def to_json_dict(self) -> Dict[str, Any]:
+        return {
             "stat_weights": self.stat_weights.tolist(),
             "quality_weight": self.quality_weight,
             "efficiency_weight": self.efficiency_weight,
             "set_bonus_weight": self.set_bonus_weight,
             "speed_priority": self.speed_priority,
         }
-        _WEIGHTS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     @classmethod
-    def load(cls) -> "ScoringWeights":
+    def from_json_dict(cls, raw: Dict[str, Any]) -> "ScoringWeights":
+        sw = np.array(raw.get("stat_weights", []), dtype=np.float32)
+        if len(sw) != _N_STATS:
+            return cls.default()
+        return cls(
+            stat_weights=sw,
+            quality_weight=float(raw.get("quality_weight", 3.0)),
+            efficiency_weight=float(raw.get("efficiency_weight", 12.0)),
+            set_bonus_weight=float(raw.get("set_bonus_weight", 2.0)),
+            speed_priority=float(raw.get("speed_priority", 1.0)),
+        )
+
+    def save(self, context_key: str = _GLOBAL_CONTEXT_KEY) -> None:
+        _LEARN_DIR.mkdir(parents=True, exist_ok=True)
+        store: Dict[str, Any] = {
+            "version": int(_WEIGHTS_SCHEMA_VERSION),
+            "global": ScoringWeights.default().to_json_dict(),
+            "contexts": {},
+        }
+        if _WEIGHTS_PATH.exists():
+            try:
+                raw = json.loads(_WEIGHTS_PATH.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    # v1 compatibility: single top-level weight object
+                    if "stat_weights" in raw:
+                        store["global"] = dict(raw)
+                    else:
+                        store["global"] = dict(raw.get("global") or store["global"])
+                        ctx_raw = raw.get("contexts")
+                        if isinstance(ctx_raw, dict):
+                            store["contexts"] = dict(ctx_raw)
+            except Exception:
+                pass
+
+        ctx = str(context_key or _GLOBAL_CONTEXT_KEY).strip().lower() or _GLOBAL_CONTEXT_KEY
+        if ctx == _GLOBAL_CONTEXT_KEY:
+            store["global"] = self.to_json_dict()
+        else:
+            contexts = dict(store.get("contexts") or {})
+            contexts[ctx] = self.to_json_dict()
+            store["contexts"] = contexts
+        _WEIGHTS_PATH.write_text(json.dumps(store, indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, context_key: str = _GLOBAL_CONTEXT_KEY) -> "ScoringWeights":
         if not _WEIGHTS_PATH.exists():
             return cls.default()
         try:
             raw = json.loads(_WEIGHTS_PATH.read_text(encoding="utf-8"))
-            sw = np.array(raw["stat_weights"], dtype=np.float32)
-            if len(sw) != _N_STATS:
+            if not isinstance(raw, dict):
                 return cls.default()
-            return cls(
-                stat_weights=sw,
-                quality_weight=float(raw.get("quality_weight", 1.0)),
-                efficiency_weight=float(raw.get("efficiency_weight", 6.0)),
-                set_bonus_weight=float(raw.get("set_bonus_weight", 1.0)),
-                speed_priority=float(raw.get("speed_priority", 2.0)),
-            )
+            # v1 compatibility: single top-level weight object
+            if "stat_weights" in raw:
+                return cls.from_json_dict(raw)
+
+            ctx = str(context_key or _GLOBAL_CONTEXT_KEY).strip().lower() or _GLOBAL_CONTEXT_KEY
+            contexts = raw.get("contexts")
+            if isinstance(contexts, dict):
+                ctx_payload = contexts.get(ctx)
+                if isinstance(ctx_payload, dict):
+                    return cls.from_json_dict(ctx_payload)
+
+            global_payload = raw.get("global")
+            if isinstance(global_payload, dict):
+                return cls.from_json_dict(global_payload)
+            return cls.default()
         except Exception:
             return cls.default()
 
@@ -310,6 +380,53 @@ class ScoringWeights:
             set_bonus_weight=max(0.0, self.set_bonus_weight + rng.gauss(0, scale)),
             speed_priority=max(0.0, self.speed_priority + rng.gauss(0, scale)),
         )
+
+
+def _canonical_role_label(archetype: str) -> str:
+    raw = str(archetype or "").strip().lower()
+    if not raw:
+        return "unknown"
+    if "rueckhalt" in raw or "rÃ¼ckhalt" in raw or "support" in raw or "heal" in raw:
+        return "support"
+    if "tank" in raw or "def" in raw or "schutz" in raw:
+        return "defense"
+    if "hp" in raw:
+        return "hp"
+    if "atk" in raw or "angriff" in raw or "damage" in raw or "dd" in raw:
+        return "attack"
+    return "unknown"
+
+
+def _unit_count_bucket(n_units: int) -> str:
+    n = int(max(0, n_units))
+    if n <= 3:
+        return "u1_3"
+    if n <= 6:
+        return "u4_6"
+    if n <= 10:
+        return "u7_10"
+    return "u11p"
+
+
+def _learning_context_key(req: GreedyRequest) -> str:
+    mode = str(getattr(req, "mode", "") or "").strip().lower() or "unknown_mode"
+    unit_ids = [int(u) for u in (req.unit_ids_in_order or []) if int(u) > 0]
+    role_counts: Dict[str, int] = {}
+    role_map = dict(getattr(req, "unit_archetype_by_uid", {}) or {})
+    for uid in unit_ids:
+        role = _canonical_role_label(str(role_map.get(int(uid), "") or ""))
+        role_counts[role] = int(role_counts.get(role, 0) + 1)
+    ordered_roles = sorted(role_counts.items(), key=lambda x: (-int(x[1]), str(x[0])))
+    if not ordered_roles:
+        role_sig = "unknown0"
+    else:
+        role_sig = "+".join(f"{str(name)}{int(cnt)}" for name, cnt in ordered_roles[:3])
+
+    arena_ctx = str(getattr(req, "arena_rush_context", "") or "").strip().lower()
+    arena_sig = arena_ctx if arena_ctx else "none"
+    turn_sig = "to1" if bool(getattr(req, "enforce_turn_order", False)) else "to0"
+    bucket = _unit_count_bucket(len(unit_ids))
+    return f"mode={mode}|units={bucket}|{turn_sig}|arena={arena_sig}|roles={role_sig}"
 
 
 # ---------------------------------------------------------------------------
@@ -401,7 +518,7 @@ def _filter_runes_by_mainstat(
 # ---------------------------------------------------------------------------
 def _score_combinations_full(
     slot_matrices: Dict[int, np.ndarray],  # slot -> (N_slot, _VEC_LEN)
-    combo_indices: np.ndarray,             # (batch, 6) – indices into slot matrices
+    combo_indices: np.ndarray,             # (batch, 6) â€“ indices into slot matrices
     art1_matrix: Optional[np.ndarray],     # (N_art1, _ART_VEC_LEN) or None
     art2_matrix: Optional[np.ndarray],     # (N_art2, _ART_VEC_LEN) or None
     art1_indices: Optional[np.ndarray],    # (batch,) or None
@@ -1002,7 +1119,7 @@ def _append_history(entry: Dict[str, Any]) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _load_history(max_entries: int = 200) -> List[Dict[str, Any]]:
+def _load_history(max_entries: int = 400) -> List[Dict[str, Any]]:
     if not _HISTORY_PATH.exists():
         return []
     entries: List[Dict[str, Any]] = []
@@ -1017,20 +1134,662 @@ def _load_history(max_entries: int = 200) -> List[Dict[str, Any]]:
     return entries[-max_entries:]
 
 
-def _update_weights_from_history(current: ScoringWeights) -> ScoringWeights:
-    """Simple online learning: try perturbations, keep if historical score improved."""
-    history = _load_history(50)
-    if len(history) < 3:
-        return current
-    recent_scores = [float(h.get("best_score", 0)) for h in history[-10:]]
-    if len(recent_scores) < 2:
-        return current
-    improving = all(recent_scores[i] <= recent_scores[i + 1] for i in range(len(recent_scores) - 1))
-    if improving:
-        return current
-    rng = random.Random(int(time.time()))
-    candidate = current.perturb(rng, scale=0.05)
-    candidate.save()
+def _history_for_context(context_key: str, max_entries: int = 240) -> List[Dict[str, Any]]:
+    key = str(context_key or "").strip().lower()
+    out: List[Dict[str, Any]] = []
+    for h in _load_history(max_entries=max_entries * 2):
+        ctx = str((h or {}).get("context_key", "") or "").strip().lower()
+        if key and ctx == key:
+            out.append(dict(h or {}))
+    return out[-max_entries:]
+
+
+def _float_or(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _int_or(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+@dataclass
+class _GpuComboAdaptivePlan:
+    batch_size: int
+    time_budget_s: float
+    pass_time_s: float
+    pass_limit: int
+    solver_top_per_set: int
+    extra_rune_cap: int
+    early_stop_patience: int
+    min_passes: int
+    history_run_count: int
+
+
+def _clamp_int(value: int, lo: int, hi: int) -> int:
+    return max(int(lo), min(int(hi), int(value)))
+
+
+def _run_history_rows_for_adaptation(context_history: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for row in list(context_history or []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("kind", "run") or "run").strip().lower() != "run":
+            continue
+        rows.append(dict(row))
+    return rows[-int(_ADAPTIVE_HISTORY_WINDOW):]
+
+
+def _adaptive_plan_for_run(
+    req: GreedyRequest,
+    unit_ids: List[int],
+    has_gpu: bool,
+    context_history: List[Dict[str, Any]] | None,
+) -> _GpuComboAdaptivePlan:
+    unit_count = max(1, len([int(u) for u in list(unit_ids or []) if int(u) > 0]))
+    base_batch = int(_GPU_BATCH_SIZE if has_gpu else _CPU_BATCH_SIZE)
+    base_batch = max(1, int(base_batch // max(1, unit_count // 3)))
+    min_batch = int(_ADAPTIVE_MIN_BATCH_GPU if has_gpu else _ADAPTIVE_MIN_BATCH_CPU)
+    max_batch = int(_ADAPTIVE_MAX_BATCH_GPU if has_gpu else _ADAPTIVE_MAX_BATCH_CPU)
+    batch_size = _clamp_int(base_batch, min_batch, max_batch)
+
+    req_time = max(0.4, float(getattr(req, "time_limit_per_unit_s", 1.0) or 1.0))
+    time_budget_s = float(req_time * unit_count * 4.0)
+    pass_limit = int(min(8, max(3, unit_count)))
+    pass_time_s = float(max(0.5, req_time * 0.7))
+    solver_top_per_set = int(max(_ADAPTIVE_MIN_SOLVER_TOP, int(_ADAPTIVE_DEFAULT_SOLVER_TOP)))
+    req_top = int(getattr(req, "rune_top_per_set", 0) or 0)
+    if req_top > 0:
+        solver_top_per_set = int(_clamp_int(req_top, _ADAPTIVE_MIN_SOLVER_TOP, _ADAPTIVE_MAX_SOLVER_TOP))
+
+    extra_rune_cap = int(max(900, unit_count * 320))
+    early_stop_patience = 2
+    min_passes = int(max(2, min(3, pass_limit)))
+
+    runs = _run_history_rows_for_adaptation(context_history)
+    if not runs:
+        return _GpuComboAdaptivePlan(
+            batch_size=int(batch_size),
+            time_budget_s=float(time_budget_s),
+            pass_time_s=float(pass_time_s),
+            pass_limit=int(pass_limit),
+            solver_top_per_set=int(solver_top_per_set),
+            extra_rune_cap=int(extra_rune_cap),
+            early_stop_patience=int(early_stop_patience),
+            min_passes=int(min_passes),
+            history_run_count=0,
+        )
+
+    total_s_vals = [
+        max(0.0, float(_float_or((row or {}).get("total_ms"), 0.0)) / 1000.0)
+        for row in runs
+        if _float_or((row or {}).get("total_ms"), 0.0) > 0.0
+    ]
+    phase1_s_vals = [
+        max(0.0, float(_float_or((row or {}).get("phase1_ms"), 0.0)) / 1000.0)
+        for row in runs
+        if _float_or((row or {}).get("phase1_ms"), 0.0) > 0.0
+    ]
+    ok_ratio_vals = [
+        _float_or((row or {}).get("kpis", {}).get("ok_ratio"), 0.0)
+        for row in runs
+        if isinstance((row or {}).get("kpis"), dict)
+    ]
+    gpu_runes_found_vals = [
+        max(0, int(_int_or((row or {}).get("gpu_runes_found"), 0)))
+        for row in runs
+        if _int_or((row or {}).get("gpu_runes_found"), 0) > 0
+    ]
+
+    med_total_s = float(statistics.median(total_s_vals)) if total_s_vals else 0.0
+    med_phase1_s = float(statistics.median(phase1_s_vals)) if phase1_s_vals else 0.0
+    med_ok_ratio = float(statistics.median(ok_ratio_vals)) if ok_ratio_vals else 0.0
+    med_gpu_runes = float(statistics.median(gpu_runes_found_vals)) if gpu_runes_found_vals else 0.0
+
+    runtime_ratio = float(med_total_s / max(1e-6, time_budget_s)) if med_total_s > 0.0 else 0.0
+    phase1_ratio = float(med_phase1_s / max(1e-6, med_total_s)) if med_total_s > 0.0 else 0.0
+
+    batch_scale = 1.0
+    if runtime_ratio > 1.25:
+        batch_scale *= 0.70
+        pass_limit = max(3, int(pass_limit - 2))
+        pass_time_s = max(0.5, float(pass_time_s * 0.85))
+        solver_top_per_set = max(_ADAPTIVE_MIN_SOLVER_TOP, int(solver_top_per_set - 20))
+        extra_rune_cap = int(extra_rune_cap * 0.75)
+    elif runtime_ratio > 0.95:
+        batch_scale *= 0.85
+        pass_limit = max(3, int(pass_limit - 1))
+        pass_time_s = max(0.5, float(pass_time_s * 0.9))
+        solver_top_per_set = max(_ADAPTIVE_MIN_SOLVER_TOP, int(solver_top_per_set - 10))
+    elif runtime_ratio < 0.55 and med_ok_ratio >= 0.92:
+        batch_scale *= 1.12
+        if med_ok_ratio < 0.985:
+            pass_limit = min(10, int(pass_limit + 1))
+
+    if med_ok_ratio < 0.80:
+        batch_scale *= 1.12
+        pass_limit = min(10, int(pass_limit + 1))
+        pass_time_s = max(0.5, float(pass_time_s * 1.10))
+        solver_top_per_set = min(_ADAPTIVE_MAX_SOLVER_TOP, int(solver_top_per_set + 20))
+        extra_rune_cap = int(extra_rune_cap * 1.20)
+        early_stop_patience = 3
+    elif med_ok_ratio >= 0.98:
+        early_stop_patience = 1
+
+    if phase1_ratio > 0.62 and runtime_ratio > 0.9:
+        batch_scale *= 0.88
+    if med_gpu_runes > float(extra_rune_cap * 1.5):
+        extra_rune_cap = int(max(600, extra_rune_cap * 0.85))
+
+    batch_size = _clamp_int(int(round(batch_size * batch_scale)), min_batch, max_batch)
+    solver_top_per_set = _clamp_int(int(solver_top_per_set), _ADAPTIVE_MIN_SOLVER_TOP, _ADAPTIVE_MAX_SOLVER_TOP)
+    pass_limit = _clamp_int(int(pass_limit), 3, 10)
+    min_passes = _clamp_int(
+        int(max(2, min(min_passes, pass_limit - int(max(0, early_stop_patience - 1))))),
+        2,
+        pass_limit,
+    )
+    extra_rune_cap = _clamp_int(int(extra_rune_cap), 500, 5000)
+
+    return _GpuComboAdaptivePlan(
+        batch_size=int(batch_size),
+        time_budget_s=float(time_budget_s),
+        pass_time_s=float(max(0.5, pass_time_s)),
+        pass_limit=int(pass_limit),
+        solver_top_per_set=int(solver_top_per_set),
+        extra_rune_cap=int(extra_rune_cap),
+        early_stop_patience=int(_clamp_int(early_stop_patience, 1, 4)),
+        min_passes=int(min_passes),
+        history_run_count=int(len(runs)),
+    )
+
+
+def _cap_extra_gpu_runes(extra_runes: List[Rune], limit: int) -> List[Rune]:
+    cap = int(limit or 0)
+    if cap <= 0 or len(extra_runes) <= cap:
+        return list(extra_runes or [])
+    ranked = sorted(
+        list(extra_runes or []),
+        key=lambda r: (
+            float(rune_efficiency(r)),
+            float(_rune_quality_score(r, 0, None)),
+            float(_rune_flat_spd(r)),
+        ),
+        reverse=True,
+    )
+    return ranked[:cap]
+
+
+def _result_kpis(account: AccountData, results: List[GreedyUnitResult]) -> Dict[str, float]:
+    runes_by_id = account.runes_by_id()
+    artifacts_by_id: Dict[int, Artifact] = {
+        int(a.artifact_id): a for a in list(account.artifacts or [])
+    }
+    ok_rows = [r for r in (results or []) if bool(getattr(r, "ok", False))]
+    total_units = int(len(results or []))
+    ok_units = int(len(ok_rows))
+    ok_ratio = float(ok_units / max(1, total_units))
+    speeds = [int(getattr(r, "final_speed", 0) or 0) for r in ok_rows]
+
+    rune_eff: List[float] = []
+    art_eff: List[float] = []
+    for row in ok_rows:
+        for rid in dict(getattr(row, "runes_by_slot", {}) or {}).values():
+            rr = runes_by_id.get(int(rid or 0))
+            if rr is not None:
+                rune_eff.append(float(rune_efficiency(rr)))
+        for aid in dict(getattr(row, "artifacts_by_type", {}) or {}).values():
+            aa = artifacts_by_id.get(int(aid or 0))
+            if aa is not None:
+                art_eff.append(float(artifact_efficiency(aa)))
+
+    speed_sum = int(sum(speeds))
+    speed_mean = float(statistics.fmean(speeds)) if speeds else 0.0
+    rune_eff_mean = float(statistics.fmean(rune_eff)) if rune_eff else 0.0
+    rune_eff_median = float(statistics.median(rune_eff)) if rune_eff else 0.0
+    art_eff_mean = float(statistics.fmean(art_eff)) if art_eff else 0.0
+    art_eff_median = float(statistics.median(art_eff)) if art_eff else 0.0
+    return {
+        "ok_units": float(ok_units),
+        "total_units": float(total_units),
+        "ok_ratio": float(ok_ratio),
+        "speed_sum": float(speed_sum),
+        "speed_mean": float(speed_mean),
+        "rune_eff_mean": float(rune_eff_mean),
+        "rune_eff_median": float(rune_eff_median),
+        "artifact_eff_mean": float(art_eff_mean),
+        "artifact_eff_median": float(art_eff_median),
+    }
+
+
+def _learning_objective_from_kpis(kpis: Dict[str, Any]) -> float:
+    ok_ratio = _float_or((kpis or {}).get("ok_ratio"), 0.0)
+    rune_eff = _float_or((kpis or {}).get("rune_eff_mean"), 0.0)
+    art_eff = _float_or((kpis or {}).get("artifact_eff_mean"), 0.0)
+    speed_mean = _float_or((kpis or {}).get("speed_mean"), 0.0)
+    return (
+        (ok_ratio * 1_000_000.0)
+        + (rune_eff * 2_000.0)
+        + (art_eff * 700.0)
+        + (speed_mean * 5.0)
+    )
+
+
+def _kpis_safe_enough(
+    baseline_kpis: Dict[str, Any],
+    candidate_kpis: Dict[str, Any],
+) -> bool:
+    base_ok = _float_or((baseline_kpis or {}).get("ok_ratio"), 0.0)
+    cand_ok = _float_or((candidate_kpis or {}).get("ok_ratio"), 0.0)
+    if cand_ok + 1e-9 < (base_ok - float(_AB_MAX_OK_RATIO_DROP)):
+        return False
+    base_rune_eff = _float_or((baseline_kpis or {}).get("rune_eff_mean"), 0.0)
+    cand_rune_eff = _float_or((candidate_kpis or {}).get("rune_eff_mean"), 0.0)
+    if cand_rune_eff + 1e-9 < (base_rune_eff - float(_AB_MAX_RUNE_EFF_DROP)):
+        return False
+    return True
+
+
+def _jsonify(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _jsonify(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonify(v) for v in value]
+    if isinstance(value, np.generic):
+        try:
+            return value.item()
+        except Exception:
+            return str(value)
+    if isinstance(value, (int, float, str, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _int_key_dict(raw: Any) -> Dict[int, Any]:
+    out: Dict[int, Any] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        try:
+            ki = int(k)
+        except Exception:
+            continue
+        out[int(ki)] = v
+    return out
+
+
+def _int_int_dict(raw: Any) -> Dict[int, int]:
+    out: Dict[int, int] = {}
+    for k, v in _int_key_dict(raw).items():
+        vi = int(_int_or(v, 0))
+        if vi != 0:
+            out[int(k)] = int(vi)
+    return out
+
+
+def _int_nested_dict(raw: Any) -> Dict[int, Dict[int, int]]:
+    out: Dict[int, Dict[int, int]] = {}
+    for k, v in _int_key_dict(raw).items():
+        nested = _int_int_dict(v)
+        if nested:
+            out[int(k)] = nested
+    return out
+
+
+def _hint_map_from_raw(raw: Any) -> Dict[int, Dict[str, Any]]:
+    out: Dict[int, Dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for uid_raw, hint_raw in raw.items():
+        try:
+            uid = int(uid_raw)
+        except Exception:
+            continue
+        if not isinstance(hint_raw, dict):
+            continue
+        hint_obj: Dict[str, Any] = {}
+        for k, v in hint_raw.items():
+            key = str(k or "")
+            if isinstance(v, list):
+                vals: List[Any] = []
+                for x in v:
+                    try:
+                        vals.append(int(x))
+                    except Exception:
+                        vals.append(x)
+                hint_obj[key] = vals
+            else:
+                hint_obj[key] = v
+        out[int(uid)] = hint_obj
+    return out
+
+
+def _build_replay_payload(req: GreedyRequest) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "mode": str(req.mode or ""),
+        "unit_ids_in_order": [int(x) for x in list(req.unit_ids_in_order or []) if int(x) > 0],
+        "time_limit_per_unit_s": float(getattr(req, "time_limit_per_unit_s", 1.0) or 1.0),
+        "workers": int(getattr(req, "workers", 1) or 1),
+        "multi_pass_enabled": bool(getattr(req, "multi_pass_enabled", True)),
+        "multi_pass_count": int(getattr(req, "multi_pass_count", 1) or 1),
+        "multi_pass_strategy": str(getattr(req, "multi_pass_strategy", "greedy_refine") or "greedy_refine"),
+        "rune_top_per_set": int(getattr(req, "rune_top_per_set", 0) or 0),
+        "speed_slack_for_quality": int(getattr(req, "speed_slack_for_quality", 1) or 1),
+        "enforce_turn_order": bool(getattr(req, "enforce_turn_order", False)),
+        "arena_rush_context": str(getattr(req, "arena_rush_context", "") or ""),
+        "baseline_regression_guard_weight": int(
+            getattr(req, "baseline_regression_guard_weight", 0) or 0
+        ),
+        "unit_team_index": _jsonify(dict(getattr(req, "unit_team_index", {}) or {})),
+        "unit_team_turn_order": _jsonify(dict(getattr(req, "unit_team_turn_order", {}) or {})),
+        "unit_spd_leader_bonus_flat": _jsonify(dict(getattr(req, "unit_spd_leader_bonus_flat", {}) or {})),
+        "unit_archetype_by_uid": _jsonify(dict(getattr(req, "unit_archetype_by_uid", {}) or {})),
+        "unit_artifact_hints_by_uid": _jsonify(dict(getattr(req, "unit_artifact_hints_by_uid", {}) or {})),
+        "unit_team_has_spd_buff_by_uid": _jsonify(dict(getattr(req, "unit_team_has_spd_buff_by_uid", {}) or {})),
+        "unit_min_final_speed": _jsonify(dict(getattr(req, "unit_min_final_speed", {}) or {})),
+        "unit_max_final_speed": _jsonify(dict(getattr(req, "unit_max_final_speed", {}) or {})),
+        "unit_speed_tiebreak_weight": _jsonify(dict(getattr(req, "unit_speed_tiebreak_weight", {}) or {})),
+        "unit_fixed_runes_by_slot": _jsonify(dict(getattr(req, "unit_fixed_runes_by_slot", {}) or {})),
+        "unit_fixed_artifacts_by_type": _jsonify(dict(getattr(req, "unit_fixed_artifacts_by_type", {}) or {})),
+        "unit_baseline_runes_by_slot": _jsonify(dict(getattr(req, "unit_baseline_runes_by_slot", {}) or {})),
+        "unit_baseline_artifacts_by_type": _jsonify(dict(getattr(req, "unit_baseline_artifacts_by_type", {}) or {})),
+        "excluded_rune_ids": _jsonify(sorted(int(x) for x in (getattr(req, "excluded_rune_ids", None) or set()))),
+        "excluded_artifact_ids": _jsonify(sorted(int(x) for x in (getattr(req, "excluded_artifact_ids", None) or set()))),
+    }
+    return payload
+
+
+def _replay_payload_hash(payload: Dict[str, Any]) -> str:
+    src = json.dumps(_jsonify(payload), ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(src.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def _request_from_replay_payload(payload: Dict[str, Any]) -> GreedyRequest | None:
+    if not isinstance(payload, dict):
+        return None
+    unit_ids = [int(_int_or(x, 0)) for x in list(payload.get("unit_ids_in_order") or [])]
+    unit_ids = [int(x) for x in unit_ids if int(x) > 0]
+    if not unit_ids:
+        return None
+    return GreedyRequest(
+        mode=str(payload.get("mode", "") or ""),
+        unit_ids_in_order=list(unit_ids),
+        time_limit_per_unit_s=float(_float_or(payload.get("time_limit_per_unit_s"), 1.0)),
+        workers=max(1, int(_int_or(payload.get("workers"), 1))),
+        multi_pass_enabled=bool(payload.get("multi_pass_enabled", True)),
+        multi_pass_count=max(1, int(_int_or(payload.get("multi_pass_count"), 1))),
+        multi_pass_strategy=str(payload.get("multi_pass_strategy", "greedy_refine") or "greedy_refine"),
+        rune_top_per_set=max(0, int(_int_or(payload.get("rune_top_per_set"), 0))),
+        quality_profile="gpu_combo",
+        speed_slack_for_quality=max(0, int(_int_or(payload.get("speed_slack_for_quality"), 1))),
+        enforce_turn_order=bool(payload.get("enforce_turn_order", False)),
+        arena_rush_context=str(payload.get("arena_rush_context", "") or ""),
+        baseline_regression_guard_weight=max(
+            0, int(_int_or(payload.get("baseline_regression_guard_weight"), 0))
+        ),
+        unit_team_index=_int_int_dict(payload.get("unit_team_index")),
+        unit_team_turn_order=_int_int_dict(payload.get("unit_team_turn_order")),
+        unit_spd_leader_bonus_flat=_int_int_dict(payload.get("unit_spd_leader_bonus_flat")),
+        unit_archetype_by_uid={
+            int(k): str(v or "")
+            for k, v in _int_key_dict(payload.get("unit_archetype_by_uid")).items()
+        },
+        unit_artifact_hints_by_uid=_hint_map_from_raw(payload.get("unit_artifact_hints_by_uid")),
+        unit_team_has_spd_buff_by_uid={
+            int(k): bool(v) for k, v in _int_key_dict(payload.get("unit_team_has_spd_buff_by_uid")).items()
+        },
+        unit_min_final_speed=_int_int_dict(payload.get("unit_min_final_speed")),
+        unit_max_final_speed=_int_int_dict(payload.get("unit_max_final_speed")),
+        unit_speed_tiebreak_weight=_int_int_dict(payload.get("unit_speed_tiebreak_weight")),
+        unit_fixed_runes_by_slot=_int_nested_dict(payload.get("unit_fixed_runes_by_slot")),
+        unit_fixed_artifacts_by_type=_int_nested_dict(payload.get("unit_fixed_artifacts_by_type")),
+        unit_baseline_runes_by_slot=_int_nested_dict(payload.get("unit_baseline_runes_by_slot")),
+        unit_baseline_artifacts_by_type=_int_nested_dict(payload.get("unit_baseline_artifacts_by_type")),
+        excluded_rune_ids={
+            int(_int_or(x, 0))
+            for x in list(payload.get("excluded_rune_ids") or [])
+            if int(_int_or(x, 0)) > 0
+        } or None,
+        excluded_artifact_ids={
+            int(_int_or(x, 0))
+            for x in list(payload.get("excluded_artifact_ids") or [])
+            if int(_int_or(x, 0)) > 0
+        } or None,
+    )
+
+
+def _weights_to_vector(w: ScoringWeights) -> np.ndarray:
+    """Flatten ScoringWeights into a 1-D vector for BO (15 dims)."""
+    return np.concatenate([
+        w.stat_weights.astype(np.float64),  # 11 dims
+        np.array([w.quality_weight, w.efficiency_weight,
+                  w.set_bonus_weight, w.speed_priority], dtype=np.float64),
+    ])
+
+
+def _vector_to_weights(v: np.ndarray) -> ScoringWeights:
+    """Reconstruct ScoringWeights from a 1-D vector."""
+    return ScoringWeights(
+        stat_weights=np.maximum(0.0, v[:_N_STATS]).astype(np.float32),
+        quality_weight=max(0.0, float(v[_N_STATS])),
+        efficiency_weight=max(0.0, float(v[_N_STATS + 1])),
+        set_bonus_weight=max(0.0, float(v[_N_STATS + 2])),
+        speed_priority=max(0.0, float(v[_N_STATS + 3])),
+    )
+
+
+def _blend_scoring_weights(
+    local_weights: ScoringWeights,
+    cloud_weights: ScoringWeights,
+    alpha: float,
+) -> ScoringWeights:
+    mix = max(0.0, min(float(_CLOUD_ALPHA_MAX), float(alpha)))
+    local_mix = max(0.0, 1.0 - mix)
+    stat = (
+        local_weights.stat_weights.astype(np.float64) * local_mix
+        + cloud_weights.stat_weights.astype(np.float64) * mix
+    )
+    return ScoringWeights(
+        stat_weights=np.maximum(0.0, stat).astype(np.float32),
+        quality_weight=max(0.0, (local_weights.quality_weight * local_mix) + (cloud_weights.quality_weight * mix)),
+        efficiency_weight=max(
+            0.0, (local_weights.efficiency_weight * local_mix) + (cloud_weights.efficiency_weight * mix)
+        ),
+        set_bonus_weight=max(
+            0.0, (local_weights.set_bonus_weight * local_mix) + (cloud_weights.set_bonus_weight * mix)
+        ),
+        speed_priority=max(0.0, (local_weights.speed_priority * local_mix) + (cloud_weights.speed_priority * mix)),
+    )
+
+
+_BO_NDIM = _N_STATS + 4  # 15 weight dimensions
+
+
+def _rbf_kernel(X: np.ndarray, Y: np.ndarray, length_scale: float,
+                signal_var: float) -> np.ndarray:
+    """RBF (squared exponential) kernel matrix between X and Y."""
+    # X: (n, d), Y: (m, d) -> (n, m)
+    sq_dist = np.sum((X[:, None, :] - Y[None, :, :]) ** 2, axis=2)
+    return signal_var * np.exp(-0.5 * sq_dist / (length_scale ** 2))
+
+
+def _gp_predict(X_train: np.ndarray, y_train: np.ndarray,
+                X_test: np.ndarray, length_scale: float,
+                signal_var: float, noise_var: float
+                ) -> Tuple[np.ndarray, np.ndarray]:
+    """GP posterior mean and variance at test points.
+
+    Returns (mean, variance) arrays, each shape (n_test,).
+    """
+    n = X_train.shape[0]
+    K = _rbf_kernel(X_train, X_train, length_scale, signal_var)
+    K += noise_var * np.eye(n)
+
+    # Cholesky factorisation for numerical stability
+    try:
+        L = np.linalg.cholesky(K)
+    except np.linalg.LinAlgError:
+        K += 1e-4 * np.eye(n)
+        L = np.linalg.cholesky(K)
+
+    alpha = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
+
+    K_star = _rbf_kernel(X_test, X_train, length_scale, signal_var)  # (m, n)
+    mu = K_star @ alpha  # (m,)
+
+    V = np.linalg.solve(L, K_star.T)  # (n, m)
+    k_ss = signal_var  # diagonal of K(X_test, X_test) for RBF = signal_var
+    var = np.maximum(1e-10, k_ss - np.sum(V ** 2, axis=0))  # (m,)
+
+    return mu, var
+
+
+def _expected_improvement(mu: np.ndarray, var: np.ndarray,
+                          best_y: float, xi: float = 0.01
+                          ) -> np.ndarray:
+    """Expected Improvement acquisition function (maximisation)."""
+    sigma = np.sqrt(var)
+    z = (mu - best_y - xi) / sigma
+    # Approximate Phi and phi with numpy (no scipy needed)
+    # Phi(z) = 0.5 * (1 + erf(z / sqrt(2)))
+    phi_z = np.exp(-0.5 * z ** 2) / np.sqrt(2 * np.pi)
+    Phi_z = 0.5 * (1.0 + _fast_erf(z / np.sqrt(2.0)))
+    ei = sigma * (z * Phi_z + phi_z)
+    return ei
+
+
+def _fast_erf(x: np.ndarray) -> np.ndarray:
+    """Approximation of erf() using Abramowitz & Stegun (max error ~1.5e-7)."""
+    a = np.abs(x)
+    # Constants
+    p = 0.3275911
+    a1, a2, a3, a4, a5 = 0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429
+    t = 1.0 / (1.0 + p * a)
+    t2 = t * t
+    t3 = t2 * t
+    t4 = t3 * t
+    t5 = t4 * t
+    y = 1.0 - (a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5) * np.exp(-a * a)
+    return np.where(x >= 0, y, -y)
+
+
+def _estimate_gp_hyperparams(X: np.ndarray, y: np.ndarray
+                              ) -> Tuple[float, float, float]:
+    """Heuristic GP hyperparameters from training data."""
+    # Length scale: median pairwise distance (robust heuristic)
+    if X.shape[0] <= 1:
+        return 1.0, 1.0, 0.01
+    diffs = X[:, None, :] - X[None, :, :]
+    dists = np.sqrt(np.sum(diffs ** 2, axis=2))
+    # Upper triangle only
+    triu_idx = np.triu_indices(dists.shape[0], k=1)
+    median_dist = float(np.median(dists[triu_idx])) if len(triu_idx[0]) > 0 else 1.0
+    length_scale = max(0.1, median_dist)
+    signal_var = max(0.01, float(np.var(y)))
+    noise_var = max(1e-4, signal_var * 0.05)  # 5% noise
+    return length_scale, signal_var, noise_var
+
+
+def _update_weights_from_history(
+    current: ScoringWeights,
+    history: List[Dict[str, Any]] | None = None,
+) -> ScoringWeights | None:
+    """Propose a candidate weight vector from history.
+
+    The proposal is not persisted here. Callers validate via replay and then
+    decide whether to store the candidate.
+    """
+    entries = list(history or [])
+
+    # Extract (X, y) pairs from history entries that stored their weights
+    X_list: List[np.ndarray] = []
+    y_list: List[float] = []
+    for h in entries:
+        wv = h.get("weights_vector")
+        sc = h.get("learning_objective", None)
+        if sc is None:
+            kpis = h.get("kpis")
+            if isinstance(kpis, dict):
+                sc = _learning_objective_from_kpis(kpis)
+            else:
+                sc = h.get("best_score")
+        if wv is not None and sc is not None and len(wv) == _BO_NDIM:
+            X_list.append(np.array(wv, dtype=np.float64))
+            y_list.append(float(sc))
+
+    if len(X_list) < int(_MIN_HISTORY_FOR_CANDIDATE):
+        return None
+
+    X_train = np.array(X_list)  # (n, 15)
+    y_train = np.array(y_list)  # (n,)
+
+    # Normalise X for better GP conditioning
+    X_mean = X_train.mean(axis=0)
+    X_std = X_train.std(axis=0)
+    X_std = np.where(X_std < 1e-8, 1.0, X_std)
+    X_norm = (X_train - X_mean) / X_std
+
+    # Normalise y
+    y_mean = y_train.mean()
+    y_std = max(1e-8, y_train.std())
+    y_norm = (y_train - y_mean) / y_std
+
+    # Estimate GP hyperparameters
+    length_scale, signal_var, noise_var = _estimate_gp_hyperparams(X_norm, y_norm)
+
+    # Generate candidate points: current + perturbations around best + random
+    current_vec = _weights_to_vector(current)
+    best_idx = int(np.argmax(y_train))
+    best_vec = X_train[best_idx]
+    best_y_norm = float(y_norm[best_idx])
+
+    rng = np.random.RandomState(int(time.time()) % (2**31))
+    n_candidates = 500
+
+    # Candidates centered on best known + current, with varying exploration
+    candidates = np.empty((n_candidates, _BO_NDIM), dtype=np.float64)
+    # 40% around best known point (exploitation)
+    n_exploit = n_candidates * 2 // 5
+    candidates[:n_exploit] = best_vec + rng.randn(n_exploit, _BO_NDIM) * (X_std * 0.05)
+    # 30% around current point
+    n_current = n_candidates * 3 // 10
+    candidates[n_exploit:n_exploit + n_current] = (
+        current_vec + rng.randn(n_current, _BO_NDIM) * (X_std * 0.08)
+    )
+    # 30% broader exploration
+    n_explore = n_candidates - n_exploit - n_current
+    candidates[n_exploit + n_current:] = (
+        best_vec + rng.randn(n_explore, _BO_NDIM) * (X_std * 0.2)
+    )
+
+    # Clamp all candidates to non-negative
+    np.maximum(candidates, 0.0, out=candidates)
+
+    # Normalise candidates
+    cand_norm = (candidates - X_mean) / X_std
+
+    # GP predict + EI
+    try:
+        mu, var = _gp_predict(X_norm, y_norm, cand_norm,
+                              length_scale, signal_var, noise_var)
+        ei = _expected_improvement(mu, var, best_y_norm, xi=0.01)
+        best_cand_idx = int(np.argmax(ei))
+        next_vec = candidates[best_cand_idx]
+    except Exception:
+        # GP failed â€” fall back to perturbation around best
+        next_vec = best_vec + rng.randn(_BO_NDIM) * (X_std * 0.05)
+        np.maximum(next_vec, 0.0, out=next_vec)
+
+    candidate = _vector_to_weights(next_vec)
+    delta = float(np.linalg.norm(_weights_to_vector(candidate) - _weights_to_vector(current)))
+    if delta < 1e-4:
+        return None
     return candidate
 
 
@@ -1204,22 +1963,60 @@ def _gpu_presceen_rune_ids(
 # ---------------------------------------------------------------------------
 # Main optimizer entry point
 # ---------------------------------------------------------------------------
-def optimize_gpu_combo(
+@dataclass
+class _GpuComboRunOutcome:
+    result: GreedyResult
+    kpis: Dict[str, float]
+    best_score_value: int
+    phase1_s: float
+    total_s: float
+    has_gpu: bool
+    provider: str
+    combos_evaluated: int
+    gpu_runes_found: int
+    merged_pool_size: int
+    passes_planned: int
+    passes_executed: int
+    adaptive_batch_size: int
+    adaptive_solver_top_per_set: int
+    adaptive_extra_rune_cap: int
+    adaptive_history_runs: int
+
+
+@dataclass
+class _ReplayCase:
+    case_id: str
+    req: GreedyRequest
+    baseline_kpis: Dict[str, float]
+
+
+def _run_gpu_combo_once(
     account: AccountData,
     presets: BuildStore,
     req: GreedyRequest,
-) -> GreedyResult:
-    """Hybrid GPU+Solver optimizer.
-
-    Phase 1: GPU massively parallel search over the FULL rune+artifact pool
-             to identify the most promising runes per unit.
-    Phase 2: OR-Tools solver passes on the GPU-identified rune pool for
-             precise constraint satisfaction and optimal stat combinations.
-    Phase 3: Learn from results for next time.
-    """
+    weights: ScoringWeights,
+    context_history: List[Dict[str, Any]] | None = None,
+) -> _GpuComboRunOutcome:
     unit_ids = [int(u) for u in (req.unit_ids_in_order or [])]
     if not unit_ids:
-        return GreedyResult(False, tr("opt.no_units"), [])
+        return _GpuComboRunOutcome(
+            result=GreedyResult(False, tr("opt.no_units"), []),
+            kpis={},
+            best_score_value=0,
+            phase1_s=0.0,
+            total_s=0.0,
+            has_gpu=False,
+            provider="",
+            combos_evaluated=0,
+            gpu_runes_found=0,
+            merged_pool_size=0,
+            passes_planned=0,
+            passes_executed=0,
+            adaptive_batch_size=0,
+            adaptive_solver_top_per_set=0,
+            adaptive_extra_rune_cap=0,
+            adaptive_history_runs=0,
+        )
 
     has_gpu, provider = _onnx_gpu_session()
     gpu_scorer: Optional[_GpuScorer] = None
@@ -1228,17 +2025,15 @@ def optimize_gpu_combo(
         if not gpu_scorer.available:
             gpu_scorer = None
     rng_np = np.random.default_rng(seed=20260308)
-
-
-    weights = ScoringWeights.load()
-
-    base_batch = _GPU_BATCH_SIZE if has_gpu else _CPU_BATCH_SIZE
-    # Scale batch per unit down when many units to keep prescreen fast
-    batch_size = max(100_000, base_batch // max(1, len(unit_ids) // 3))
-
+    adaptive = _adaptive_plan_for_run(
+        req=req,
+        unit_ids=unit_ids,
+        has_gpu=bool(has_gpu),
+        context_history=context_history,
+    )
+    batch_size = int(adaptive.batch_size)
     started = time.perf_counter()
 
-    # Build FULL rune pool (no top-N filtering)
     full_pool = _allowed_runes_for_mode(
         account=account,
         req=req,
@@ -1246,10 +2041,8 @@ def optimize_gpu_combo(
         rune_top_per_set_override=0,
     )
     artifact_pool = _allowed_artifacts_for_mode(account, unit_ids, req=req)
+    total_combos_evaluated = int(batch_size * len(unit_ids))
 
-    total_combos_evaluated = batch_size * len(unit_ids)
-
-    # Phase 1: GPU pre-screening over the full pool
     gpu_rune_ids = _gpu_presceen_rune_ids(
         pool=full_pool,
         artifact_pool=artifact_pool,
@@ -1260,54 +2053,44 @@ def optimize_gpu_combo(
         weights=weights,
         batch_size=batch_size,
         rng_np=rng_np,
-
-
         gpu_scorer=gpu_scorer,
     )
+    phase1_time = float(time.perf_counter() - started)
 
-    phase1_time = time.perf_counter() - started
-
-    # Merge GPU-identified runes into the solver pool.
-    # We use a moderate rune_top_per_set so the solver also gets some runes
-    # it would normally pick, plus all GPU-discovered runes.
     solver_pool_base = _allowed_runes_for_mode(
         account=account,
         req=req,
         _selected_unit_ids=unit_ids,
-        rune_top_per_set_override=80,
+        rune_top_per_set_override=int(adaptive.solver_top_per_set),
     )
-    # Add GPU runes not already in solver pool
     solver_pool_ids = {int(r.rune_id) for r in solver_pool_base}
     rune_by_id = {int(r.rune_id): r for r in full_pool}
-    extra_runes = [rune_by_id[rid] for rid in gpu_rune_ids if rid not in solver_pool_ids and rid in rune_by_id]
+    extra_runes_raw = [
+        rune_by_id[rid]
+        for rid in gpu_rune_ids
+        if rid not in solver_pool_ids and rid in rune_by_id
+    ]
+    extra_runes = _cap_extra_gpu_runes(extra_runes_raw, int(adaptive.extra_rune_cap))
     merged_pool = list(solver_pool_base) + extra_runes
 
-    # Phase 2: OR-Tools solver passes on the enriched pool
     best_results: Optional[List[GreedyUnitResult]] = None
     best_score: Optional[Tuple[int, ...]] = None
-
-    n_passes = min(8, max(3, len(unit_ids)))
+    n_passes = int(adaptive.pass_limit)
     pass_orders = _build_pass_orders(unit_ids, n_passes)
-
-    # Use the merged pool size to set rune_top_per_set for the solver
-    # (0 = use all runes in the pool, which now is the enriched pool)
-    rune_top_override = 0  # solver gets the full merged pool
+    rune_top_override = 0
+    no_improve_streak = 0
+    passes_executed = 0
 
     for pass_idx, order in enumerate(pass_orders):
         if req.is_cancelled and req.is_cancelled():
             break
-        elapsed = time.perf_counter() - started
-        time_budget = float(req.time_limit_per_unit_s) * len(unit_ids) * 4
+        elapsed = float(time.perf_counter() - started)
+        time_budget = float(adaptive.time_budget_s)
         if elapsed > time_budget:
             break
 
-        pass_time = max(0.5, float(req.time_limit_per_unit_s) * 0.7)
-        # GPU-Combo: mostly "efficiency" objective – find the most efficient
-        # rune builds, not just the fastest.  Speed is a constraint, not the
-        # objective.  Allow speed slack so the solver can trade a few speed
-        # points for substantially better efficiency.
+        pass_time = float(max(0.5, adaptive.pass_time_s))
         speed_slack = max(1, int(getattr(req, "speed_slack_for_quality", 2) or 2))
-
         if pass_idx == 0:
             results = _run_pass_with_profile(
                 account=account,
@@ -1326,7 +2109,6 @@ def optimize_gpu_combo(
             avoid_map = None
             if best_results:
                 avoid_map = {int(r.unit_id): r for r in best_results if r.ok}
-            # Alternate: mostly efficiency, with occasional balanced pass
             obj_mode = "balanced" if pass_idx % 4 == 3 else "efficiency"
             results = _run_pass_with_profile(
                 account=account,
@@ -1347,48 +2129,66 @@ def optimize_gpu_combo(
                 rune_pool_override=merged_pool,
             )
 
+        passes_executed += 1
         if not results:
             continue
-
         score = _evaluate_pass_score(account, req, results)
         if best_score is None or score > best_score:
             best_score = score
             best_results = results
-
+            no_improve_streak = 0
+        else:
+            no_improve_streak += 1
         if req.progress_callback:
             try:
                 req.progress_callback(pass_idx + 1, n_passes)
             except Exception:
                 pass
+        if (
+            passes_executed >= int(adaptive.min_passes)
+            and no_improve_streak >= int(adaptive.early_stop_patience)
+        ):
+            break
 
-    total_time = time.perf_counter() - started
-
+    total_time = float(time.perf_counter() - started)
     if best_results is None:
         if req.is_cancelled and req.is_cancelled():
-            return GreedyResult(False, tr("opt.cancelled"), [])
-        return GreedyResult(False, tr("opt.partial_fail"), [])
-
-    # Phase 3: Learn from results
-    try:
-        ok_count = sum(1 for r in best_results if r.ok)
-        score_val = sum(best_score) if best_score else 0
-        speed_sum = sum(int(r.final_speed or 0) for r in best_results if r.ok)
-        _append_history({
-            "timestamp": time.time(),
-            "units": len(unit_ids),
-            "ok_count": ok_count,
-            "best_score": score_val,
-            "speed_sum": speed_sum,
-            "combos_evaluated": total_combos_evaluated,
-            "phase1_ms": round(phase1_time * 1000, 1),
-            "total_ms": round(total_time * 1000, 1),
-            "has_gpu": has_gpu,
-            "gpu_runes_found": len(gpu_rune_ids),
-            "merged_pool_size": len(merged_pool),
-        })
-        weights = _update_weights_from_history(weights)
-    except Exception:
-        pass
+            return _GpuComboRunOutcome(
+                result=GreedyResult(False, tr("opt.cancelled"), []),
+                kpis={},
+                best_score_value=0,
+                phase1_s=phase1_time,
+                total_s=total_time,
+                has_gpu=bool(has_gpu),
+                provider=str(provider or ""),
+                combos_evaluated=total_combos_evaluated,
+                gpu_runes_found=len(gpu_rune_ids),
+                merged_pool_size=len(merged_pool),
+                passes_planned=int(n_passes),
+                passes_executed=int(passes_executed),
+                adaptive_batch_size=int(adaptive.batch_size),
+                adaptive_solver_top_per_set=int(adaptive.solver_top_per_set),
+                adaptive_extra_rune_cap=int(adaptive.extra_rune_cap),
+                adaptive_history_runs=int(adaptive.history_run_count),
+            )
+        return _GpuComboRunOutcome(
+            result=GreedyResult(False, tr("opt.partial_fail"), []),
+            kpis={},
+            best_score_value=0,
+            phase1_s=phase1_time,
+            total_s=total_time,
+            has_gpu=bool(has_gpu),
+            provider=str(provider or ""),
+            combos_evaluated=total_combos_evaluated,
+            gpu_runes_found=len(gpu_rune_ids),
+            merged_pool_size=len(merged_pool),
+            passes_planned=int(n_passes),
+            passes_executed=int(passes_executed),
+            adaptive_batch_size=int(adaptive.batch_size),
+            adaptive_solver_top_per_set=int(adaptive.solver_top_per_set),
+            adaptive_extra_rune_cap=int(adaptive.extra_rune_cap),
+            adaptive_history_runs=int(adaptive.history_run_count),
+        )
 
     ok_all = all(r.ok for r in best_results)
     prefix = tr("opt.ok") if ok_all else tr("opt.partial_fail")
@@ -1398,6 +2198,254 @@ def optimize_gpu_combo(
         f"{total_combos_evaluated:,} Kombinationen bewertet (Phase 1: {phase1_time:.1f}s), "
         f"{len(gpu_rune_ids)} Runen identifiziert, "
         f"Pool: {len(merged_pool)} Runen, "
-        f"{n_passes} Solver-Passes in {total_time:.1f}s."
+        f"{passes_executed}/{n_passes} Solver-Passes in {total_time:.1f}s."
     )
-    return GreedyResult(ok_all, msg, best_results)
+    kpis = _result_kpis(account, best_results)
+    score_val = int(sum(best_score)) if best_score is not None else 0
+    return _GpuComboRunOutcome(
+        result=GreedyResult(ok_all, msg, best_results),
+        kpis=dict(kpis),
+        best_score_value=score_val,
+        phase1_s=phase1_time,
+        total_s=total_time,
+        has_gpu=bool(has_gpu),
+        provider=str(provider or ""),
+        combos_evaluated=total_combos_evaluated,
+        gpu_runes_found=len(gpu_rune_ids),
+        merged_pool_size=len(merged_pool),
+        passes_planned=int(n_passes),
+        passes_executed=int(passes_executed),
+        adaptive_batch_size=int(adaptive.batch_size),
+        adaptive_solver_top_per_set=int(adaptive.solver_top_per_set),
+        adaptive_extra_rune_cap=int(adaptive.extra_rune_cap),
+        adaptive_history_runs=int(adaptive.history_run_count),
+    )
+
+
+def _collect_replay_cases(
+    current_req: GreedyRequest,
+    current_kpis: Dict[str, float],
+    context_history: List[Dict[str, Any]],
+) -> List[_ReplayCase]:
+    cases: List[_ReplayCase] = []
+    base_req = replace(
+        current_req,
+        progress_callback=None,
+        is_cancelled=None,
+        register_solver=None,
+    )
+    cases.append(_ReplayCase("current", base_req, dict(current_kpis)))
+
+    seen_hashes: Set[str] = set()
+    cur_payload = _build_replay_payload(base_req)
+    seen_hashes.add(_replay_payload_hash(cur_payload))
+    for row in reversed(list(context_history or [])):
+        if len(cases) >= int(max(1, _MAX_REPLAY_CASES)):
+            break
+        payload = row.get("replay_payload")
+        kpis = row.get("kpis")
+        if not isinstance(payload, dict) or not isinstance(kpis, dict):
+            continue
+        payload_hash = str(row.get("replay_payload_hash", "") or _replay_payload_hash(payload))
+        if payload_hash in seen_hashes:
+            continue
+        req_case = _request_from_replay_payload(payload)
+        if req_case is None:
+            continue
+        req_case = replace(req_case, progress_callback=None, is_cancelled=None, register_solver=None)
+        cases.append(_ReplayCase(f"history:{payload_hash}", req_case, dict(kpis)))
+        seen_hashes.add(payload_hash)
+    return cases
+
+
+def _validate_candidate_with_replays(
+    account: AccountData,
+    presets: BuildStore,
+    candidate_weights: ScoringWeights,
+    cases: List[_ReplayCase],
+) -> Tuple[bool, Dict[str, Any]]:
+    baseline_total = 0.0
+    candidate_total = 0.0
+    per_case: List[Dict[str, Any]] = []
+    for case in list(cases or []):
+        baseline_kpis = dict(case.baseline_kpis or {})
+        baseline_obj = _learning_objective_from_kpis(baseline_kpis)
+        baseline_total += baseline_obj
+
+        cand_run = _run_gpu_combo_once(
+            account=account,
+            presets=presets,
+            req=case.req,
+            weights=candidate_weights,
+        )
+        cand_kpis = dict(cand_run.kpis or {})
+        cand_obj = _learning_objective_from_kpis(cand_kpis)
+        candidate_total += cand_obj
+        safe = _kpis_safe_enough(baseline_kpis, cand_kpis)
+        per_case.append(
+            {
+                "case_id": str(case.case_id),
+                "baseline_objective": float(baseline_obj),
+                "candidate_objective": float(cand_obj),
+                "safe": bool(safe),
+            }
+        )
+        if not safe:
+            return False, {
+                "reason": f"safety_regression:{str(case.case_id)}",
+                "baseline_total": float(baseline_total),
+                "candidate_total": float(candidate_total),
+                "cases": per_case,
+            }
+
+    accept = bool(candidate_total >= (baseline_total * (1.0 + float(_AB_ACCEPT_MARGIN))))
+    return accept, {
+        "reason": "accept" if accept else "no_gain",
+        "baseline_total": float(baseline_total),
+        "candidate_total": float(candidate_total),
+        "cases": per_case,
+    }
+
+
+def optimize_gpu_combo(
+    account: AccountData,
+    presets: BuildStore,
+    req: GreedyRequest,
+) -> GreedyResult:
+    """Hybrid GPU+Solver optimizer with guarded online learning."""
+    unit_ids = [int(u) for u in (req.unit_ids_in_order or [])]
+    if not unit_ids:
+        return GreedyResult(False, tr("opt.no_units"), [])
+
+    context_key = _learning_context_key(req)
+    context_history_before = _history_for_context(context_key, max_entries=240)
+    local_weights = ScoringWeights.load(context_key=context_key)
+    runtime_weights = local_weights
+    cloud_weights: Optional[ScoringWeights] = None
+    cloud_alpha = 0.0
+    cloud_samples = 0
+    cloud_distinct_licenses = 0
+    try:
+        cloud_prior = fetch_cloud_prior(context_key=context_key, optimizer_kind="gpu_combo")
+        if cloud_prior is not None and len(cloud_prior.weights_vector) == _BO_NDIM:
+            cloud_weights = _vector_to_weights(np.array(cloud_prior.weights_vector, dtype=np.float64))
+            cloud_alpha = max(float(_CLOUD_ALPHA_MIN), min(float(_CLOUD_ALPHA_MAX), float(cloud_prior.alpha)))
+            runtime_weights = _blend_scoring_weights(local_weights, cloud_weights, cloud_alpha)
+            cloud_samples = int(cloud_prior.sample_count)
+            cloud_distinct_licenses = int(cloud_prior.distinct_licenses)
+    except Exception:
+        cloud_weights = None
+        cloud_alpha = 0.0
+        runtime_weights = local_weights
+
+    run = _run_gpu_combo_once(
+        account=account,
+        presets=presets,
+        req=req,
+        weights=runtime_weights,
+        context_history=context_history_before,
+    )
+    result = run.result
+
+    # Learning stage with replay safety gate.
+    try:
+        replay_payload = _build_replay_payload(req)
+        learning_objective = float(_learning_objective_from_kpis(dict(run.kpis or {})))
+        runtime_weights_vec = _weights_to_vector(runtime_weights).tolist()
+        local_weights_vec = _weights_to_vector(local_weights).tolist()
+        history_entry = {
+            "kind": "run",
+            "timestamp": time.time(),
+            "context_key": str(context_key),
+            "mode": str(req.mode or ""),
+            "units": int(len(unit_ids)),
+            "ok_count": int(_int_or((run.kpis or {}).get("ok_units"), 0)),
+            "best_score": int(run.best_score_value),
+            "combos_evaluated": int(run.combos_evaluated),
+            "phase1_ms": round(float(run.phase1_s) * 1000.0, 1),
+            "total_ms": round(float(run.total_s) * 1000.0, 1),
+            "has_gpu": bool(run.has_gpu),
+            "gpu_provider": str(run.provider or ""),
+            "gpu_runes_found": int(run.gpu_runes_found),
+            "merged_pool_size": int(run.merged_pool_size),
+            "passes_planned": int(run.passes_planned),
+            "passes_executed": int(run.passes_executed),
+            "adaptive_batch_size": int(run.adaptive_batch_size),
+            "adaptive_solver_top_per_set": int(run.adaptive_solver_top_per_set),
+            "adaptive_extra_rune_cap": int(run.adaptive_extra_rune_cap),
+            "adaptive_history_runs": int(run.adaptive_history_runs),
+            "weights_context_key": str(context_key),
+            "weights_vector": list(local_weights_vec),
+            "runtime_weights_vector": list(runtime_weights_vec),
+            "cloud_prior_used": bool(cloud_weights is not None),
+            "cloud_alpha": float(cloud_alpha),
+            "cloud_sample_count": int(cloud_samples),
+            "cloud_distinct_licenses": int(cloud_distinct_licenses),
+            "kpis": dict(run.kpis or {}),
+            "learning_objective": float(learning_objective),
+            "replay_payload_hash": str(_replay_payload_hash(replay_payload)),
+            "replay_payload": dict(replay_payload),
+        }
+        _append_history(history_entry)
+        try:
+            upload_learning_run(
+                context_key=str(context_key),
+                optimizer_kind="gpu_combo",
+                mode=str(req.mode or ""),
+                units=len(unit_ids),
+                weights_vector=runtime_weights_vec,
+                kpis=dict(run.kpis or {}),
+                learning_objective=learning_objective,
+                replay_payload_hash=str(_replay_payload_hash(replay_payload)),
+                client_version="",
+            )
+        except Exception:
+            pass
+        # Ensure context-local baseline exists even before the first accepted update.
+        local_weights.save(context_key=context_key)
+
+        context_history = _history_for_context(context_key, max_entries=240)
+        candidate = _update_weights_from_history(local_weights, context_history)
+        if (
+            candidate is not None
+            and len(context_history) >= int(_MIN_HISTORY_FOR_AB)
+            and bool(run.kpis)
+        ):
+            candidate_runtime = candidate
+            if cloud_weights is not None:
+                candidate_runtime = _blend_scoring_weights(candidate, cloud_weights, cloud_alpha)
+            replay_cases = _collect_replay_cases(
+                current_req=req,
+                current_kpis=dict(run.kpis or {}),
+                context_history=context_history,
+            )
+            accepted, detail = _validate_candidate_with_replays(
+                account=account,
+                presets=presets,
+                candidate_weights=candidate_runtime,
+                cases=replay_cases,
+            )
+            if accepted:
+                candidate.save(context_key=context_key)
+            _append_history(
+                {
+                    "kind": "learning_update",
+                    "timestamp": time.time(),
+                    "context_key": str(context_key),
+                    "accepted": bool(accepted),
+                    "reason": str(detail.get("reason", "") or ""),
+                    "baseline_total": float(_float_or(detail.get("baseline_total"), 0.0)),
+                    "candidate_total": float(_float_or(detail.get("candidate_total"), 0.0)),
+                    "cases": list(detail.get("cases", []) or []),
+                    "current_weights_vector": list(local_weights_vec),
+                    "candidate_weights_vector": _weights_to_vector(candidate).tolist(),
+                    "candidate_runtime_weights_vector": _weights_to_vector(candidate_runtime).tolist(),
+                    "cloud_prior_used": bool(cloud_weights is not None),
+                    "cloud_alpha": float(cloud_alpha),
+                }
+            )
+    except Exception:
+        pass
+
+    return result
+
