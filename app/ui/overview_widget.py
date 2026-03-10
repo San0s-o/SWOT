@@ -31,20 +31,42 @@ from app.engine.efficiency import (
 from app.i18n import tr
 from app.ui.dpi import dp
 
-# -- colours ------------------------------------------------
-_BG = "#1e1e1e"
-_CARD_BG = "#2b2b2b"
-_CARD_BORDER = "#3a3a3a"
-_TEXT = "#ddd"
-_TEXT_DIM = "#999"
-_ACCENT = "#3498db"
-_GREEN = "#27ae60"
-_ORANGE = "#f39c12"
-_RED = "#e74c3c"
-_PURPLE = "#9b59b6"
-_CHART_BG = QColor(0x23, 0x27, 0x2e)
-_CHART_TEXT = QColor(0xdd, 0xdd, 0xdd)
-_CHART_GRID = QColor(0x2e, 0x2e, 0x2e)
+# -- colours (from active theme) -----------------------------
+from app.ui import theme as _theme
+
+_BG = _theme.C["bg"]
+_CARD_BG = _theme.C["card_bg"]
+_CARD_BORDER = _theme.C["card_border"]
+_TEXT = _theme.C["text"]
+_TEXT_DIM = _theme.C["text_dim"]
+_ACCENT = _theme.C["overview_accent"]
+_GREEN = _theme.C["overview_green"]
+_ORANGE = _theme.C["overview_orange"]
+_RED = _theme.C["overview_red"]
+_PURPLE = _theme.C["overview_purple"]
+_CHART_BG = QColor(_theme.C["chart_bg"])
+_CHART_TEXT = QColor(_theme.C["chart_text"])
+_CHART_GRID = QColor(_theme.C["chart_grid"])
+
+
+def _refresh_overview_colors() -> None:
+    """Re-read colours from the active theme (call after theme switch)."""
+    global _BG, _CARD_BG, _CARD_BORDER, _TEXT, _TEXT_DIM
+    global _ACCENT, _GREEN, _ORANGE, _RED, _PURPLE
+    global _CHART_BG, _CHART_TEXT, _CHART_GRID
+    _BG = _theme.C["bg"]
+    _CARD_BG = _theme.C["card_bg"]
+    _CARD_BORDER = _theme.C["card_border"]
+    _TEXT = _theme.C["text"]
+    _TEXT_DIM = _theme.C["text_dim"]
+    _ACCENT = _theme.C["overview_accent"]
+    _GREEN = _theme.C["overview_green"]
+    _ORANGE = _theme.C["overview_orange"]
+    _RED = _theme.C["overview_red"]
+    _PURPLE = _theme.C["overview_purple"]
+    _CHART_BG = QColor(_theme.C["chart_bg"])
+    _CHART_TEXT = QColor(_theme.C["chart_text"])
+    _CHART_GRID = QColor(_theme.C["chart_grid"])
 
 _RUNE_CLASS_NAMES = {
     1: "Normal", 2: "Magic", 3: "Rare", 4: "Hero", 5: "Legend",
@@ -77,33 +99,68 @@ _IMPORTANT_SET_IDS = [13, 15, 3, 10, 18, 14]  # Violent, Will, Swift, Despair, D
 # Summary card
 # ------------------------------------------------------------
 class _SummaryCard(QFrame):
-    def __init__(self, title: str, value: str, accent: str = _ACCENT, parent=None):
+    def __init__(self, title: str, value: str, accent: str | None = None, parent=None):
         super().__init__(parent)
+        if accent is None:
+            accent = _theme.C["overview_accent"]
         self._accent = accent
         self.setObjectName("SummaryCard")
         self.setFrameShape(QFrame.NoFrame)
-        self.setStyleSheet(f"""
-            QFrame#SummaryCard {{
-                background: {_CARD_BG};
-                border: 1px solid {_CARD_BORDER};
-                border-top: 3px solid {accent};
-                border-radius: 8px;
-            }}
-        """)
+
+        c = _theme.C
+        is_cp = _theme.current_name == "cyberpunk"
+        if is_cp:
+            self.setStyleSheet(f"""
+                QFrame#SummaryCard {{
+                    background: {c['card_bg']};
+                    border: 1px solid {c['card_border']};
+                    border-left: 3px solid {accent};
+                    border-radius: 4px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#SummaryCard {{
+                    background: {c['card_bg']};
+                    border: 1px solid {c['card_border']};
+                    border-top: 3px solid {accent};
+                    border-radius: 8px;
+                }}
+            """)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(dp(14), dp(12), dp(14), dp(12))
-        layout.setSpacing(dp(6))
+        layout.setSpacing(dp(4))
 
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 9pt; border: none; background: transparent;")
-        lbl_title.setAlignment(Qt.AlignCenter)
+        title_color = c['accent'] if is_cp else c['text_dim']
+        title_weight = "font-weight: bold;" if is_cp else ""
+        lbl_title.setStyleSheet(
+            f"color: {title_color}; font-size: 8pt; border: none; background: transparent;"
+            f" text-transform: {c['card_title_transform']}; letter-spacing: {c['card_title_spacing']};"
+            f" {title_weight}"
+        )
+        lbl_title.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
         layout.addWidget(lbl_title)
 
+        mono = c["mono_font"]
+        font_css = f"font-family: {mono};" if mono else ""
+        val_size = "26pt" if is_cp else "22pt"
         lbl_val = QLabel(value)
-        lbl_val.setStyleSheet(f"color: {accent}; font-size: 18pt; font-weight: bold; border: none; background: transparent;")
-        lbl_val.setAlignment(Qt.AlignCenter)
+        lbl_val.setStyleSheet(
+            f"color: {accent}; font-size: {val_size}; font-weight: bold;"
+            f" border: none; background: transparent; {font_css}"
+        )
+        lbl_val.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         layout.addWidget(lbl_val)
+
+        self._lbl_sub = QLabel("")
+        self._lbl_sub.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 7pt; border: none; background: transparent;"
+        )
+        self._lbl_sub.setAlignment(Qt.AlignLeft)
+        self._lbl_sub.setVisible(False)
+        layout.addWidget(self._lbl_sub)
 
         self._lbl_val = lbl_val
         self._lbl_title = lbl_title
@@ -111,7 +168,17 @@ class _SummaryCard(QFrame):
     def update_value(self, value: str, accent: str | None = None):
         self._lbl_val.setText(value)
         if accent:
-            self._lbl_val.setStyleSheet(f"color: {accent}; font-size: 18pt; font-weight: bold; border: none; background: transparent;")
+            mono = _theme.C["mono_font"]
+            font_css = f"font-family: {mono};" if mono else ""
+            val_size = "26pt" if _theme.current_name == "cyberpunk" else "22pt"
+            self._lbl_val.setStyleSheet(
+                f"color: {accent}; font-size: {val_size}; font-weight: bold;"
+                f" border: none; background: transparent; {font_css}"
+            )
+
+    def set_subtitle(self, text: str) -> None:
+        self._lbl_sub.setText(text)
+        self._lbl_sub.setVisible(bool(text))
 
     def update_title(self, title: str) -> None:
         self._lbl_title.setText(title)
@@ -124,11 +191,12 @@ def _make_chart(title: str) -> QChart:
     chart = QChart()
     chart.setTitle(title)
     chart.setAnimationOptions(QChart.SeriesAnimations)
-    chart.setBackgroundBrush(_CHART_BG)
-    chart.setTitleBrush(QColor(_CHART_TEXT))
+    chart.setBackgroundBrush(QColor(_theme.C["chart_bg"]))
+    chart_text = QColor(_theme.C["chart_text"])
+    chart.setTitleBrush(chart_text)
     chart.setTitleFont(QFont("Segoe UI", 9, QFont.Bold))
     legend = chart.legend()
-    legend.setLabelColor(_CHART_TEXT)
+    legend.setLabelColor(chart_text)
     legend.setFont(QFont("Segoe UI", 8))
     legend.setAlignment(Qt.AlignBottom)
     chart.setMargins(QMargins(10, 8, 10, 8))
@@ -139,14 +207,14 @@ def _make_chart_view(chart: QChart) -> QChartView:
     view = QChartView(chart)
     view.setRenderHint(QPainter.Antialiasing)
     view.setMinimumHeight(dp(320))
-    view.setStyleSheet("background: #23272e; border: 1px solid #2e3138; border-radius: 8px;")
+    view.setStyleSheet(f"background: {_theme.C['bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: 8px;")
     return view
 
 
 def _style_bar_axis(axis: QBarCategoryAxis | QValueAxis) -> None:
-    axis.setLabelsColor(_CHART_TEXT)
-    axis.setGridLineColor(_CHART_GRID)
-    axis.setLinePenColor(QColor(0x35, 0x35, 0x35))
+    axis.setLabelsColor(QColor(_theme.C["chart_text"]))
+    axis.setGridLineColor(QColor(_theme.C["chart_grid"]))
+    axis.setLinePenColor(QColor(_theme.C["chart_grid"]))
 
 
 def _stat_label(eff_id: int, value: Any) -> str:
@@ -287,7 +355,7 @@ class _IndexedLineChartView(QChartView):
         self._active_key: Optional[Tuple[str, int]] = None
         self._popup = QFrame(None, Qt.ToolTip | Qt.FramelessWindowHint)
         self._popup.setStyleSheet(
-            "QFrame { background: #1f242a; border: 1px solid #3a3f46; border-radius: 5px; }"
+            f"QFrame {{ background: {_theme.C['popup_bg']}; border: 1px solid {_theme.C['popup_border']}; border-radius: 5px; }}"
             "QLabel { color: #e6edf3; padding: 6px 10px; }"
         )
         self._popup_layout = QVBoxLayout(self._popup)
@@ -299,7 +367,7 @@ class _IndexedLineChartView(QChartView):
         self._popup_layout.addWidget(self._popup_label)
         self.setRenderHint(QPainter.Antialiasing)
         self.setMinimumHeight(dp(320))
-        self.setStyleSheet(f"background: {_CARD_BG}; border: 1px solid {_CARD_BORDER}; border-radius: 4px;")
+        self.setStyleSheet(f"background: {_theme.C['card_bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: 4px;")
         self.setMouseTracking(True)
 
     def mouseMoveEvent(self, event) -> None:
@@ -396,7 +464,8 @@ class _IndexedLineChartView(QChartView):
 class OverviewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(f"background: {_BG};")
+        _bg = _theme.C["bg"]
+        self.setStyleSheet(f"background: {_bg};")
         self._account: Optional[AccountData] = None
 
         outer = QVBoxLayout(self)
@@ -409,24 +478,25 @@ class OverviewWidget(QWidget):
         outer.addLayout(self._top_overview_row)
 
         self._cards_host = QWidget()
-        self._cards_host.setStyleSheet(f"background: {_BG};")
+        self._cards_host.setStyleSheet(f"background: {_bg};")
         self._cards_grid = QGridLayout(self._cards_host)
         self._cards_grid.setContentsMargins(0, 0, 0, 0)
         self._cards_grid.setSpacing(dp(8))
         self._top_overview_row.addWidget(self._cards_host, 3)
 
+        c = _theme.C
         self._card_units = _SummaryCard(tr("overview.monsters"), "\u2014")
         self._card_runes = _SummaryCard(tr("overview.runes"), "\u2014")
         self._card_artifacts = _SummaryCard(tr("overview.artifacts"), "\u2014")
-        self._card_rune_avg = _SummaryCard(tr("overview.rune_eff"), "\u2014", _GREEN)
-        self._card_art_avg_t1 = _SummaryCard(tr("overview.attr_art_eff"), "—", _PURPLE)
-        self._card_art_avg_t2 = _SummaryCard(tr("overview.type_art_eff"), "—", _PURPLE)
-        self._card_rune_best = _SummaryCard(tr("overview.best_rune"), "\u2014", _ORANGE)
+        self._card_rune_avg = _SummaryCard(tr("overview.rune_eff"), "\u2014", c["overview_green"])
+        self._card_art_avg_t1 = _SummaryCard(tr("overview.attr_art_eff"), "—", c["overview_purple"])
+        self._card_art_avg_t2 = _SummaryCard(tr("overview.type_art_eff"), "—", c["overview_purple"])
+        self._card_rune_best = _SummaryCard(tr("overview.best_rune"), "\u2014", c["overview_orange"])
 
         self._set_eff_cards: dict[int, _SummaryCard] = {}
         for sid in _IMPORTANT_SET_IDS:
             name = SET_NAMES.get(sid, f"Set {sid}")
-            card = _SummaryCard(tr("overview.set_eff", name=name), "\u2014", _GREEN)
+            card = _SummaryCard(tr("overview.set_eff", name=name), "\u2014", c["overview_green"])
             self._set_eff_cards[sid] = card
 
         # row 1: count cards
@@ -455,20 +525,20 @@ class OverviewWidget(QWidget):
         controls_row = QHBoxLayout()
         controls_row.setSpacing(dp(8))
         self._lbl_top_n = QLabel(tr("overview.chart_top_label"))
-        self._lbl_top_n.setStyleSheet(f"color: {_TEXT_DIM};")
+        self._lbl_top_n.setStyleSheet(f"color: {_theme.C['text_dim']};")
         self._top_n_combo = QComboBox()
         self._top_n_combo.setStyleSheet(
-            f"color: {_TEXT}; background: {_CARD_BG}; border: 1px solid {_CARD_BORDER};"
+            f"color: {_theme.C['text']}; background: {_theme.C['card_bg']}; border: 1px solid {_theme.C['card_border']};"
         )
         for n in (100, 400, 800, 1000):
             self._top_n_combo.addItem(str(n), int(n))
         self._top_n_combo.setCurrentIndex(max(0, self._top_n_combo.findData(400)))
         self._top_n_combo.currentIndexChanged.connect(self._on_top_n_changed)
         self._lbl_rune_set_filter = QLabel(tr("overview.rune_set_filter_label"))
-        self._lbl_rune_set_filter.setStyleSheet(f"color: {_TEXT_DIM};")
+        self._lbl_rune_set_filter.setStyleSheet(f"color: {_theme.C['text_dim']};")
         self._rune_set_filter_combo = QComboBox()
         self._rune_set_filter_combo.setStyleSheet(
-            f"color: {_TEXT}; background: {_CARD_BG}; border: 1px solid {_CARD_BORDER};"
+            f"color: {_theme.C['text']}; background: {_theme.C['card_bg']}; border: 1px solid {_theme.C['card_border']};"
         )
         self._rune_set_filter_combo.currentIndexChanged.connect(self._on_rune_set_filter_changed)
         controls_row.addWidget(self._lbl_top_n)
@@ -481,11 +551,11 @@ class OverviewWidget(QWidget):
         # -- scrollable chart grid --------------------
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {_BG}; }}")
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {_bg}; }}")
         outer.addWidget(scroll, 1)
 
         container = QWidget()
-        container.setStyleSheet(f"background: {_BG};")
+        container.setStyleSheet(f"background: {_bg};")
         self._grid = QGridLayout(container)
         self._grid.setSpacing(dp(8))
         scroll.setWidget(container)
@@ -527,8 +597,9 @@ class OverviewWidget(QWidget):
         n_arts = len(acc.artifacts)
 
         self._card_units.update_value(str(n_units))
-        self._card_runes.update_value(str(n_runes))
-        self._card_artifacts.update_value(str(n_arts))
+        self._card_units.set_subtitle(tr("overview.sub_collected"))
+        self._card_runes.update_value(f"{n_runes:,}".replace(",", "."))
+        self._card_artifacts.update_value(f"{n_arts:,}".replace(",", "."))
 
         r_effs = rune_efficiencies(filtered_runes) if filtered_runes else []
         artifacts_t1 = [a for a in acc.artifacts if int(a.type_ or 0) == 1 and a.sec_effects]
@@ -540,7 +611,9 @@ class OverviewWidget(QWidget):
             avg = sum(r_effs) / len(r_effs)
             best = max(r_effs)
             self._card_rune_avg.update_value(f"{avg:.1f}%")
+            self._card_rune_avg.set_subtitle(tr("overview.sub_rune_eff", pct=f"{best:.1f}"))
             self._card_rune_best.update_value(f"{best:.1f}%")
+            self._card_rune_best.set_subtitle(tr("overview.sub_best_rune"))
         if a_effs_t1:
             avg = sum(a_effs_t1) / len(a_effs_t1)
             self._card_art_avg_t1.update_value(f"{avg:.1f}%")
@@ -556,7 +629,9 @@ class OverviewWidget(QWidget):
         for sid, card in self._set_eff_cards.items():
             vals = [rune_efficiency(r) for r in filtered_runes if int(r.set_id or 0) == sid]
             if vals:
-                card.update_value(f"{(sum(vals) / len(vals)):.1f}%")
+                avg_v = sum(vals) / len(vals)
+                card.update_value(f"{avg_v:.1f}%")
+                card.set_subtitle(tr("overview.sub_set_eff"))
             else:
                 card.update_value("\u2014")
 
@@ -745,12 +820,12 @@ class OverviewWidget(QWidget):
             slc = series.append(f"{name} ({count})", count)
             slc.setColor(QColor(palette[i % len(palette)]))
             slc.setLabelVisible(True)
-            slc.setLabelColor(_CHART_TEXT)
+            slc.setLabelColor(QColor(_theme.C["chart_text"]))
         if other > 0:
             slc = series.append(tr("overview.other", count=other), other)
             slc.setColor(QColor("#7f8c8d"))
             slc.setLabelVisible(True)
-            slc.setLabelColor(_CHART_TEXT)
+            slc.setLabelColor(QColor(_theme.C["chart_text"]))
 
         chart = _make_chart(tr("overview.set_dist_chart"))
         chart.addSeries(series)

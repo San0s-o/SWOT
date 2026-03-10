@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from app.i18n import tr
 from app.ui.dpi import dp
+from app.ui import theme as _theme
 from app.ui.main_window_sections.arena_rush_actions import (
     on_take_current_arena_def as _sec_on_take_current_arena_def,
     on_take_current_arena_off as _sec_on_take_current_arena_off,
@@ -33,48 +34,60 @@ from app.ui.main_window_sections.arena_rush_actions import (
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
-_OPTIMIZE_BTN_STYLE = (
-    "QPushButton { background: #1a6fa8; color: #fff; border: 1px solid #2980b9; "
-    "border-radius: 4px; padding: 4px 18px; font-weight: bold; }"
-    "QPushButton:hover { background: #2980b9; border-color: #3498db; }"
-    "QPushButton:disabled { background: #252525; color: #555; border-color: #3a3a3a; }"
-)
-_SETTINGS_FRAME_STYLE = (
-    "QFrame#OptSettings { background: #232323; border: 1px solid #3a3a3a; border-radius: 4px; }"
-    "QLabel { background: transparent; border: none; color: #999; font-size: 8pt; }"
-)
-_STATUS_LBL_STYLE = "color: #888; font-style: italic; font-size: 9pt;"
+
+def _optimize_btn_style() -> str:
+    c = _theme.C
+    return (
+        f"QPushButton {{ background: {c['opt_bg']}; color: {c['accent']}; border: 1px solid {c['opt_border']}; "
+        "border-radius: 4px; padding: 4px 18px; font-weight: bold; }"
+        f"QPushButton:hover {{ background: {c['opt_hover']}; border-color: {c['opt_hover_border']}; }}"
+        f"QPushButton:disabled {{ background: {c['bg_input']}; color: {c['text_disabled']}; border-color: {c['border']}; }}"
+    )
+
+
+def _settings_frame_style() -> str:
+    c = _theme.C
+    return (
+        f"QFrame#OptSettings {{ background: {c['settings_bg']}; border: 1px solid {c['border']}; border-radius: 4px; }}"
+        f"QLabel {{ background: transparent; border: none; color: {c['text_dim']}; font-size: 8pt; }}"
+    )
+
+
+def _status_lbl_style() -> str:
+    return f"color: {_theme.C['text_dim']}; font-style: italic; font-size: 9pt;"
+
+
+def _row_clear_style() -> str:
+    c = _theme.C
+    return (
+        f"QPushButton {{ background: {c['bg_mid']}; color: {c['text_dim']}; border: 1px solid {c['border']}; "
+        "border-radius: 3px; font-size: 8pt; padding: 1px 4px; min-width: 0; }"
+        f"QPushButton:hover {{ background: {c['red']}; color: #fff; border-color: {c['red']}; }}"
+    )
 
 
 def _vsep() -> QFrame:
     sep = QFrame()
     sep.setFixedWidth(1)
-    sep.setStyleSheet("background: #3a3a3a; border: none;")
+    sep.setStyleSheet(f"background: {_theme.C['border']}; border: none;")
     return sep
 
 
 def _make_settings_frame(*items) -> QFrame:
     frame = QFrame()
     frame.setObjectName("OptSettings")
-    frame.setStyleSheet(_SETTINGS_FRAME_STYLE)
+    frame.setStyleSheet(_settings_frame_style())
     layout = QHBoxLayout(frame)
     layout.setContentsMargins(dp(8), dp(3), dp(8), dp(3))
     layout.setSpacing(dp(5))
     for item in items:
         if isinstance(item, str):
             lbl = QLabel(item)
-            lbl.setStyleSheet("color: #999; font-size: 8pt; background: transparent; border: none;")
+            lbl.setStyleSheet(f"color: {_theme.C['text_dim']}; font-size: 8pt; background: transparent; border: none;")
             layout.addWidget(lbl)
         else:
             layout.addWidget(item)
     return frame
-
-
-_ROW_CLEAR_STYLE = (
-    "QPushButton { background: #3a3a3a; color: #888; border: 1px solid #555; "
-    "border-radius: 3px; font-size: 8pt; padding: 1px 4px; min-width: 0; }"
-    "QPushButton:hover { background: #c0392b; color: #fff; border-color: #e74c3c; }"
-)
 _CLEAR_ICON: QIcon | None = None
 
 
@@ -128,7 +141,7 @@ def init_arena_rush_builder_ui(
     def_row_btn = QPushButton("✕")
     def_row_btn.setFixedSize(dp(28), dp(26))
     def_row_btn.setToolTip(tr("tooltip.clear_defense"))
-    def_row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
+    def_row_btn.setStyleSheet(_row_clear_style())
     def_row_btn.clicked.connect(lambda: [_clear_combo(c) for c in window.arena_def_combos])
     def_grid.addWidget(def_row_btn, 0, 5)
     def_grid.setColumnStretch(5, 0)
@@ -167,7 +180,7 @@ def init_arena_rush_builder_ui(
         row_btn = QPushButton("✕")
         row_btn.setFixedSize(dp(28), dp(26))
         row_btn.setToolTip(tr("tooltip.clear_defense"))
-        row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
+        row_btn.setStyleSheet(_row_clear_style())
         row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])
         off_grid.addWidget(row_btn, t, 6)
         window.arena_offense_team_combos.append(row)
@@ -209,7 +222,7 @@ def init_arena_rush_builder_ui(
 
     window.btn_optimize_arena_rush = QPushButton(tr("btn.optimize"))
     window.btn_optimize_arena_rush.setEnabled(False)
-    window.btn_optimize_arena_rush.setStyleSheet(_OPTIMIZE_BTN_STYLE)
+    window.btn_optimize_arena_rush.setStyleSheet(_optimize_btn_style())
     window.btn_optimize_arena_rush.clicked.connect(lambda: _sec_on_optimize_arena_rush(window))
     btn_row.addWidget(window.btn_optimize_arena_rush)
 
@@ -229,13 +242,13 @@ def init_arena_rush_builder_ui(
     window._populate_worker_combo(window.combo_workers_arena_rush)
     window.lbl_arena_rush_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_arena_rush = QComboBox()
-    window.combo_quality_profile_arena_rush.addItem("KI (GPU/CPU)", "gpu_combo")
-    window.combo_quality_profile_arena_rush.addItem("Max Qualität", "max_quality")
+    window.combo_quality_profile_arena_rush.addItem(tr("profile.smart"), "gpu_combo")
+    window.combo_quality_profile_arena_rush.addItem(tr("profile.manual"), "max_quality")
     idx_gpu_arena = window.combo_quality_profile_arena_rush.findData("gpu_combo")
     window.combo_quality_profile_arena_rush.setCurrentIndex(idx_gpu_arena if idx_gpu_arena >= 0 else 0)
     window.combo_quality_profile_arena_rush.setEnabled(True)
     window.combo_quality_profile_arena_rush.currentIndexChanged.connect(window._sync_worker_controls)
-    window.lbl_arena_rush_profile = QLabel("Profil")
+    window.lbl_arena_rush_profile = QLabel(tr("label.mode"))
     btn_row.addWidget(_make_settings_frame(
         window.lbl_arena_rush_workers, window.combo_workers_arena_rush,
         window.lbl_arena_rush_profile, window.combo_quality_profile_arena_rush,
@@ -245,7 +258,7 @@ def init_arena_rush_builder_ui(
     btn_row.addStretch(1)
 
     window.lbl_arena_rush_validate = QLabel("—")
-    window.lbl_arena_rush_validate.setStyleSheet(_STATUS_LBL_STYLE)
+    window.lbl_arena_rush_validate.setStyleSheet(_status_lbl_style())
     btn_row.addWidget(window.lbl_arena_rush_validate)
 
     window.arena_rush_result_cards = SiegeDefCardsWidget()

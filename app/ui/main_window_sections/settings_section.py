@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from app.i18n import tr
 from app.ui.dpi import dp
+from app.ui import theme as _theme
 
 
 _ABOUT_CREATOR = "San0s"
@@ -164,6 +165,27 @@ def init_settings_ui(window) -> None:
     lang_layout.addWidget(window.combo_settings_language)
     lang_layout.addStretch(1)
     main_layout.addWidget(window.grp_settings_language)
+
+    # --- Section 3b: Theme --------------------------------------
+    window.grp_settings_theme = QGroupBox(tr("settings.group_theme"))
+    theme_layout = QHBoxLayout(window.grp_settings_theme)
+
+    window.lbl_settings_theme = QLabel(tr("settings.label_theme"))
+    theme_layout.addWidget(window.lbl_settings_theme)
+
+    window.combo_settings_theme = QComboBox()
+    window.combo_settings_theme.setFixedWidth(dp(200))
+    window.combo_settings_theme.addItem("Classic Dark", "classic")
+    window.combo_settings_theme.addItem("Cyberpunk HUD", "cyberpunk")
+    idx_theme = window.combo_settings_theme.findData(_theme.current_name)
+    if idx_theme >= 0:
+        window.combo_settings_theme.setCurrentIndex(idx_theme)
+    window.combo_settings_theme.currentIndexChanged.connect(
+        lambda idx: _on_theme_changed(window, idx)
+    )
+    theme_layout.addWidget(window.combo_settings_theme)
+    theme_layout.addStretch(1)
+    main_layout.addWidget(window.grp_settings_theme)
 
     # --- Section 4: Data Management -----------------------------
     window.grp_settings_data = QGroupBox(tr("settings.group_data"))
@@ -565,6 +587,23 @@ def on_settings_check_update(window) -> None:
     QThreadPool.globalInstance().start(worker)
 
 
+def _on_theme_changed(window, index: int) -> None:
+    name = window.combo_settings_theme.itemData(index)
+    if not name or name == _theme.current_name:
+        return
+    _save_app_settings(window, {"theme": name})
+    # Restart the app so the new theme is fully applied everywhere
+    import sys, os
+    from PySide6.QtCore import QProcess
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app:
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        QProcess.startDetached(sys.executable, ["-m", "app"], project_root)
+        app.quit()
+
+
+
 def on_settings_language_changed(window, index: int) -> None:
     import app.i18n as i18n
 
@@ -589,6 +628,9 @@ def retranslate_settings(window) -> None:
 
     window.grp_settings_language.setTitle(tr("settings.group_language"))
     window.lbl_settings_language.setText(tr("settings.label_language"))
+
+    window.grp_settings_theme.setTitle(tr("settings.group_theme"))
+    window.lbl_settings_theme.setText(tr("settings.label_theme"))
 
     window.grp_settings_data.setTitle(tr("settings.group_data"))
     window.btn_settings_reset_presets.setText(tr("settings.btn_reset_presets"))

@@ -76,6 +76,11 @@ STRINGS: dict[str, str] = {
     # -- Labels --------------------------------------------------
     "label.passes": "Durchläufe",
     "label.workers": "Kerne",
+    "label.mode": "Modus",
+    "profile.smart": "Smart (KI)",
+    "profile.fast": "Schnell",
+    "profile.balanced": "Ausgewogen",
+    "profile.manual": "Manuell (CPU)",
     "label.saved_opt": "Gespeicherte Optimierung:",
     "label.team": "Team",
     "label.team_name": "Team-Name",
@@ -456,17 +461,26 @@ STRINGS: dict[str, str] = {
         "<li><b>Balanced</b> – Breitere Suche mit Verfeinerung; "
         "1–10 Durchläufe, stoppt früh wenn keine Verbesserung mehr möglich ist.</li>"
         "<li><b>Max Qualität</b> – Globale Optimierung über alle Monster gleichzeitig.</li>"
+        "<li><b>KI (GPU/CPU)</b> – Hybrid-Profil mit GPU/CPU-Suche; "
+        "standardmäßig vorausgewählt.</li>"
         "</ul>"
         "<p>Bei <b>Fast</b> und <b>Balanced</b> ist die Drag &amp; Drop "
         "Reihenfolge in der Monsterliste wichtig – Monster weiter oben "
         "wählen zuerst aus dem gemeinsamen Runen-Pool.<br>"
-        "Für <b>Arena Rush</b> stehen die Profile <b>Max Qualität</b> und "
-        "<b>Ultra (langsam)</b> zur Verfügung.</p>"
+        "Für <b>Arena Rush</b> stehen nur <b>KI (GPU/CPU)</b> und "
+        "<b>Max Qualität</b> zur Verfügung (kein Ultra-Profil mehr).</p>"
 
         "<h3>6. Ergebnisse speichern</h3>"
         "<p>Optimierungen werden nach dem Speichern im jeweiligen "
         "<b>Gespeichert</b>-Unter-Tab angezeigt und können dort "
         "geladen oder gelöscht werden.</p>"
+
+        "<h3>7. Learning lokal oder online (Full)</h3>"
+        "<p>Im <b>Einstellungen</b>-Tab können Full-User optional "
+        "<b>Cloud-Learning</b> aktivieren. Aktiviert = anonymisierte "
+        "Lernmetriken werden online geteilt und globale Priors geladen. "
+        "Deaktiviert = Learning bleibt vollständig lokal. "
+        "Trial-Lizenzen bleiben immer lokal.</p>"
 
         "<h3>Tipps</h3>"
         "<ul>"
@@ -556,6 +570,10 @@ STRINGS: dict[str, str] = {
     "overview.type_art_eff": "Typ-Artefakt-Eff. (%)",
     "overview.best_rune": "Beste Rune",
     "overview.set_eff": "{name} Eff. (%)",
+    "overview.sub_collected": "Alle gesammelt & analysiert",
+    "overview.sub_rune_eff": "Runen-Effizienz bis {pct}%",
+    "overview.sub_best_rune": "Effizienz-Score",
+    "overview.sub_set_eff": "Spitzen-Effizienz",
     "overview.chart_top_label": "Runen-Chart Top:",
     "overview.rune_set_filter_label": "Set-Filter:",
     "overview.filter_all_sets": "Alle Sets",
@@ -622,6 +640,10 @@ STRINGS: dict[str, str] = {
     "settings.cloud_learning_saved_off": "Cloud-Learning deaktiviert (nur lokal).",
 
     "settings.label_language": "Sprache:",
+
+    "settings.group_theme": "Design",
+    "settings.label_theme": "UI-Theme:",
+    "settings.theme_applied": "Theme angewendet. Einige Ansichten aktualisieren sich beim nächsten Datenladen.",
 
     "settings.btn_reset_presets": "Build-Presets zurücksetzen",
     "settings.btn_clear_optimizations": "Gespeicherte Optimierungen löschen",

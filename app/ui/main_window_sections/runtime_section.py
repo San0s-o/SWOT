@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from app.ui.app_identity import apply_windows_app_user_model_id, resolve_app_icon
 from app.ui.dpi import init_dpi_scale as _init_dpi_scale, _REF_DPI
 from app.ui.license_flow import _apply_license_title, _ensure_license_accepted
-from app.ui.theme import apply_dark_palette as _apply_dark_palette_impl
+from app.ui.theme import apply_dark_palette as _apply_dark_palette_impl, set_theme as _set_theme
 from app.ui.update_flow import _start_update_check
 
 
@@ -86,12 +86,22 @@ def run_app(main_window_cls: Type):
     app = QApplication(sys.argv)
     _init_dpi_scale(app)
     _apply_physical_dpi_font_scale(app)
+    # Load saved theme preference before applying palette
+    _config_dir = Path(__file__).resolve().parents[2] / "config"
+    _settings_path = _config_dir / "app_settings.json"
+    if _settings_path.exists():
+        try:
+            import json
+            _saved = json.loads(_settings_path.read_text(encoding="utf-8"))
+            _set_theme(str(_saved.get("theme", "classic")))
+        except Exception:
+            pass
     apply_dark_palette(app)
     app_icon = resolve_app_icon()
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
     import app.i18n as i18n
-    config_dir = Path(__file__).resolve().parents[1] / "config"
+    config_dir = Path(__file__).resolve().parents[2] / "config"
     i18n.init(config_dir)
     license_info = _ensure_license_accepted()
     if not license_info:

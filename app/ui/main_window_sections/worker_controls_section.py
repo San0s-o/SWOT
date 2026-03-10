@@ -35,9 +35,15 @@ def effective_workers(window, quality_profile: str, combo: QComboBox) -> int:
     return int(default_solver_workers())
 
 
-def _is_max_quality_profile(profile_value: str) -> bool:
+def _is_advanced_profile(profile_value: str) -> bool:
+    """Returns True for profiles where the user can manually configure workers/passes."""
     prof = str(profile_value or "").strip().lower()
     return prof in ("max_quality", "ultra_quality")
+
+
+def _is_ki_profile(profile_value: str) -> bool:
+    prof = str(profile_value or "").strip().lower()
+    return prof in ("gpu_combo",)
 
 
 def sync_worker_controls(window) -> None:
@@ -46,17 +52,25 @@ def sync_worker_controls(window) -> None:
         workers = getattr(window, workers_combo_attr, None)
         if prof is None or workers is None:
             return
-        is_max = _is_max_quality_profile(str(prof.currentData() or ""))
-        workers.setEnabled(bool(is_max))
+        prof_val = str(prof.currentData() or "")
+        is_advanced = _is_advanced_profile(prof_val)
+        is_ki = _is_ki_profile(prof_val)
+        # Workers: only visible for advanced (manual core selection)
+        workers.setVisible(bool(is_advanced))
+        label_attr = workers_combo_attr.replace("combo_workers_", "lbl_") + "_workers"
+        lbl_workers = getattr(window, label_attr, None)
+        if lbl_workers is not None:
+            lbl_workers.setVisible(bool(is_advanced))
         if passes_label_attr and passes_spin_attr:
             lbl_passes = getattr(window, passes_label_attr, None)
             spin_passes = getattr(window, passes_spin_attr, None)
             if lbl_passes is not None and spin_passes is not None:
-                # Max-quality profiles do not use pass refinement in practice.
-                lbl_passes.setVisible(not is_max)
-                spin_passes.setVisible(not is_max)
-                spin_passes.setEnabled(not is_max)
-                if bool(is_max):
+                # Passes: visible only for non-KI, non-advanced profiles (Fast, Balanced)
+                show_passes = not is_advanced and not is_ki
+                lbl_passes.setVisible(show_passes)
+                spin_passes.setVisible(show_passes)
+                spin_passes.setEnabled(show_passes)
+                if not show_passes:
                     try:
                         spin_passes.setValue(1)
                     except Exception:

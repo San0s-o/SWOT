@@ -5,30 +5,32 @@ from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QScrollArea, QVBoxLa
 
 from app.i18n import tr
 from app.ui.dpi import dp
+from app.ui.theme import C as _C
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 
 def apply_tab_style(window) -> None:
+    c = _C
     window.tabs.setStyleSheet(
-        """
-        QTabWidget {
+        f"""
+        QTabWidget {{
             border: none;
             background: transparent;
-        }
-        QTabWidget::pane {
-            border: 1px solid #2e3138;
+        }}
+        QTabWidget::pane {{
+            border: 1px solid {c['tab_border']};
             border-top: none;
-            background: #1f2126;
+            background: {c['tab_pane']};
             top: -1px;
-        }
-        QTabBar {
+        }}
+        QTabBar {{
             qproperty-drawBase: 0;
             background: transparent;
-        }
-        QTabBar::tab {
-            background: #23272e;
-            color: #6c7888;
-            border: 1px solid #2e3138;
+        }}
+        QTabBar::tab {{
+            background: {c['tab_bg']};
+            color: {c['tab_text']};
+            border: 1px solid {c['tab_border']};
             border-bottom: none;
             border-top: 2px solid transparent;
             border-top-left-radius: 6px;
@@ -36,21 +38,21 @@ def apply_tab_style(window) -> None:
             min-width: 110px;
             padding: 8px 20px;
             margin-right: 2px;
-        }
-        QTabBar::tab:selected {
-            background: #1f2126;
-            color: #eef1f5;
-            border-color: #2e3138;
-            border-top: 2px solid #4a90e2;
+        }}
+        QTabBar::tab:selected {{
+            background: {c['tab_pane']};
+            color: {c['tab_active_text']};
+            border-color: {c['tab_border']};
+            border-top: 2px solid {c['tab_accent']};
             border-bottom: none;
             margin-bottom: -1px;
             font-weight: bold;
-        }
-        QTabBar::tab:hover:!selected {
-            background: #2a2f37;
-            color: #b0bac8;
-            border-top: 2px solid #3a4a5e;
-        }
+        }}
+        QTabBar::tab:hover:!selected {{
+            background: {c['bg_mid']};
+            color: {c['tab_hover_text']};
+            border-top: 2px solid {c['tab_hover_accent']};
+        }}
         """
     )
 

@@ -44,12 +44,22 @@ _DEFAULT_COLOUR = QColor(149, 165, 166)  # grey fallback
 
 
 # ── element colours for the name label accent ────────────────
+from app.ui import theme as _theme
+
+
+def _element_colours() -> Dict[str, str]:
+    c = _theme.C
+    return {
+        "Fire": c["elem_fire"], "Water": c["elem_water"],
+        "Wind": c["elem_wind"], "Light": c["elem_light"],
+        "Dark": c["elem_dark"],
+    }
+
+
+# Keep module-level dict for backward compat (refreshed on access via function)
 _ELEMENT_COLOURS: Dict[str, str] = {
-    "Fire":   "#e74c3c",
-    "Water":  "#3498db",
-    "Wind":   "#f1c40f",
-    "Light":  "#ecf0f1",
-    "Dark":   "#8e44ad",
+    "Fire": "#e74c3c", "Water": "#3498db", "Wind": "#f1c40f",
+    "Light": "#ecf0f1", "Dark": "#8e44ad",
 }
 _RTA_GRID_MIN_COLUMNS = 4
 _RTA_GRID_MAX_COLUMNS = 6
@@ -341,24 +351,24 @@ class MonsterCard(QFrame):
         self._computed_stats = computed_stats
 
         self.setFrameShape(QFrame.StyledPanel)
-        _elem_accent = _ELEMENT_COLOURS.get(element, "#3a3a3a")
+        _elem_accent = _element_colours().get(element, _theme.C["border"])
         self.setStyleSheet(f"""
             MonsterCard {{
-                background: #2b2b2b;
-                border: 1px solid #3a3a3a;
-                border-top: 3px solid {_elem_accent};
+                background: {_theme.C['card_bg']};
+                border: 1px solid {_theme.C['card_border']};
+                border-left: 3px solid {_elem_accent};
                 border-radius: 6px;
             }}
-            QLabel {{ color: #ddd; font-size: {dp(12)}px; }}
+            QLabel {{ color: {_theme.C['text']}; font-size: {dp(12)}px; }}
             QPushButton {{
-                background: #323232;
-                border: 1px solid #4a4a4a;
+                background: {_theme.C['bg_mid']};
+                border: 1px solid {_theme.C['border']};
                 border-radius: {dp(4)}px;
                 padding: {dp(2)}px;
             }}
             QPushButton:hover {{
-                background: #484848;
-                border-color: #6a6a6a;
+                background: {_theme.C['bg_card']};
+                border-color: {_theme.C['border_hover']};
             }}
         """)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -378,12 +388,12 @@ class MonsterCard(QFrame):
 
         info = QVBoxLayout()
         info.setSpacing(0)
-        elem_col = _ELEMENT_COLOURS.get(element, "#ddd")
+        elem_col = _element_colours().get(element, _theme.C["text"])
         name_lbl = QLabel(f"<b style='font-size:{dp(15)}px; color:{elem_col}'>{name}</b>")
         name_lbl.setTextFormat(Qt.RichText)
         info.addWidget(name_lbl)
         meta_lbl = QLabel(f"{element} | Lv {unit.unit_level}")
-        meta_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #aaa;")
+        meta_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: {_theme.C['text_dim']};")
         info.addWidget(meta_lbl)
         top.addLayout(info)
         top.addStretch()
@@ -438,7 +448,7 @@ class MonsterCard(QFrame):
         else:
             eff_lbl = QLabel(tr("card.avg_rune_eff_none"))
         eff_lbl.setTextFormat(Qt.RichText)
-        eff_lbl.setStyleSheet(f"font-size: {dp(11)}px; color: #bbb;")
+        eff_lbl.setStyleSheet(f"font-size: {dp(11)}px; color: {_theme.C['text_dim']};")
         stats_box.addWidget(eff_lbl)
 
         # stats grid (clickable to toggle view mode)
@@ -521,7 +531,7 @@ class MonsterCard(QFrame):
                 key_lbl = QLabel(f"<b>{display_label}</b>")
                 key_lbl.setTextFormat(Qt.RichText)
                 key_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                key_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #e8c252;")
+                key_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: {_theme.C['stat_key_color']};")
 
                 vals = cs.get(label, {})
                 base_v = int(vals.get("base", 0))
@@ -532,23 +542,25 @@ class MonsterCard(QFrame):
 
                 self._stats_grid.addWidget(key_lbl, row, 0)
 
+                _mono = _theme.C["mono_font"]
+                _mf = f"font-family: {_mono};" if _mono else ""
                 if mode == 0:  # Gesamt
                     val_lbl = QLabel(f"{total_v:,}{suffix}".replace(",", "."))
                     val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    val_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #ddd;")
+                    val_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: {_theme.C['stat_val_color']}; {_mf}")
                     self._stats_grid.addWidget(val_lbl, row, 1)
                 elif mode == 1:  # Gesamt+LS
                     val_lbl = QLabel(f"{total_ls_v:,}{suffix}".replace(",", "."))
                     val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    val_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #ffcc66;")
+                    val_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: {_theme.C['stat_ls_color']}; {_mf}")
                     self._stats_grid.addWidget(val_lbl, row, 1)
                 else:  # Detail: Base + green bonus
                     base_lbl = QLabel(f"{base_v:,}{suffix}".replace(",", "."))
                     base_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    base_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #ddd;")
+                    base_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: {_theme.C['stat_val_color']}; {_mf}")
                     bonus_lbl = QLabel(f"+{rune_art_v:,}{suffix}".replace(",", "."))
                     bonus_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    bonus_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: #6dcc5a;")
+                    bonus_lbl.setStyleSheet(f"font-size: {dp(12)}px; color: {_theme.C['stat_bonus_color']}; {_mf}")
                     self._stats_grid.addWidget(base_lbl, row, 1)
                     self._stats_grid.addWidget(bonus_lbl, row, 2)
 
@@ -592,8 +604,8 @@ class TeamCard(QGroupBox):
             TeamCard {{
                 font-weight: bold;
                 font-size: {dp(13)}px;
-                color: #eee;
-                border: 1px solid #666;
+                color: {_theme.C['text']};
+                border: 1px solid {_theme.C['border']};
                 border-radius: 6px;
                 margin-top: {dp(10)}px;
                 padding-top: {dp(12)}px;

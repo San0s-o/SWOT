@@ -76,6 +76,11 @@ STRINGS: dict[str, str] = {
     # -- Labels --------------------------------------------------
     "label.passes": "Passes",
     "label.workers": "Cores",
+    "label.mode": "Mode",
+    "profile.smart": "Smart (AI)",
+    "profile.fast": "Fast",
+    "profile.balanced": "Balanced",
+    "profile.manual": "Manual (CPU)",
     "label.saved_opt": "Saved Optimization:",
     "label.team": "Team",
     "label.team_name": "Team Name",
@@ -413,12 +418,14 @@ STRINGS: dict[str, str] = {
         "<b>RTA (current)</b> - Shows your currently equipped RTA monsters.</p>"
 
         "<h3>3. Build teams</h3>"
-        "<p>In the <b>Builder</b> tabs (Siege / GWB / RTA) you can "
+        "<p>In the <b>Builder</b> tabs (Siege / GWB / RTA / Arena Rush) you can "
         "create custom team compositions:</p>"
         "<ul>"
         "<li><b>Select monsters</b> - Via the dropdowns per defense (Siege/GWB) "
         "or the Add button (RTA).</li>"
         "<li><b>Load current</b> - Imports your in-game teams.</li>"
+        "<li><b>Arena Rush</b> - One Arena defense (4 monsters) plus up to 15 "
+        "offense teams (4 monsters each, <b>Active</b> checkbox per team).</li>"
         "<li><b>Validate</b> - Checks for rune pool conflicts and shows warnings.</li>"
         "</ul>"
 
@@ -445,6 +452,7 @@ STRINGS: dict[str, str] = {
         "(e.g. Tick 6 = SPD 239 to 285). "
         "With profile <b>Fast</b> it runs a quick greedy pass. "
         "<b>Balanced</b> uses greedy plus refinement from pass 2 onward. "
+        "<b>KI (GPU/CPU)</b> is the hybrid GPU/CPU profile and is selected by default. "
         "For <b>Fast</b>/<b>Balanced</b>, optimization order "
         "(Drag & Drop in the monster list) is especially important, because "
         "earlier monsters pick first from the shared pool. "
@@ -453,12 +461,19 @@ STRINGS: dict[str, str] = {
         "Use <b>Passes</b> for 1-10 multi-pass runs in Fast/Balanced; "
         "if no further improvement is possible, the optimizer stops early. "
         "In Max Qualität, passes are not used as multi-pass. "
+        "For <b>Arena Rush</b>, only <b>KI (GPU/CPU)</b> and <b>Max Qualität</b> are available. "
         "The app shows a progress dialog while optimization is running.</p>"
 
         "<h3>6. Save results</h3>"
         "<p>Optimizations are saved automatically and can be "
         "reviewed or deleted at any time in the "
         "<b>Optimizations (saved)</b> tabs.</p>"
+
+        "<h3>7. Local or cloud learning (Full)</h3>"
+        "<p>In <b>Settings</b>, full-license users can choose whether to enable "
+        "<b>cloud learning</b>. Enabled = anonymized learning metrics can be uploaded "
+        "and global priors can be fetched. Disabled = learning stays fully local. "
+        "Trial licenses always remain local.</p>"
 
         "<h3>Tips</h3>"
         "<ul>"
@@ -546,6 +561,10 @@ STRINGS: dict[str, str] = {
     "overview.type_art_eff": "Type Artifact Eff. (%)",
     "overview.best_rune": "Best Rune",
     "overview.set_eff": "{name} Eff. (%)",
+    "overview.sub_collected": "Collected & analyzed",
+    "overview.sub_rune_eff": "Rune Efficiency up to {pct}%",
+    "overview.sub_best_rune": "Efficiency Score",
+    "overview.sub_set_eff": "Top-tier set efficiency",
     "overview.chart_top_label": "Rune Chart Top:",
     "overview.rune_set_filter_label": "Set Filter:",
     "overview.filter_all_sets": "All Sets",
@@ -618,6 +637,10 @@ STRINGS: dict[str, str] = {
     "settings.cloud_learning_saved_off": "Cloud learning disabled (local only).",
 
     "settings.label_language": "Language:",
+
+    "settings.group_theme": "Theme",
+    "settings.label_theme": "UI Theme:",
+    "settings.theme_applied": "Theme applied. Some views update on next data load.",
 
     "settings.btn_reset_presets": "Reset Build Presets",
     "settings.btn_clear_optimizations": "Clear Saved Optimizations",

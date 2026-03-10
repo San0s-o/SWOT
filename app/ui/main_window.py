@@ -422,32 +422,48 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _apply_inner_tab_style(tab_widget: "QTabWidget") -> None:
         from app.ui.dpi import dp as _dp
+        from app.ui import theme as _th
+        c = _th.C
+        is_cp = _th.current_name == "cyberpunk"
+        # derive inner-tab colours from the active theme
+        pane_bg = c["tab_pane"]
+        bar_bg = c["tab_bg"]
+        tab_text = c["tab_text"]
+        tab_sel_text = c["tab_active_text"] if is_cp else "#e8ecf1"
+        tab_accent = c["tab_accent"]
+        tab_border = c["tab_border"]
+        hover_bg = c["tab_hover_accent"] if is_cp else c["bg_mid"]
+        hover_text = c["tab_hover_text"]
+        extra_tab = "text-transform: uppercase; letter-spacing: 1px; font-weight: 500;" if is_cp else ""
+        extra_sel = "font-weight: bold;" if is_cp else ""
         tab_widget.setStyleSheet(f"""
             QTabWidget {{ border: none; background: transparent; }}
             QTabWidget::pane {{
                 border: none;
-                border-top: 1px solid #2e3138;
-                background: #1f2126;
+                border-top: 1px solid {tab_border};
+                background: {pane_bg};
             }}
-            QTabBar {{ qproperty-drawBase: 0; background: #1a1d22; }}
+            QTabBar {{ qproperty-drawBase: 0; background: {bar_bg}; }}
             QTabBar::tab {{
-                background: #1a1d22;
-                color: #7a8494;
+                background: {bar_bg};
+                color: {tab_text};
                 border: none;
-                border-right: 1px solid #2e3138;
+                border-right: 1px solid {tab_border};
                 border-bottom: 2px solid transparent;
                 min-width: {_dp(90)}px;
                 padding: {_dp(6)}px {_dp(18)}px;
                 margin-right: 0px;
+                {extra_tab}
             }}
             QTabBar::tab:selected {{
-                background: #1f2126;
-                color: #e8ecf1;
-                border-bottom: 2px solid #4a90e2;
+                background: {pane_bg};
+                color: {tab_sel_text};
+                border-bottom: 2px solid {tab_accent};
+                {extra_sel}
             }}
             QTabBar::tab:hover:!selected {{
-                background: #222630;
-                color: #c8d0da;
+                background: {hover_bg};
+                color: {hover_text};
             }}
         """)
 

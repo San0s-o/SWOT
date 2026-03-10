@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from app.i18n import tr
 from app.ui.dpi import dp
+from app.ui import theme as _theme
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.widgets.selection_combos import _UnitSearchComboBox
 from app.ui.main_window_sections.arena_rush_ui import (
@@ -60,31 +61,45 @@ def _get_clear_icon() -> QIcon:
         p.end()
         _CLEAR_ICON = QIcon(pix)
     return _CLEAR_ICON
-_ROW_CLEAR_STYLE = (
-    "QPushButton { background: #3a3a3a; color: #888; border: 1px solid #555; "
-    "border-radius: 3px; font-size: 8pt; padding: 1px 4px; min-width: 0; }"
-    "QPushButton:hover { background: #c0392b; color: #fff; border-color: #e74c3c; }"
-)
+
+
+def _row_clear_style() -> str:
+    c = _theme.C
+    return (
+        f"QPushButton {{ background: {c['bg_mid']}; color: {c['text_dim']}; border: 1px solid {c['border']}; "
+        "border-radius: 3px; font-size: 8pt; padding: 1px 4px; min-width: 0; }"
+        f"QPushButton:hover {{ background: {c['red']}; color: #fff; border-color: {c['red']}; }}"
+    )
+
 
 # ── shared toolbar styles ────────────────────────────────────
-_OPTIMIZE_BTN_STYLE = (
-    "QPushButton { background: #1a6fa8; color: #fff; border: 1px solid #2980b9; "
-    "border-radius: 4px; padding: 4px 18px; font-weight: bold; }"
-    "QPushButton:hover { background: #2980b9; border-color: #3498db; }"
-    "QPushButton:disabled { background: #252525; color: #555; border-color: #3a3a3a; }"
-)
-_SETTINGS_FRAME_STYLE = (
-    "QFrame#OptSettings { background: #232323; border: 1px solid #3a3a3a; border-radius: 4px; }"
-    "QLabel { background: transparent; border: none; color: #999; font-size: 8pt; }"
-)
-_STATUS_LBL_STYLE = "color: #888; font-style: italic; font-size: 9pt;"
+def _optimize_btn_style() -> str:
+    c = _theme.C
+    return (
+        f"QPushButton {{ background: {c['opt_bg']}; color: {c['accent']}; border: 1px solid {c['opt_border']}; "
+        "border-radius: 4px; padding: 4px 18px; font-weight: bold; }"
+        f"QPushButton:hover {{ background: {c['opt_hover']}; border-color: {c['opt_hover_border']}; }}"
+        f"QPushButton:disabled {{ background: {c['bg_input']}; color: {c['text_disabled']}; border-color: {c['border']}; }}"
+    )
+
+
+def _settings_frame_style() -> str:
+    c = _theme.C
+    return (
+        f"QFrame#OptSettings {{ background: {c['settings_bg']}; border: 1px solid {c['border']}; border-radius: 4px; }}"
+        f"QLabel {{ background: transparent; border: none; color: {c['text_dim']}; font-size: 8pt; }}"
+    )
+
+
+def _status_lbl_style() -> str:
+    return f"color: {_theme.C['text_dim']}; font-style: italic; font-size: 9pt;"
 
 
 def _vsep() -> QFrame:
     """Thin vertical separator for toolbars."""
     sep = QFrame()
     sep.setFixedWidth(1)
-    sep.setStyleSheet("background: #3a3a3a; border: none;")
+    sep.setStyleSheet(f"background: {_theme.C['border']}; border: none;")
     return sep
 
 
@@ -92,14 +107,14 @@ def _make_settings_frame(*widgets_with_labels) -> QFrame:
     """Wrap (label, widget) pairs in a styled settings frame."""
     frame = QFrame()
     frame.setObjectName("OptSettings")
-    frame.setStyleSheet(_SETTINGS_FRAME_STYLE)
+    frame.setStyleSheet(_settings_frame_style())
     layout = QHBoxLayout(frame)
     layout.setContentsMargins(dp(8), dp(3), dp(8), dp(3))
     layout.setSpacing(dp(5))
     for item in widgets_with_labels:
         if isinstance(item, str):
             lbl = QLabel(item)
-            lbl.setStyleSheet("color: #999; font-size: 8pt; background: transparent; border: none;")
+            lbl.setStyleSheet(f"color: {_theme.C['text_dim']}; font-size: 8pt; background: transparent; border: none;")
             layout.addWidget(lbl)
         else:
             layout.addWidget(item)
@@ -247,7 +262,7 @@ def init_siege_builder_ui(window) -> None:
             row_btn = QPushButton("✕")
             row_btn.setFixedSize(dp(28), dp(26))
             row_btn.setToolTip(tr("tooltip.clear_defense"))
-            row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
+            row_btn.setStyleSheet(_row_clear_style())
             row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])
             grid.addWidget(row_btn, t + 1, 5)
             window.siege_team_combos.append(row)
@@ -291,7 +306,7 @@ def init_siege_builder_ui(window) -> None:
 
     window.btn_optimize_siege = QPushButton(tr("btn.optimize"))
     window.btn_optimize_siege.setEnabled(False)
-    window.btn_optimize_siege.setStyleSheet(_OPTIMIZE_BTN_STYLE)
+    window.btn_optimize_siege.setStyleSheet(_optimize_btn_style())
     window.btn_optimize_siege.clicked.connect(window.on_optimize_siege)
     btn_row.addWidget(window.btn_optimize_siege)
 
@@ -307,14 +322,14 @@ def init_siege_builder_ui(window) -> None:
     window._populate_worker_combo(window.combo_workers_siege)
     window.lbl_siege_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_siege = QComboBox()
-    window.combo_quality_profile_siege.addItem("Fast", "fast")
-    window.combo_quality_profile_siege.addItem("Balanced", "balanced")
-    window.combo_quality_profile_siege.addItem("Max Qualität", "max_quality")
-    window.combo_quality_profile_siege.addItem("KI (GPU/CPU)", "gpu_combo")
+    window.combo_quality_profile_siege.addItem(tr("profile.smart"), "gpu_combo")
+    window.combo_quality_profile_siege.addItem(tr("profile.fast"), "fast")
+    window.combo_quality_profile_siege.addItem(tr("profile.balanced"), "balanced")
+    window.combo_quality_profile_siege.addItem(tr("profile.manual"), "max_quality")
     idx_gpu_siege = window.combo_quality_profile_siege.findData("gpu_combo")
     window.combo_quality_profile_siege.setCurrentIndex(idx_gpu_siege if idx_gpu_siege >= 0 else 0)
     window.combo_quality_profile_siege.currentIndexChanged.connect(window._sync_worker_controls)
-    window.lbl_siege_profile = QLabel("Profil")
+    window.lbl_siege_profile = QLabel(tr("label.mode"))
     btn_row.addWidget(_make_settings_frame(
         window.lbl_siege_passes, window.spin_multi_pass_siege,
         window.lbl_siege_workers, window.combo_workers_siege,
@@ -325,7 +340,7 @@ def init_siege_builder_ui(window) -> None:
     btn_row.addStretch(1)
 
     window.lbl_siege_validate = QLabel("—")
-    window.lbl_siege_validate.setStyleSheet(_STATUS_LBL_STYLE)
+    window.lbl_siege_validate.setStyleSheet(_status_lbl_style())
     btn_row.addWidget(window.lbl_siege_validate)
 
 
@@ -366,7 +381,7 @@ def init_wgb_builder_ui(window) -> None:
             row_btn = QPushButton("✕")
             row_btn.setFixedSize(dp(28), dp(26))
             row_btn.setToolTip(tr("tooltip.clear_defense"))
-            row_btn.setStyleSheet(_ROW_CLEAR_STYLE)
+            row_btn.setStyleSheet(_row_clear_style())
             row_btn.clicked.connect(lambda checked=False, r=row: [_clear_combo(c) for c in r])
             grid.addWidget(row_btn, t + 1, 4)
             window.wgb_team_combos.append(row)
@@ -392,7 +407,7 @@ def init_wgb_builder_ui(window) -> None:
 
     window.btn_optimize_wgb = QPushButton(tr("btn.optimize"))
     window.btn_optimize_wgb.setEnabled(False)
-    window.btn_optimize_wgb.setStyleSheet(_OPTIMIZE_BTN_STYLE)
+    window.btn_optimize_wgb.setStyleSheet(_optimize_btn_style())
     window.btn_optimize_wgb.clicked.connect(window.on_optimize_wgb)
     btn_row.addWidget(window.btn_optimize_wgb)
 
@@ -408,14 +423,14 @@ def init_wgb_builder_ui(window) -> None:
     window._populate_worker_combo(window.combo_workers_wgb)
     window.lbl_wgb_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_wgb = QComboBox()
-    window.combo_quality_profile_wgb.addItem("Fast", "fast")
-    window.combo_quality_profile_wgb.addItem("Balanced", "balanced")
-    window.combo_quality_profile_wgb.addItem("Max Qualität", "max_quality")
-    window.combo_quality_profile_wgb.addItem("KI (GPU/CPU)", "gpu_combo")
+    window.combo_quality_profile_wgb.addItem(tr("profile.smart"), "gpu_combo")
+    window.combo_quality_profile_wgb.addItem(tr("profile.fast"), "fast")
+    window.combo_quality_profile_wgb.addItem(tr("profile.balanced"), "balanced")
+    window.combo_quality_profile_wgb.addItem(tr("profile.manual"), "max_quality")
     idx_gpu_wgb = window.combo_quality_profile_wgb.findData("gpu_combo")
     window.combo_quality_profile_wgb.setCurrentIndex(idx_gpu_wgb if idx_gpu_wgb >= 0 else 0)
     window.combo_quality_profile_wgb.currentIndexChanged.connect(window._sync_worker_controls)
-    window.lbl_wgb_profile = QLabel("Profil")
+    window.lbl_wgb_profile = QLabel(tr("label.mode"))
     btn_row.addWidget(_make_settings_frame(
         window.lbl_wgb_passes, window.spin_multi_pass_wgb,
         window.lbl_wgb_workers, window.combo_workers_wgb,
@@ -426,7 +441,7 @@ def init_wgb_builder_ui(window) -> None:
     btn_row.addStretch(1)
 
     window.lbl_wgb_validate = QLabel("—")
-    window.lbl_wgb_validate.setStyleSheet(_STATUS_LBL_STYLE)
+    window.lbl_wgb_validate.setStyleSheet(_status_lbl_style())
     btn_row.addWidget(window.lbl_wgb_validate)
 
     window.wgb_preview_cards = SiegeDefCardsWidget()
@@ -489,7 +504,7 @@ def init_rta_builder_ui(window) -> None:
 
     window.btn_optimize_rta = QPushButton(tr("btn.optimize"))
     window.btn_optimize_rta.setEnabled(False)
-    window.btn_optimize_rta.setStyleSheet(_OPTIMIZE_BTN_STYLE)
+    window.btn_optimize_rta.setStyleSheet(_optimize_btn_style())
     window.btn_optimize_rta.clicked.connect(window.on_optimize_rta)
     btn_row.addWidget(window.btn_optimize_rta)
 
@@ -505,14 +520,14 @@ def init_rta_builder_ui(window) -> None:
     window._populate_worker_combo(window.combo_workers_rta)
     window.lbl_rta_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_rta = QComboBox()
-    window.combo_quality_profile_rta.addItem("Fast", "fast")
-    window.combo_quality_profile_rta.addItem("Balanced", "balanced")
-    window.combo_quality_profile_rta.addItem("Max Qualität", "max_quality")
-    window.combo_quality_profile_rta.addItem("KI (GPU/CPU)", "gpu_combo")
+    window.combo_quality_profile_rta.addItem(tr("profile.smart"), "gpu_combo")
+    window.combo_quality_profile_rta.addItem(tr("profile.fast"), "fast")
+    window.combo_quality_profile_rta.addItem(tr("profile.balanced"), "balanced")
+    window.combo_quality_profile_rta.addItem(tr("profile.manual"), "max_quality")
     idx_gpu_rta = window.combo_quality_profile_rta.findData("gpu_combo")
     window.combo_quality_profile_rta.setCurrentIndex(idx_gpu_rta if idx_gpu_rta >= 0 else 0)
     window.combo_quality_profile_rta.currentIndexChanged.connect(window._sync_worker_controls)
-    window.lbl_rta_profile = QLabel("Profil")
+    window.lbl_rta_profile = QLabel(tr("label.mode"))
     btn_row.addWidget(_make_settings_frame(
         window.lbl_rta_passes, window.spin_multi_pass_rta,
         window.lbl_rta_workers, window.combo_workers_rta,
@@ -523,7 +538,7 @@ def init_rta_builder_ui(window) -> None:
     btn_row.addStretch(1)
 
     window.lbl_rta_validate = QLabel("—")
-    window.lbl_rta_validate.setStyleSheet(_STATUS_LBL_STYLE)
+    window.lbl_rta_validate.setStyleSheet(_status_lbl_style())
     btn_row.addWidget(window.lbl_rta_validate)
 
 
