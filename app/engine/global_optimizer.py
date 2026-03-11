@@ -59,6 +59,7 @@ from app.engine.greedy_optimizer import (
     _preferred_rune_set_ids_for_monster,
     _scaling_stat_from_hints,
     _artifact_scaling_score_proxy,
+    _builds_for_unit_with_cloud_prior,
 )
 from app.i18n import tr
 
@@ -111,10 +112,7 @@ def optimize_global(account: AccountData, presets: BuildStore, req: GreedyReques
     # Keep deterministic build order
     builds_by_uid: Dict[int, List[Build]] = {}
     for uid in unit_ids:
-        bu = sorted(presets.get_unit_builds(req.mode, uid), key=lambda b: int(b.priority))
-        if not bu:
-            bu = [Build.default_any()]
-        builds_by_uid[uid] = bu
+        builds_by_uid[uid] = _builds_for_unit_with_cloud_prior(presets, req, int(uid))
 
     # per-unit constraints
     for uid in unit_ids:

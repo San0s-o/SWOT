@@ -27,6 +27,10 @@ from app.ui import theme as _theme
 _ABOUT_CREATOR = "San0s"
 _ABOUT_DISCORD = "san0s"
 _CLOUD_OPTIN_KEY = "cloud_learning_enabled_full"
+_COMMUNITY_BUILD_TRENDS_KEY = "community_build_trends_enabled_full"
+_COMMUNITY_SET_LIMIT_KEY = "community_trends_set_combo_limit_full"
+_COMMUNITY_MAINSTAT_LIMIT_KEY = "community_trends_mainstat_limit_full"
+_COMMUNITY_ART_SUBSTAT_LIMIT_KEY = "community_trends_artifact_substat_limit_full"
 
 
 def _open_discord_dm(window) -> None:
@@ -73,6 +77,72 @@ def _cloud_learning_optin(window) -> bool:
 
 def _set_cloud_learning_optin(window, enabled: bool) -> None:
     _save_app_settings(window, {_CLOUD_OPTIN_KEY: bool(enabled)})
+
+
+def _community_build_trends_optin(window) -> bool:
+    data = _load_app_settings(window)
+    return bool(data.get(_COMMUNITY_BUILD_TRENDS_KEY, True))
+
+
+def _set_community_build_trends_optin(window, enabled: bool) -> None:
+    _save_app_settings(window, {_COMMUNITY_BUILD_TRENDS_KEY: bool(enabled)})
+
+
+def _clamp_top_n_limit(value: object, default: int = 3) -> int:
+    try:
+        raw = int(value or default)
+    except Exception:
+        raw = int(default)
+    return max(1, min(3, int(raw)))
+
+
+def _community_set_limit(window) -> int:
+    data = _load_app_settings(window)
+    return _clamp_top_n_limit(data.get(_COMMUNITY_SET_LIMIT_KEY, 3), default=3)
+
+
+def _set_community_set_limit(window, value: int) -> None:
+    _save_app_settings(window, {_COMMUNITY_SET_LIMIT_KEY: _clamp_top_n_limit(value, default=3)})
+
+
+def _community_mainstat_limit(window) -> int:
+    data = _load_app_settings(window)
+    return _clamp_top_n_limit(data.get(_COMMUNITY_MAINSTAT_LIMIT_KEY, 3), default=3)
+
+
+def _set_community_mainstat_limit(window, value: int) -> None:
+    _save_app_settings(window, {_COMMUNITY_MAINSTAT_LIMIT_KEY: _clamp_top_n_limit(value, default=3)})
+
+
+def _community_artifact_substat_limit(window) -> int:
+    data = _load_app_settings(window)
+    try:
+        raw = int(data.get(_COMMUNITY_ART_SUBSTAT_LIMIT_KEY, 2) or 2)
+    except Exception:
+        raw = 2
+    return max(1, min(2, int(raw)))
+
+
+def _set_community_artifact_substat_limit(window, value: int) -> None:
+    try:
+        raw = int(value or 2)
+    except Exception:
+        raw = 2
+    _save_app_settings(window, {_COMMUNITY_ART_SUBSTAT_LIMIT_KEY: max(1, min(2, int(raw)))})
+
+
+def _populate_top_n_combo(combo: QComboBox, max_n: int = 3) -> None:
+    current_data = combo.currentData()
+    combo.blockSignals(True)
+    combo.clear()
+    upper = max(1, int(max_n or 1))
+    for n in range(1, upper + 1):
+        combo.addItem(tr("settings.top_n_option", n=n), n)
+    idx = combo.findData(int(current_data or 0))
+    if idx < 0:
+        idx = combo.findData(upper)
+    combo.setCurrentIndex(max(0, idx))
+    combo.blockSignals(False)
 
 
 # ================================================================
@@ -142,6 +212,69 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_cloud_learning_hint = QLabel("")
     window.lbl_settings_cloud_learning_hint.setWordWrap(True)
     license_layout.addWidget(window.lbl_settings_cloud_learning_hint)
+
+    window.chk_settings_community_trends = QCheckBox(tr("settings.community_trends_optin"))
+    window.chk_settings_community_trends.setChecked(_community_build_trends_optin(window))
+    window.chk_settings_community_trends.toggled.connect(
+        lambda checked: on_settings_community_trends_toggled(window, bool(checked))
+    )
+    license_layout.addWidget(window.chk_settings_community_trends)
+
+    window.lbl_settings_community_trends_hint = QLabel("")
+    window.lbl_settings_community_trends_hint.setWordWrap(True)
+    license_layout.addWidget(window.lbl_settings_community_trends_hint)
+
+    row_set_limit = QHBoxLayout()
+    window.lbl_settings_community_set_limit = QLabel(tr("settings.community_set_limit_label"))
+    row_set_limit.addWidget(window.lbl_settings_community_set_limit)
+    window.combo_settings_community_set_limit = QComboBox()
+    window.combo_settings_community_set_limit.setFixedWidth(dp(110))
+    _populate_top_n_combo(window.combo_settings_community_set_limit)
+    idx_set = window.combo_settings_community_set_limit.findData(_community_set_limit(window))
+    if idx_set >= 0:
+        window.combo_settings_community_set_limit.setCurrentIndex(idx_set)
+    window.combo_settings_community_set_limit.currentIndexChanged.connect(
+        lambda _idx: on_settings_community_set_limit_changed(window)
+    )
+    row_set_limit.addWidget(window.combo_settings_community_set_limit)
+    row_set_limit.addStretch(1)
+    license_layout.addLayout(row_set_limit)
+
+    row_mainstat_limit = QHBoxLayout()
+    window.lbl_settings_community_mainstat_limit = QLabel(tr("settings.community_mainstat_limit_label"))
+    row_mainstat_limit.addWidget(window.lbl_settings_community_mainstat_limit)
+    window.combo_settings_community_mainstat_limit = QComboBox()
+    window.combo_settings_community_mainstat_limit.setFixedWidth(dp(110))
+    _populate_top_n_combo(window.combo_settings_community_mainstat_limit)
+    idx_main = window.combo_settings_community_mainstat_limit.findData(_community_mainstat_limit(window))
+    if idx_main >= 0:
+        window.combo_settings_community_mainstat_limit.setCurrentIndex(idx_main)
+    window.combo_settings_community_mainstat_limit.currentIndexChanged.connect(
+        lambda _idx: on_settings_community_mainstat_limit_changed(window)
+    )
+    row_mainstat_limit.addWidget(window.combo_settings_community_mainstat_limit)
+    row_mainstat_limit.addStretch(1)
+    license_layout.addLayout(row_mainstat_limit)
+
+    row_art_sub_limit = QHBoxLayout()
+    window.lbl_settings_community_art_substat_limit = QLabel(tr("settings.community_art_substat_limit_label"))
+    row_art_sub_limit.addWidget(window.lbl_settings_community_art_substat_limit)
+    window.combo_settings_community_art_substat_limit = QComboBox()
+    window.combo_settings_community_art_substat_limit.setFixedWidth(dp(110))
+    _populate_top_n_combo(window.combo_settings_community_art_substat_limit, max_n=2)
+    idx_art_sub = window.combo_settings_community_art_substat_limit.findData(_community_artifact_substat_limit(window))
+    if idx_art_sub >= 0:
+        window.combo_settings_community_art_substat_limit.setCurrentIndex(idx_art_sub)
+    window.combo_settings_community_art_substat_limit.currentIndexChanged.connect(
+        lambda _idx: on_settings_community_art_substat_limit_changed(window)
+    )
+    row_art_sub_limit.addWidget(window.combo_settings_community_art_substat_limit)
+    row_art_sub_limit.addStretch(1)
+    license_layout.addLayout(row_art_sub_limit)
+
+    window.lbl_settings_community_limit_hint = QLabel("")
+    window.lbl_settings_community_limit_hint.setWordWrap(True)
+    license_layout.addWidget(window.lbl_settings_community_limit_hint)
 
     main_layout.addWidget(window.grp_settings_license)
 
@@ -330,7 +463,17 @@ def refresh_settings_license_status(window) -> None:
         window.lbl_settings_license_type.setText(tr("settings.label_no_license"))
         window.lbl_settings_license_key.setText("")
         window.chk_settings_cloud_learning.setVisible(False)
+        window.chk_settings_community_trends.setVisible(False)
+        window.lbl_settings_community_set_limit.setVisible(False)
+        window.combo_settings_community_set_limit.setVisible(False)
+        window.lbl_settings_community_mainstat_limit.setVisible(False)
+        window.combo_settings_community_mainstat_limit.setVisible(False)
+        window.lbl_settings_community_art_substat_limit.setVisible(False)
+        window.combo_settings_community_art_substat_limit.setVisible(False)
         window.lbl_settings_cloud_learning_hint.setText("")
+        window.lbl_settings_community_trends_hint.setText("")
+        window.lbl_settings_community_limit_hint.setText("")
+        window.lbl_settings_community_limit_hint.setVisible(False)
         return
 
     # Mask key: show first 5 and last 4 chars
@@ -357,15 +500,69 @@ def refresh_settings_license_status(window) -> None:
     window.lbl_settings_license_type.setText(tr("settings.label_license_type", type=type_text))
     if is_full:
         enabled = _cloud_learning_optin(window)
+        trends_enabled = _community_build_trends_optin(window)
+        set_limit = _community_set_limit(window)
+        main_limit = _community_mainstat_limit(window)
+        art_sub_limit = _community_artifact_substat_limit(window)
         window.chk_settings_cloud_learning.blockSignals(True)
         window.chk_settings_cloud_learning.setChecked(bool(enabled))
         window.chk_settings_cloud_learning.blockSignals(False)
         window.chk_settings_cloud_learning.setVisible(True)
         window.chk_settings_cloud_learning.setEnabled(True)
         window.lbl_settings_cloud_learning_hint.setText(tr("settings.cloud_learning_optin_hint"))
+
+        window.chk_settings_community_trends.blockSignals(True)
+        window.chk_settings_community_trends.setChecked(bool(trends_enabled))
+        window.chk_settings_community_trends.blockSignals(False)
+        window.chk_settings_community_trends.setVisible(True)
+        window.chk_settings_community_trends.setEnabled(bool(enabled))
+        if bool(enabled):
+            window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_optin_hint"))
+        else:
+            window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_requires_cloud"))
+
+        window.lbl_settings_community_set_limit.setVisible(True)
+        window.combo_settings_community_set_limit.setVisible(True)
+        window.lbl_settings_community_mainstat_limit.setVisible(True)
+        window.combo_settings_community_mainstat_limit.setVisible(True)
+        window.lbl_settings_community_art_substat_limit.setVisible(True)
+        window.combo_settings_community_art_substat_limit.setVisible(True)
+        window.combo_settings_community_set_limit.blockSignals(True)
+        idx_set = window.combo_settings_community_set_limit.findData(int(set_limit))
+        window.combo_settings_community_set_limit.setCurrentIndex(idx_set if idx_set >= 0 else 0)
+        window.combo_settings_community_set_limit.blockSignals(False)
+        window.combo_settings_community_mainstat_limit.blockSignals(True)
+        idx_main = window.combo_settings_community_mainstat_limit.findData(int(main_limit))
+        window.combo_settings_community_mainstat_limit.setCurrentIndex(idx_main if idx_main >= 0 else 0)
+        window.combo_settings_community_mainstat_limit.blockSignals(False)
+        window.combo_settings_community_art_substat_limit.blockSignals(True)
+        idx_art_sub = window.combo_settings_community_art_substat_limit.findData(int(art_sub_limit))
+        window.combo_settings_community_art_substat_limit.setCurrentIndex(idx_art_sub if idx_art_sub >= 0 else 0)
+        window.combo_settings_community_art_substat_limit.blockSignals(False)
+        window.combo_settings_community_set_limit.setEnabled(bool(enabled))
+        window.combo_settings_community_mainstat_limit.setEnabled(bool(enabled))
+        window.combo_settings_community_art_substat_limit.setEnabled(bool(enabled))
+        window.lbl_settings_community_set_limit.setEnabled(bool(enabled))
+        window.lbl_settings_community_mainstat_limit.setEnabled(bool(enabled))
+        window.lbl_settings_community_art_substat_limit.setEnabled(bool(enabled))
+        window.lbl_settings_community_limit_hint.setVisible(True)
+        if bool(enabled):
+            window.lbl_settings_community_limit_hint.setText(tr("settings.community_limits_hint"))
+        else:
+            window.lbl_settings_community_limit_hint.setText(tr("settings.community_trends_requires_cloud"))
     else:
         window.chk_settings_cloud_learning.setVisible(False)
+        window.chk_settings_community_trends.setVisible(False)
+        window.lbl_settings_community_set_limit.setVisible(False)
+        window.combo_settings_community_set_limit.setVisible(False)
+        window.lbl_settings_community_mainstat_limit.setVisible(False)
+        window.combo_settings_community_mainstat_limit.setVisible(False)
+        window.lbl_settings_community_art_substat_limit.setVisible(False)
+        window.combo_settings_community_art_substat_limit.setVisible(False)
         window.lbl_settings_cloud_learning_hint.setText(tr("settings.cloud_learning_optin_unavailable"))
+        window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_optin_unavailable"))
+        window.lbl_settings_community_limit_hint.setText(tr("settings.community_trends_optin_unavailable"))
+        window.lbl_settings_community_limit_hint.setVisible(True)
 
 
 def _refresh_settings_about(window) -> None:
@@ -413,10 +610,80 @@ def on_settings_cloud_learning_toggled(window, enabled: bool) -> None:
         return
 
     _set_cloud_learning_optin(window, bool(enabled))
+    window.chk_settings_community_trends.setEnabled(bool(enabled))
+    window.combo_settings_community_set_limit.setEnabled(bool(enabled))
+    window.combo_settings_community_mainstat_limit.setEnabled(bool(enabled))
+    window.combo_settings_community_art_substat_limit.setEnabled(bool(enabled))
+    window.lbl_settings_community_set_limit.setEnabled(bool(enabled))
+    window.lbl_settings_community_mainstat_limit.setEnabled(bool(enabled))
+    window.lbl_settings_community_art_substat_limit.setEnabled(bool(enabled))
+    if bool(enabled):
+        window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_optin_hint"))
+        window.lbl_settings_community_limit_hint.setText(tr("settings.community_limits_hint"))
+    else:
+        window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_requires_cloud"))
+        window.lbl_settings_community_limit_hint.setText(tr("settings.community_trends_requires_cloud"))
     if bool(enabled):
         window.statusBar().showMessage(tr("settings.cloud_learning_saved_on"), 4000)
     else:
         window.statusBar().showMessage(tr("settings.cloud_learning_saved_off"), 4000)
+
+
+def on_settings_community_trends_toggled(window, enabled: bool) -> None:
+    from app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        window.chk_settings_community_trends.blockSignals(True)
+        window.chk_settings_community_trends.setChecked(False)
+        window.chk_settings_community_trends.blockSignals(False)
+        window.statusBar().showMessage(tr("settings.community_trends_optin_unavailable"), 5000)
+        return
+    if not _cloud_learning_optin(window):
+        window.chk_settings_community_trends.blockSignals(True)
+        window.chk_settings_community_trends.setChecked(False)
+        window.chk_settings_community_trends.blockSignals(False)
+        window.statusBar().showMessage(tr("settings.community_trends_requires_cloud"), 5000)
+        return
+
+    _set_community_build_trends_optin(window, bool(enabled))
+    if bool(enabled):
+        window.statusBar().showMessage(tr("settings.community_trends_saved_on"), 4000)
+    else:
+        window.statusBar().showMessage(tr("settings.community_trends_saved_off"), 4000)
+
+
+def on_settings_community_set_limit_changed(window) -> None:
+    from app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        return
+    value = _clamp_top_n_limit(window.combo_settings_community_set_limit.currentData(), default=3)
+    _set_community_set_limit(window, int(value))
+    window.statusBar().showMessage(tr("settings.community_set_limit_saved", n=int(value)), 4000)
+
+
+def on_settings_community_mainstat_limit_changed(window) -> None:
+    from app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        return
+    value = _clamp_top_n_limit(window.combo_settings_community_mainstat_limit.currentData(), default=3)
+    _set_community_mainstat_limit(window, int(value))
+    window.statusBar().showMessage(tr("settings.community_mainstat_limit_saved", n=int(value)), 4000)
+
+
+def on_settings_community_art_substat_limit_changed(window) -> None:
+    from app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        return
+    try:
+        value = int(window.combo_settings_community_art_substat_limit.currentData() or 2)
+    except Exception:
+        value = 2
+    value = max(1, min(2, int(value)))
+    _set_community_artifact_substat_limit(window, int(value))
+    window.statusBar().showMessage(tr("settings.community_art_substat_limit_saved", n=int(value)), 4000)
 
 
 def on_settings_import_json(window) -> None:
@@ -625,6 +892,13 @@ def retranslate_settings(window) -> None:
     window.grp_settings_license.setTitle(tr("settings.group_license"))
     window.btn_settings_activate.setText(tr("btn.activate"))
     window.chk_settings_cloud_learning.setText(tr("settings.cloud_learning_optin"))
+    window.chk_settings_community_trends.setText(tr("settings.community_trends_optin"))
+    window.lbl_settings_community_set_limit.setText(tr("settings.community_set_limit_label"))
+    window.lbl_settings_community_mainstat_limit.setText(tr("settings.community_mainstat_limit_label"))
+    window.lbl_settings_community_art_substat_limit.setText(tr("settings.community_art_substat_limit_label"))
+    _populate_top_n_combo(window.combo_settings_community_set_limit)
+    _populate_top_n_combo(window.combo_settings_community_mainstat_limit)
+    _populate_top_n_combo(window.combo_settings_community_art_substat_limit, max_n=2)
 
     window.grp_settings_language.setTitle(tr("settings.group_language"))
     window.lbl_settings_language.setText(tr("settings.label_language"))

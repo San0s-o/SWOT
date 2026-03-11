@@ -22,6 +22,14 @@ from app.domain.presets import (
     EFFECT_ID_TO_MAINSTAT_KEY,
 )
 from app.i18n import tr
+from app.services.cloud_learning_service import (
+    BuildPreferenceTrend,
+    build_trends_artifact_substat_limit,
+    build_trends_mainstat_limit,
+    build_trends_set_combo_limit,
+    fetch_build_preference_trends,
+    upload_build_preferences,
+)
 
 STAT_SCORE_WEIGHTS: Dict[int, int] = {
     1: 1,   # HP flat
@@ -149,6 +157,8 @@ _ARTIFACT_ALLOWED_EFFECT_IDS_BY_TYPE: Dict[int, Set[int]] = {
     2: {int(x) for x in (ARTIFACT_EFFECT_IDS_BY_ARTIFACT_TYPE.get(2) or []) if int(x) > 0},
 }
 _VALID_SET_IDS = set(int(x) for x in SET_ID_BY_NAME.values())
+_SET_NAME_BY_ID = {int(v): str(k) for k, v in SET_ID_BY_NAME.items()}
+_VALID_MAINSTAT_KEYS = set(str(v) for v in EFFECT_ID_TO_MAINSTAT_KEY.values())
 _RUNE_SET_HINT_PIECE_BONUS_BY_RANK = [35, 24, 16]
 _RUNE_SET_HINT_FULL_BONUS_BY_RANK = [210, 150, 95]
 _ROLE_DEFAULT_RUNE_SET_IDS: Dict[str, List[int]] = {
@@ -1566,6 +1576,7 @@ class GreedyRequest:
     unit_artifact_hints_by_uid: Dict[int, Dict[str, Any]] | None = None
     unit_team_has_spd_buff_by_uid: Dict[int, bool] | None = None
     arena_rush_context: str = ""  # "", "defense", "offense"
+    cloud_build_prior_by_uid: Dict[int, List[Build]] | None = None
 
 @dataclass
 class GreedyUnitResult:
@@ -1665,6 +1676,345 @@ def _allowed_artifacts_for_mode(
     if excluded_artifact_ids:
         artifacts = [a for a in artifacts if int(a.artifact_id or 0) not in excluded_artifact_ids]
     return artifacts
+
+
+def _build_has_user_constraints(build: Build) -> bool:
+    set_options = list(getattr(build, "set_options", []) or [])
+    mainstats = dict(getattr(build, "mainstats", {}) or {})
+    artifact_focus = dict(getattr(build, "artifact_focus", {}) or {})
+    artifact_substats = dict(getattr(build, "artifact_substats", {}) or {})
+    min_stats = dict(getattr(build, "min_stats", {}) or {})
+    return bool(set_options or mainstats or artifact_focus or artifact_substats or min_stats)
+
+
+def _builds_need_cloud_prior(builds: List[Build]) -> bool:
+    if not builds:
+        return True
+    return not any(_build_has_user_constraints(b) for b in (builds or []))
+
+
+def _set_combos_from_build(build: Build) -> List[List[int]]:
+    out: List[List[int]] = []
+    seen: Set[Tuple[int, ...]] = set()
+    for opt in (getattr(build, "set_options", []) or []):
+        if not isinstance(opt, list):
+            continue
+        combo: List[int] = []
+        for name in opt:
+            sid = int(SET_ID_BY_NAME.get(str(name), 0) or 0)
+            if sid <= 0:
+                continue
+            combo.append(int(sid))
+        if not combo:
+            continue
+        key = tuple(combo)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(combo)
+        if len(out) >= 16:
+            break
+    return out
+
+
+def _mainstats_by_slot_from_build(build: Build) -> Dict[str, List[str]]:
+    raw = dict(getattr(build, "mainstats", {}) or {})
+    out: Dict[str, List[str]] = {"2": [], "4": [], "6": []}
+    for slot in (2, 4, 6):
+        vals_raw = raw.get(slot, raw.get(str(slot), []))
+        vals: List[str] = []
+        seen: Set[str] = set()
+        for item in list(vals_raw or []):
+            key = str(item or "").strip().upper()
+            if key not in _VALID_MAINSTAT_KEYS or key in seen:
+                continue
+            seen.add(key)
+            vals.append(key)
+            if len(vals) >= 10:
+                break
+        out[str(slot)] = vals
+    return out
+
+
+def _mainstat_combos_246_from_slots(mainstats_by_slot: Dict[str, List[str]], limit: int = 16) -> List[List[str]]:
+    s2 = list(mainstats_by_slot.get("2") or [])
+    s4 = list(mainstats_by_slot.get("4") or [])
+    s6 = list(mainstats_by_slot.get("6") or [])
+    if not s2 or not s4 or not s6:
+        return []
+    out: List[List[str]] = []
+    for a in s2:
+        for b in s4:
+            for c in s6:
+                out.append([str(a), str(b), str(c)])
+                if len(out) >= int(max(1, int(limit or 1))):
+                    return out
+    return out
+
+
+def _artifact_focus_from_build(build: Build) -> Dict[str, List[str]]:
+    raw = dict(getattr(build, "artifact_focus", {}) or {})
+    out: Dict[str, List[str]] = {}
+    for key in ("attribute", "type"):
+        vals = raw.get(key, [])
+        selected = ""
+        for item in list(vals or []):
+            candidate = str(item or "").strip().upper()
+            if candidate in ("HP", "ATK", "DEF"):
+                selected = candidate
+                break
+        if selected:
+            out[key] = [selected]
+    return out
+
+
+def _artifact_substats_from_build(build: Build) -> Dict[str, List[int]]:
+    raw = dict(getattr(build, "artifact_substats", {}) or {})
+    out: Dict[str, List[int]] = {}
+    for key in ("attribute", "type"):
+        vals: List[int] = []
+        seen: Set[int] = set()
+        for item in list(raw.get(key, []) or []):
+            try:
+                eid = int(item or 0)
+            except Exception:
+                eid = 0
+            if eid <= 0 or eid in seen:
+                continue
+            seen.add(eid)
+            vals.append(eid)
+            if len(vals) >= 2:
+                break
+        if vals:
+            out[key] = vals
+    return out
+
+
+def _build_preference_event_for_upload(unit_master_id: int, build: Build) -> Optional[Dict[str, Any]]:
+    umid = int(unit_master_id or 0)
+    if umid <= 0:
+        return None
+    set_combos = _set_combos_from_build(build)
+    mainstats_by_slot = _mainstats_by_slot_from_build(build)
+    mainstat_combos_246 = _mainstat_combos_246_from_slots(mainstats_by_slot, limit=16)
+    artifact_focus = _artifact_focus_from_build(build)
+    artifact_substats = _artifact_substats_from_build(build)
+    has_signal = bool(
+        set_combos
+        or mainstats_by_slot.get("2")
+        or mainstats_by_slot.get("4")
+        or mainstats_by_slot.get("6")
+        or mainstat_combos_246
+        or artifact_focus
+        or artifact_substats
+    )
+    if not has_signal:
+        return None
+    return {
+        "unit_master_id": int(umid),
+        "set_combos": list(set_combos),
+        "mainstats_by_slot": {
+            "2": list(mainstats_by_slot.get("2") or []),
+            "4": list(mainstats_by_slot.get("4") or []),
+            "6": list(mainstats_by_slot.get("6") or []),
+        },
+        "mainstat_combos_246": list(mainstat_combos_246),
+        "artifact_focus": dict(artifact_focus),
+        "artifact_substats": dict(artifact_substats),
+    }
+
+
+def _upload_cloud_build_preferences_for_request(
+    account: AccountData,
+    presets: BuildStore,
+    req: GreedyRequest,
+) -> None:
+    try:
+        mode_key = str(req.mode or "").strip().lower()
+        if not mode_key:
+            return
+        events: List[Dict[str, Any]] = []
+        seen_master_ids: Set[int] = set()
+        for uid in [int(x) for x in (req.unit_ids_in_order or []) if int(x) > 0]:
+            builds = sorted(presets.get_unit_builds(req.mode, int(uid)), key=lambda b: int(getattr(b, "priority", 0) or 0))
+            build = builds[0] if builds else Build.default_any()
+            if not _build_has_user_constraints(build):
+                continue
+            unit = account.units_by_id.get(int(uid))
+            unit_master_id = int(getattr(unit, "unit_master_id", 0) or 0) if unit else 0
+            if unit_master_id <= 0:
+                unit_master_id = int(uid)
+            if unit_master_id in seen_master_ids:
+                continue
+            event = _build_preference_event_for_upload(int(unit_master_id), build)
+            if event is None:
+                continue
+            seen_master_ids.add(int(unit_master_id))
+            events.append(event)
+        if not events:
+            return
+        upload_build_preferences(mode=mode_key, preferences=events)
+    except Exception:
+        return
+
+
+def _build_from_cloud_trend(base: Build, trend: BuildPreferenceTrend) -> Optional[Build]:
+    set_top_n = max(1, int(build_trends_set_combo_limit()))
+    mainstat_top_n = max(1, int(build_trends_mainstat_limit()))
+    artifact_substat_top_n = max(1, int(build_trends_artifact_substat_limit()))
+
+    set_options: List[List[str]] = []
+    seen_set_opts: Set[Tuple[str, ...]] = set()
+    for combo in list(trend.top_set_combos or [])[:set_top_n]:
+        names: List[str] = []
+        total_pieces = 0
+        for sid in list(combo or [])[:3]:
+            sid_i = int(sid or 0)
+            name = _SET_NAME_BY_ID.get(int(sid_i), "")
+            if not name:
+                continue
+            names.append(str(name))
+            total_pieces += int(SET_SIZES.get(int(sid_i), 2) or 2)
+        if not names or total_pieces > 6:
+            continue
+        key = tuple(names)
+        if key in seen_set_opts:
+            continue
+        seen_set_opts.add(key)
+        set_options.append(names)
+        if len(set_options) >= 16:
+            break
+
+    mainstats: Dict[int, List[str]] = {}
+    for slot in (2, 4, 6):
+        vals: List[str] = []
+        seen_vals: Set[str] = set()
+        raw_vals = list((trend.mainstats_by_slot or {}).get(int(slot), []) or [])[:mainstat_top_n]
+        for item in raw_vals:
+            key = str(item or "").strip().upper()
+            if key not in _VALID_MAINSTAT_KEYS or key in seen_vals:
+                continue
+            seen_vals.add(key)
+            vals.append(key)
+        if vals:
+            mainstats[int(slot)] = vals[:mainstat_top_n]
+
+    for combo in list(trend.top_mainstat_combos_246 or [])[:mainstat_top_n]:
+        if not isinstance(combo, list) or len(combo) < 3:
+            continue
+        for idx, slot in enumerate((2, 4, 6)):
+            key = str(combo[idx] or "").strip().upper()
+            if key not in _VALID_MAINSTAT_KEYS:
+                continue
+            current = list(mainstats.get(int(slot), []) or [])
+            if key not in current:
+                current.append(key)
+            if current:
+                mainstats[int(slot)] = current[:mainstat_top_n]
+
+    artifact_focus: Dict[str, List[str]] = {}
+    for key in ("attribute", "type"):
+        vals = list((trend.artifact_focus or {}).get(key, []) or [])
+        selected = ""
+        for item in vals:
+            candidate = str(item or "").strip().upper()
+            if candidate in ("HP", "ATK", "DEF"):
+                selected = candidate
+                break
+        if selected:
+            artifact_focus[str(key)] = [selected]
+
+    artifact_substats: Dict[str, List[int]] = {}
+    for key in ("attribute", "type"):
+        vals: List[int] = []
+        seen_vals: Set[int] = set()
+        for item in list((trend.artifact_substats or {}).get(key, []) or []):
+            try:
+                eid = int(item or 0)
+            except Exception:
+                eid = 0
+            if eid <= 0 or eid in seen_vals:
+                continue
+            seen_vals.add(eid)
+            vals.append(eid)
+            if len(vals) >= int(artifact_substat_top_n):
+                break
+        if vals:
+            artifact_substats[str(key)] = vals
+
+    if not (set_options or mainstats or artifact_focus or artifact_substats):
+        return None
+
+    return Build(
+        id=str(getattr(base, "id", "default") or "default"),
+        name=str(getattr(base, "name", "Default") or "Default"),
+        enabled=bool(getattr(base, "enabled", True)),
+        priority=int(getattr(base, "priority", 1) or 1),
+        optimize_order=int(getattr(base, "optimize_order", 0) or 0),
+        turn_order=int(getattr(base, "turn_order", 0) or 0),
+        spd_tick=int(getattr(base, "spd_tick", 0) or 0),
+        set_options=list(set_options),
+        mainstats=dict(mainstats),
+        min_stats=dict(getattr(base, "min_stats", {}) or {}),
+        artifact_focus=dict(artifact_focus),
+        artifact_substats=dict(artifact_substats),
+    )
+
+
+def _prepare_cloud_build_prior_by_uid(
+    account: AccountData,
+    presets: BuildStore,
+    req: GreedyRequest,
+) -> Dict[int, List[Build]]:
+    mode_key = str(req.mode or "").strip().lower()
+    unit_ids = [int(x) for x in (req.unit_ids_in_order or []) if int(x) > 0]
+    if not mode_key or not unit_ids:
+        return {}
+
+    unit_master_by_uid: Dict[int, int] = {}
+    for uid in unit_ids:
+        unit = account.units_by_id.get(int(uid))
+        unit_master_id = int(getattr(unit, "unit_master_id", 0) or 0) if unit else 0
+        if unit_master_id <= 0:
+            unit_master_id = int(uid)
+        unit_master_by_uid[int(uid)] = int(unit_master_id)
+
+    trends_by_mid: Dict[int, BuildPreferenceTrend] = {}
+    try:
+        trends_by_mid = fetch_build_preference_trends(
+            mode=mode_key,
+            unit_master_ids=list(set(unit_master_by_uid.values())),
+        )
+    except Exception:
+        trends_by_mid = {}
+
+    out: Dict[int, List[Build]] = {}
+    for uid in unit_ids:
+        current_builds = sorted(
+            presets.get_unit_builds(req.mode, int(uid)),
+            key=lambda b: int(getattr(b, "priority", 0) or 0),
+        )
+        if not _builds_need_cloud_prior(current_builds):
+            continue
+        trend = trends_by_mid.get(int(unit_master_by_uid.get(int(uid), 0)), None)
+        if trend is None:
+            continue
+        base = current_builds[0] if current_builds else Build.default_any()
+        inferred = _build_from_cloud_trend(base, trend)
+        if inferred is None:
+            continue
+        out[int(uid)] = [inferred]
+    return out
+
+
+def _builds_for_unit_with_cloud_prior(presets: BuildStore, req: GreedyRequest, uid: int) -> List[Build]:
+    overrides = dict(getattr(req, "cloud_build_prior_by_uid", {}) or {})
+    if int(uid) in overrides and list(overrides.get(int(uid), []) or []):
+        builds = list(overrides.get(int(uid), []) or [])
+    else:
+        builds = list(presets.get_unit_builds(req.mode, int(uid)) or [])
+    builds = sorted(builds, key=lambda b: int(getattr(b, "priority", 0) or 0))
+    return builds if builds else [Build.default_any()]
 
 
 def _count_required_set_pieces(set_names: List[str]) -> Dict[int, int]:
@@ -3435,9 +3785,7 @@ def _run_pass_with_profile(
         if rta_art_equip:
             rta_aids = set(int(aid) for aid in rta_art_equip.get(uid, []))
 
-        builds = presets.get_unit_builds(req.mode, uid)
-        # IMPORTANT: greedy feels more SWOP-like if we sort builds by priority ascending
-        builds = sorted(builds, key=lambda b: int(b.priority))
+        builds = _builds_for_unit_with_cloud_prior(presets, req, int(uid))
         avoid_ref = (avoid_solution_by_unit or {}).get(int(uid))
         force_speed_priority = _force_swift_speed_priority(req, uid, builds)
         speed_tie_raw = (req.unit_speed_tiebreak_weight or {}).get(int(uid), None)
@@ -3582,6 +3930,16 @@ def optimize_greedy(account: AccountData, presets: BuildStore, req: GreedyReques
     base_unit_ids = list(req.unit_ids_in_order)
     if not base_unit_ids:
         return GreedyResult(False, tr("opt.no_units"), [])
+
+    if req.cloud_build_prior_by_uid is None:
+        try:
+            req.cloud_build_prior_by_uid = _prepare_cloud_build_prior_by_uid(account, presets, req)
+        except Exception:
+            req.cloud_build_prior_by_uid = {}
+    try:
+        _upload_cloud_build_preferences_for_request(account, presets, req)
+    except Exception:
+        pass
 
     pass_orders = [base_unit_ids]
     if bool(req.multi_pass_enabled) and len(base_unit_ids) > 1:

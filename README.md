@@ -4,19 +4,6 @@ Runen-Optimierer und Team-Builder für Summoners War. Verteilt Runen und Artefak
 
 ---
 
-## Inhaltsverzeichnis
-
-1. [Features](#features)
-2. [Tab-Übersicht](#tab-übersicht)
-3. [Kurzanleitung](#kurzanleitung)
-4. [Build-Konfiguration](#build-konfiguration)
-5. [Qualitätsprofile](#qualitätsprofile)
-6. [Systemanforderungen](#systemanforderungen)
-7. [Lizenz](#lizenz)
-8. [Technisches](#technisches)
-
----
-
 ## Features
 
 | Bereich | Beschreibung |
@@ -25,13 +12,12 @@ Runen-Optimierer und Team-Builder für Summoners War. Verteilt Runen und Artefak
 | **Übersicht** | Account-Statistiken, Runen-Effizienz-Diagramme, Set-Verteilung, Artefakt-Übersicht |
 | **Siege Builder** | Bis zu 10 Verteidigungsteams (je 3 Monster) auswählen, konfigurieren und optimieren |
 | **WGB Builder** | 5 Verteidigungsteams (je 3 Monster) für World Guild Battle |
-| **RTA Builder** | Bis zu 15 Monster per Drag & Drop in beliebiger Reihenfolge – mit aktuellem RTA-Snapshot |
+| **RTA Builder** | Bis zu 25 Monster per Drag & Drop in beliebiger Reihenfolge – mit aktuellem RTA-Snapshot |
 | **Arena Rush Builder** | 1 Arena-Defense (4 Monster) + bis zu 15 Offense-Teams (je 4 Monster) |
 | **Runen & Artefakte** | Tabellenansicht aller Runen (ab +12) und Artefakte mit Filter und Effizienz-Werten |
-| **Team Builder** | Eigene Teams für PvE oder sonstige Planung |
 | **Build-Presets** | Pro Monster: erlaubte Sets, Mainstats, Artefakt-Substats, Min-Stats, Priorität, Turn-Order |
-| **Runen-Optimierung** | Automatische Zuweisung via OR-Tools Constraint Solver, inkl. Artefakt-Zuweisung |
-| **Cloud Learning (Full)** | `gpu_combo` kann für Full-Lizenzen anonymisierte Lernmetriken hochladen und kontextbezogene globale Priors laden (Trial bleibt lokal) |
+| **Runen-Optimierung** | Automatische Zuweisung via Constraint Solver, inkl. Artefakt-Zuweisung |
+| **Cloud Learning (Full)** | Full-Lizenzen können anonymisierte Lernmetriken und Build-Präferenzen teilen; daraus werden globale Trends geladen |
 | **Optimierungen speichern** | Ergebnisse werden gespeichert und können jederzeit eingesehen und verglichen werden |
 
 ---
@@ -86,7 +72,7 @@ Wechsle zum **Builder**-Unter-Tab des gewünschten Modus:
 - Slot 1 bestimmt den Leader-Skill
 
 **RTA Builder** (`RTA → Builder`)
-- Bis zu 15 Monster, Reihenfolge per Drag & Drop
+- Bis zu 25 Monster, Reihenfolge per Drag & Drop
 - **Aktuelle RTA Monster übernehmen** – lädt die Ingame-Aufstellung
 
 **Arena Rush Builder** (`Arena Rush → Builder`)
@@ -96,7 +82,7 @@ Wechsle zum **Builder**-Unter-Tab des gewünschten Modus:
 
 ### 5. Builds konfigurieren
 
-Klicke auf **Builds (Sets+Mainstats)...** um pro Monster festzulegen:
+Klicke auf **Builds...** um pro Monster festzulegen:
 
 | Einstellung | Beschreibung |
 |---|---|
@@ -131,41 +117,24 @@ Klicke auf **Speichern** im Ergebnis-Dialog. Unter dem jeweiligen **Gespeichert*
 
 ## Build-Konfiguration
 
-### Optimierungsreihenfolge
+### Optimierungsmodi
 
-Bei `Fast` und `Balanced` ist die **Drag & Drop Reihenfolge** in der Monsterliste entscheidend: Monster weiter oben wählen zuerst aus dem gemeinsamen Runen-Pool. Bei `Max Qualität` wird global über alle Monster gleichzeitig optimiert.
+| Profil | Beschreibung |
+|---|---|
+| `Smart (KI)` | KI-gestützte Suche – schnell und in den meisten Fällen die beste Wahl |
+| `Maximum` | Exakte globale Optimierung über alle Monster gleichzeitig – langsamer, aber mathematisch optimal |
 
 ### Arena Rush Besonderheiten
 
 - Kein Multi-Pass (Durchläufe-Steuerung ist ausgeblendet)
-- Nur Profile **KI (GPU/CPU)** und **Max Qualität** verfügbar
 - Optimiert alle Offense-Teams gleichzeitig gegen die definierte Defense
-
----
-
-## Qualitätsprofile
-
-### CPU-Profile
-
-| Profil | Beschreibung | Durchläufe | Laufzeit (Richtwert) |
-|---|---|---|---|
-| `Fast` | Schnelle Suche, geringer Suchraum | 1 | ~5 s × Monsteranzahl |
-| `Balanced` | Breitere Suche mit Verfeinerung | 1–10 mit Early-Stop | ~5 s × Monster × Durchläufe |
-| `Max Qualität` | Globale Optimierung über alle Monster gleichzeitig | kein Multi-Pass | ~7,5 s × Monsteranzahl |
-
-### Arena Rush Profile
-
-| Profil | Beschreibung |
-|---|---|
-| `KI (GPU/CPU)` | GPU-Combo-Profil (hybride GPU/CPU-Suche) für Arena-Rush Defense/Offense |
-| `Max Qualität` | Globale OR-Tools-Optimierung über alle Offense-Teams |
 
 ---
 
 ## Systemanforderungen
 
 - **Betriebssystem:** Windows 10/11
-- **Summoners War JSON-Export:** z.B. via [SWEX](https://github.com/frostq/swex)
+- **Summoners War JSON-Export:** z.B. via SWEX
 
 ---
 
@@ -173,58 +142,8 @@ Bei `Fast` und `Balanced` ist die **Drag & Drop Reihenfolge** in der Monsterlist
 
 Die App erfordert einen gültigen Lizenz-Key. Beim ersten Start wirst du zur Eingabe aufgefordert. Der Key wird einmalig online aktiviert und an dein Gerät gebunden. Lizenz und Key sind im **Einstellungen**-Tab einsehbar und verwaltbar.
 
-## Cloud Learning (Full-Lizenz)
+### Cloud Learning (Full-Lizenz)
 
 - Nur **Full-Lizenzen** nehmen am Cloud-Learning teil.
-- **Trial-Lizenzen** nutzen weiterhin nur lokales Lernen (kein Upload/Download von Trainingsdaten).
-- Gespeichert werden nur abgeleitete Optimizer-Metriken (KPIs/Gewichtsvektor), keine kompletten Account-Dumps.
-
-Supabase Setup:
-
-```bash
--- zuerst:
-supabase/sql/license_schema.sql
--- danach:
-supabase/sql/cloud_learning_schema.sql
-```
-
-Deploy der zusätzlichen Edge Functions:
-
-```bash
-supabase functions deploy learning_upload
-supabase functions deploy learning_priors
-```
-
----
-
-## Technisches
-
-### Offline-Metadaten für EXE-Builds
-
-Die App nutzt zur Laufzeit nur lokale Metadaten. Für Releases können die Metadaten vorab per Script aktualisiert und mit der EXE ausgeliefert werden:
-
-```bash
-python -m app.tools.update_monster_db
-```
-
-Aktualisiert:
-- `app/assets/monsters.json` (inkl. Leader Skill, Archetype, Turn-Effect-Caps)
-- `app/config/excluded/monster_turn_effect_capabilities.json`
-- `app/config/excluded/arena_speed_lead_cache.json`
-- `app/config/excluded/arena_archetype_cache.json`
-
-Zur Laufzeit findet kein Online-Nachladen/Scraping statt.
-
-### Tests
-
-```bash
-pytest -q tests/test_license_service.py tests/test_update_service.py tests/test_import.py
-```
-
-### Benchmark
-
-```bash
-python benchmark_optimizer.py --mode rta --units 15 --passes 3 --runs 5 --time-limit 1.5 --quality-profile balanced --multi-pass-strategy greedy_refine --speed-slack 1 --rune-top-per-set 200 --out-json benchmark/latest.json
-```
-
-Relevante Flags: `--quality-profile (fast|balanced|max_quality)`, `--rune-top-per-set`, `--speed-slack`, `--multi-pass-strategy`. Ohne `--snapshot` wird automatisch der aktive gespeicherte Snapshot verwendet.
+- **Trial-Lizenzen** nutzen weiterhin nur lokales Lernen.
+- Gespeichert werden nur abgeleitete Optimizer-Metriken und Build-Entscheidungen (Sets/Mainstats/Artefakte), keine kompletten Account-Dumps.

@@ -72,6 +72,8 @@ STRINGS: dict[str, str] = {
     "btn.load_preferred_runes": "Load preferred runes",
     "btn.load_preferred_runes_all": "Load preferred runes for all",
     "btn.save_preferred_runes": "Save preferred runes",
+    "btn.load_community_trends": "Load community trend",
+    "btn.load_community_trends_all": "Load community trends for all",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Passes",
@@ -81,6 +83,7 @@ STRINGS: dict[str, str] = {
     "profile.fast": "Fast",
     "profile.balanced": "Balanced",
     "profile.manual": "Manual (CPU)",
+    "profile.maximum": "Maximum",
     "label.saved_opt": "Saved Optimization:",
     "label.team": "Team",
     "label.team_name": "Team Name",
@@ -114,6 +117,8 @@ STRINGS: dict[str, str] = {
     "tooltip.load_preferred_runes_all": "Load preferred rune set combinations and mainstats from monster_rune_set_preferences.json for all monsters.",
     "tooltip.load_preferred_runes_missing": "No rune preferences found for this monster in monster_rune_set_preferences.json.",
     "tooltip.save_preferred_runes": "Save currently selected rune sets and mainstats as monster preferences in monster_rune_set_preferences.json.",
+    "tooltip.load_community_trends": "Load community build trends (sets/mainstats/artifacts) for this monster.",
+    "tooltip.load_community_trends_all": "Load community build trends (sets/mainstats/artifacts) for all monsters.",
     "tooltip.set_multi": "Multi-select. After first selection only same-size sets (2-piece/4-piece).",
     "tooltip.set3": "Only active when Set 1 and Set 2 are both 2-piece sets.",
     "tooltip.mainstat_multi": "Multi-select possible. No selection = Any.",
@@ -273,6 +278,9 @@ STRINGS: dict[str, str] = {
     "status.arena_off_taken_limited": "{count}/{total} Arena offense decks loaded (UI limit reached).",
     "status.arena_caps_loading": "Loading monster skill data for effect filters...",
     "status.pass_progress": "{prefix}: Pass {current}/{total}...",
+    "status.community_trends_loaded": "Community trend loaded: {count} monsters with priors.",
+    "status.community_trends_none": "No community priors found for the current selection.",
+    "status.community_trends_disabled": "Community trends are disabled.",
 
     # -- Validation Messages -------------------------------------
     "val.incomplete_team": "{label}: Team {team} is incomplete ({have}/{need}).",
@@ -314,6 +322,10 @@ STRINGS: dict[str, str] = {
     "dlg.builds_saved": "Saved to {path}",
     "dlg.select_left": "Please select a monster on the left.",
     "dlg.no_result": "No result found.",
+    "build.community_status_disabled": "Community prior: disabled (settings).",
+    "build.community_status_not_loaded": "Community prior: not loaded yet.",
+    "build.community_status_none": "Community prior: no data.",
+    "build.community_status_active": "Community prior active ({samples} samples, confidence {confidence}%).",
 
     # -- Optimization result display -----------------------------
     "result.title_team": "Team Optimization: {name}",
@@ -635,6 +647,20 @@ STRINGS: dict[str, str] = {
     "settings.cloud_learning_optin_unavailable": "Cloud learning is available for full licenses only.",
     "settings.cloud_learning_saved_on": "Cloud learning enabled.",
     "settings.cloud_learning_saved_off": "Cloud learning disabled (local only).",
+    "settings.community_trends_optin": "Apply community build trends (load sets/mainstats/artifacts)",
+    "settings.community_trends_optin_hint": "Full license only: uses community trends as additional build preselection.",
+    "settings.community_trends_requires_cloud": "Community build trends require cloud learning to be enabled.",
+    "settings.community_trends_optin_unavailable": "Community build trends are available for full licenses only.",
+    "settings.community_trends_saved_on": "Community build trends enabled.",
+    "settings.community_trends_saved_off": "Community build trends disabled.",
+    "settings.community_set_limit_label": "Apply set combos:",
+    "settings.community_mainstat_limit_label": "Apply mainstats:",
+    "settings.community_art_substat_limit_label": "Apply artifact substats:",
+    "settings.community_limits_hint": "Defines how many top community suggestions are applied (sets/mainstats 1-3, artifact substats 1-2).",
+    "settings.community_set_limit_saved": "Community set selection: Top {n}.",
+    "settings.community_mainstat_limit_saved": "Community mainstat selection: Top {n}.",
+    "settings.community_art_substat_limit_saved": "Community artifact substats: Top {n}.",
+    "settings.top_n_option": "Top {n}",
 
     "settings.label_language": "Language:",
 

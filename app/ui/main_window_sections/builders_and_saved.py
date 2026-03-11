@@ -75,10 +75,14 @@ def _row_clear_style() -> str:
 # ── shared toolbar styles ────────────────────────────────────
 def _optimize_btn_style() -> str:
     c = _theme.C
+    # In classic theme, blue-on-blue text looks disabled; keep accent text only
+    # for transparent optimize buttons (cyberpunk theme).
+    txt = c["accent"] if str(c.get("opt_bg", "")).lower() == "transparent" else "#ffffff"
     return (
-        f"QPushButton {{ background: {c['opt_bg']}; color: {c['accent']}; border: 1px solid {c['opt_border']}; "
+        f"QPushButton {{ background: {c['opt_bg']}; color: {txt}; border: 1px solid {c['opt_border']}; "
         "border-radius: 4px; padding: 4px 18px; font-weight: bold; }"
         f"QPushButton:hover {{ background: {c['opt_hover']}; border-color: {c['opt_hover_border']}; }}"
+        f"QPushButton:pressed {{ background: {c['opt_border']}; }}"
         f"QPushButton:disabled {{ background: {c['bg_input']}; color: {c['text_disabled']}; border-color: {c['border']}; }}"
     )
 
@@ -323,9 +327,7 @@ def init_siege_builder_ui(window) -> None:
     window.lbl_siege_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_siege = QComboBox()
     window.combo_quality_profile_siege.addItem(tr("profile.smart"), "gpu_combo")
-    window.combo_quality_profile_siege.addItem(tr("profile.fast"), "fast")
-    window.combo_quality_profile_siege.addItem(tr("profile.balanced"), "balanced")
-    window.combo_quality_profile_siege.addItem(tr("profile.manual"), "max_quality")
+    window.combo_quality_profile_siege.addItem(tr("profile.maximum"), "max_quality")
     idx_gpu_siege = window.combo_quality_profile_siege.findData("gpu_combo")
     window.combo_quality_profile_siege.setCurrentIndex(idx_gpu_siege if idx_gpu_siege >= 0 else 0)
     window.combo_quality_profile_siege.currentIndexChanged.connect(window._sync_worker_controls)
@@ -424,9 +426,7 @@ def init_wgb_builder_ui(window) -> None:
     window.lbl_wgb_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_wgb = QComboBox()
     window.combo_quality_profile_wgb.addItem(tr("profile.smart"), "gpu_combo")
-    window.combo_quality_profile_wgb.addItem(tr("profile.fast"), "fast")
-    window.combo_quality_profile_wgb.addItem(tr("profile.balanced"), "balanced")
-    window.combo_quality_profile_wgb.addItem(tr("profile.manual"), "max_quality")
+    window.combo_quality_profile_wgb.addItem(tr("profile.maximum"), "max_quality")
     idx_gpu_wgb = window.combo_quality_profile_wgb.findData("gpu_combo")
     window.combo_quality_profile_wgb.setCurrentIndex(idx_gpu_wgb if idx_gpu_wgb >= 0 else 0)
     window.combo_quality_profile_wgb.currentIndexChanged.connect(window._sync_worker_controls)
@@ -521,9 +521,7 @@ def init_rta_builder_ui(window) -> None:
     window.lbl_rta_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_rta = QComboBox()
     window.combo_quality_profile_rta.addItem(tr("profile.smart"), "gpu_combo")
-    window.combo_quality_profile_rta.addItem(tr("profile.fast"), "fast")
-    window.combo_quality_profile_rta.addItem(tr("profile.balanced"), "balanced")
-    window.combo_quality_profile_rta.addItem(tr("profile.manual"), "max_quality")
+    window.combo_quality_profile_rta.addItem(tr("profile.maximum"), "max_quality")
     idx_gpu_rta = window.combo_quality_profile_rta.findData("gpu_combo")
     window.combo_quality_profile_rta.setCurrentIndex(idx_gpu_rta if idx_gpu_rta >= 0 else 0)
     window.combo_quality_profile_rta.currentIndexChanged.connect(window._sync_worker_controls)

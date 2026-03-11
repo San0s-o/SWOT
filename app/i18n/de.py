@@ -72,6 +72,8 @@ STRINGS: dict[str, str] = {
     "btn.load_preferred_runes": "Bevorzugte Runen laden",
     "btn.load_preferred_runes_all": "Bevorzugte Runen für alle laden",
     "btn.save_preferred_runes": "Bevorzugte Runen speichern",
+    "btn.load_community_trends": "Community-Trend laden",
+    "btn.load_community_trends_all": "Community-Trends für alle laden",
 
     # -- Labels --------------------------------------------------
     "label.passes": "Durchläufe",
@@ -81,6 +83,7 @@ STRINGS: dict[str, str] = {
     "profile.fast": "Schnell",
     "profile.balanced": "Ausgewogen",
     "profile.manual": "Manuell (CPU)",
+    "profile.maximum": "Maximum",
     "label.saved_opt": "Gespeicherte Optimierung:",
     "label.team": "Team",
     "label.team_name": "Team-Name",
@@ -114,6 +117,8 @@ STRINGS: dict[str, str] = {
     "tooltip.load_preferred_runes_all": "Lädt bevorzugte Runen-Kombis und Mainstats aus monster_rune_set_preferences.json für alle Monster.",
     "tooltip.load_preferred_runes_missing": "Keine Runen-Prefs für dieses Monster in monster_rune_set_preferences.json gefunden.",
     "tooltip.save_preferred_runes": "Speichert die aktuell gewählten Runen-Sets und Mainstats als Monster-Prefs in monster_rune_set_preferences.json.",
+    "tooltip.load_community_trends": "Lädt Community-Build-Trends (Sets/Mainstats/Artefakte) für dieses Monster.",
+    "tooltip.load_community_trends_all": "Lädt Community-Build-Trends (Sets/Mainstats/Artefakte) für alle Monster.",
     "tooltip.set_multi": "Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).",
     "tooltip.set3": "Nur aktiv, wenn Set 1 und Set 2 jeweils 2er-Sets sind.",
     "tooltip.mainstat_multi": "Mehrfachauswahl möglich. Keine Auswahl = Any.",
@@ -273,6 +278,9 @@ STRINGS: dict[str, str] = {
     "status.arena_off_taken_limited": "{count}/{total} Arena-Offense-Decks geladen (UI-Limit erreicht).",
     "status.arena_caps_loading": "Lade Monster-Skilldaten fuer Effekt-Filter...",
     "status.pass_progress": "{prefix}: Durchlauf {current}/{total}...",
+    "status.community_trends_loaded": "Community-Trend geladen: {count} Monster mit Prior.",
+    "status.community_trends_none": "Keine Community-Priors für die aktuelle Auswahl gefunden.",
+    "status.community_trends_disabled": "Community-Trends sind deaktiviert.",
 
     # -- Validation Messages -------------------------------------
     "val.incomplete_team": "{label}: Team {team} ist unvollständig ({have}/{need}).",
@@ -314,6 +322,10 @@ STRINGS: dict[str, str] = {
     "dlg.builds_saved": "Gespeichert in {path}",
     "dlg.select_left": "Bitte links ein Monster auswählen.",
     "dlg.no_result": "Kein Ergebnis gefunden.",
+    "build.community_status_disabled": "Community-Prior: deaktiviert (Einstellungen).",
+    "build.community_status_not_loaded": "Community-Prior: noch nicht geladen.",
+    "build.community_status_none": "Community-Prior: keine Daten.",
+    "build.community_status_active": "Community-Prior aktiv ({samples} Samples, Confidence {confidence}%).",
 
     # -- Optimization result display -----------------------------
     "result.title_team": "Team Optimierung: {name}",
@@ -638,6 +650,20 @@ STRINGS: dict[str, str] = {
     "settings.cloud_learning_optin_unavailable": "Cloud-Learning ist nur mit Vollversion verfügbar.",
     "settings.cloud_learning_saved_on": "Cloud-Learning aktiviert.",
     "settings.cloud_learning_saved_off": "Cloud-Learning deaktiviert (nur lokal).",
+    "settings.community_trends_optin": "Community-Build-Trends anwenden (Sets/Mainstats/Artefakte laden)",
+    "settings.community_trends_optin_hint": "Nur für Vollversion: Nutzt Community-Trends als zusätzliche Build-Vorauswahl.",
+    "settings.community_trends_requires_cloud": "Community-Build-Trends benötigen aktiviertes Cloud-Learning.",
+    "settings.community_trends_optin_unavailable": "Community-Build-Trends sind nur mit Vollversion verfügbar.",
+    "settings.community_trends_saved_on": "Community-Build-Trends aktiviert.",
+    "settings.community_trends_saved_off": "Community-Build-Trends deaktiviert.",
+    "settings.community_set_limit_label": "Set-Kombis anwenden:",
+    "settings.community_mainstat_limit_label": "Mainstats anwenden:",
+    "settings.community_art_substat_limit_label": "Artefakt-Substats anwenden:",
+    "settings.community_limits_hint": "Legt fest, wie viele Top-Community-Vorschläge übernommen werden (Sets/Mainstats 1-3, Artefakt-Substats 1-2).",
+    "settings.community_set_limit_saved": "Community-Setauswahl: Top {n}.",
+    "settings.community_mainstat_limit_saved": "Community-Mainstat-Auswahl: Top {n}.",
+    "settings.community_art_substat_limit_saved": "Community-Artefakt-Substats: Top {n}.",
+    "settings.top_n_option": "Top {n}",
 
     "settings.label_language": "Sprache:",
 

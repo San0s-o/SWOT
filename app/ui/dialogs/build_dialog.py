@@ -54,6 +54,14 @@ from app.domain.artifact_effects import (
     artifact_effect_is_legacy,
 )
 from app.i18n import tr
+from app.services.cloud_learning_service import (
+    build_trends_artifact_substat_limit,
+    BuildPreferenceTrend,
+    build_trends_mainstat_limit,
+    build_trends_opt_in_enabled,
+    build_trends_set_combo_limit,
+    fetch_build_preference_trends,
+)
 from app.ui.dpi import dp
 from app.ui.widgets.selection_combos import _MainstatMultiCombo, _NoScrollComboBox, _SetMultiCombo
 
@@ -184,6 +192,10 @@ class BuildDialog(QDialog):
         self._initial_team_speed_lead_by_team: Dict[int, int] = {}
         self._initial_team_speed_lead_pct_by_team: Dict[int, int] = {}
         self._initial_team_effect_control_state: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        self._community_trends_loaded = False
+        self._community_trend_by_unit: Dict[int, BuildPreferenceTrend] = {}
+        self._community_status_label_by_unit: Dict[int, QLabel] = {}
+        self._community_trend_missing_units: Set[int] = set()
 
         if show_order_sections:
             order_box = QGroupBox(tr("group.turn_order"))
@@ -447,6 +459,10 @@ class BuildDialog(QDialog):
         btn_load_preferred_all.setToolTip(tr("tooltip.load_preferred_runes_all"))
         btn_load_preferred_all.clicked.connect(self._on_load_preferred_runes_for_all)
         list_layout.addWidget(btn_load_preferred_all)
+        btn_load_community_all = QPushButton(tr("btn.load_community_trends_all"))
+        btn_load_community_all.setToolTip(tr("tooltip.load_community_trends_all"))
+        btn_load_community_all.clicked.connect(self._on_load_community_trends_for_all)
+        list_layout.addWidget(btn_load_community_all)
         btn_restore_saved_preset = QPushButton(tr("btn.restore_saved_preset"))
         btn_restore_saved_preset.setToolTip(tr("tooltip.restore_saved_preset"))
         btn_restore_saved_preset.clicked.connect(self._on_restore_saved_preset)
@@ -857,10 +873,14 @@ class BuildDialog(QDialog):
             else tr("tooltip.load_preferred_runes_missing")
         )
         btn_load_pref_runes.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_load_preferred_runes_for_unit(_uid))
+        btn_load_community = QPushButton(tr("btn.load_community_trends"))
+        btn_load_community.setToolTip(tr("tooltip.load_community_trends"))
+        btn_load_community.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_load_community_trends_for_unit(_uid))
         btn_save_pref_runes = QPushButton(tr("btn.save_preferred_runes"))
         btn_save_pref_runes.setToolTip(tr("tooltip.save_preferred_runes"))
         btn_save_pref_runes.clicked.connect(lambda _checked=False, _uid=int(unit_id): self._on_save_preferred_runes_for_unit(_uid))
         pref_btn_layout.addWidget(btn_load_pref_runes)
+        pref_btn_layout.addWidget(btn_load_community)
         pref_btn_layout.addWidget(btn_save_pref_runes)
         pref_btn_layout.addStretch(1)
         rune_sets_layout.addRow("", pref_btn_row)
@@ -942,6 +962,10 @@ class BuildDialog(QDialog):
         min_mode_combo.currentIndexChanged.connect(lambda *_args: _on_min_mode_changed())
         _sync_min_mode_ui()
 
+        community_status_lbl = QLabel(self._community_status_text_for_unit(int(unit_id)))
+        community_status_lbl.setWordWrap(True)
+        community_status_lbl.setStyleSheet("color: #8aa1b4;")
+        content_layout.addWidget(community_status_lbl)
         content_layout.addWidget(min_stats_box)
         content_layout.addStretch(1)
 
@@ -966,7 +990,9 @@ class BuildDialog(QDialog):
         self._min_cd_spin[unit_id] = min_cd
         self._min_res_spin[unit_id] = min_res
         self._min_acc_spin[unit_id] = min_acc
+        self._community_status_label_by_unit[unit_id] = community_status_lbl
         self._sync_set_combo_constraints_for_unit(int(unit_id))
+        self._refresh_community_status_label(int(unit_id))
         return scroll
 
     def _parse_set_options_to_slot_ids(self, set_options: List[List[str]]) -> Tuple[List[int], List[int], List[int]]:
@@ -1449,6 +1475,290 @@ class BuildDialog(QDialog):
                 payload["base_stars"] = int(getattr(unit_obj, "unit_class", 0) or 0)
         self._save_rune_pref_entry(master_id=master_id, payload=payload)
 
+    def _show_dialog_status(self, text: str, timeout_ms: int = 5000) -> None:
+        parent = self.parentWidget()
+        if parent is None or not hasattr(parent, "statusBar"):
+            return
+        try:
+            status_bar = parent.statusBar()
+            if status_bar is not None:
+                status_bar.showMessage(str(text), int(timeout_ms))
+        except Exception:
+            return
+
+    def _community_status_text_for_unit(self, unit_id: int) -> str:
+        uid = int(unit_id or 0)
+        if not build_trends_opt_in_enabled():
+            return tr("build.community_status_disabled")
+
+        trend = self._community_trend_by_unit.get(int(uid))
+        if trend is not None:
+            samples = int(max(0, int(getattr(trend, "sample_count", 0) or 0)))
+            conf_raw = float(getattr(trend, "confidence", 0.0) or 0.0)
+            confidence_pct = int(round(max(0.0, min(1.0, conf_raw)) * 100.0))
+            return tr("build.community_status_active", samples=samples, confidence=confidence_pct)
+
+        if int(uid) in self._community_trend_missing_units and bool(self._community_trends_loaded):
+            return tr("build.community_status_none")
+        return tr("build.community_status_not_loaded")
+
+    def _refresh_community_status_label(self, unit_id: int) -> None:
+        uid = int(unit_id or 0)
+        lbl = self._community_status_label_by_unit.get(int(uid))
+        if lbl is None:
+            return
+        lbl.setText(self._community_status_text_for_unit(int(uid)))
+
+    def _refresh_all_community_status_labels(self) -> None:
+        for uid in list(self._community_status_label_by_unit.keys()):
+            self._refresh_community_status_label(int(uid))
+
+    def _community_trend_for_unit(self, unit_id: int) -> BuildPreferenceTrend | None:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return None
+        master_id = self._unit_master_id_for_unit(int(uid))
+        if master_id <= 0:
+            return None
+        trends_by_mid = fetch_build_preference_trends(
+            mode=self.mode,
+            unit_master_ids=[int(master_id)],
+        )
+        return trends_by_mid.get(int(master_id))
+
+    def _set_slots_from_community_trend(self, trend: BuildPreferenceTrend) -> Tuple[List[int], List[int], List[int]]:
+        top_n = max(1, int(build_trends_set_combo_limit()))
+        set_options: List[List[str]] = []
+        seen: Set[Tuple[str, ...]] = set()
+        for combo in list(trend.top_set_combos or [])[:top_n]:
+            names: List[str] = []
+            total_pieces = 0
+            for sid in list(combo or [])[:3]:
+                sid_i = int(sid or 0)
+                set_name = str(SET_NAMES.get(int(sid_i), "") or "")
+                if not set_name:
+                    continue
+                names.append(set_name)
+                total_pieces += int(SET_SIZES.get(int(sid_i), 2) or 2)
+            if not names or int(total_pieces) > 6:
+                continue
+            key = tuple(names)
+            if key in seen:
+                continue
+            seen.add(key)
+            set_options.append(names)
+            if len(set_options) >= 16:
+                break
+        return self._parse_set_options_to_slot_ids(set_options)
+
+    def _mainstats_from_community_trend(self, trend: BuildPreferenceTrend) -> Dict[int, List[str]]:
+        top_n = max(1, int(build_trends_mainstat_limit()))
+        raw_slot_map: Dict[str, List[str]] = {
+            "2": [str(x) for x in list((trend.mainstats_by_slot or {}).get(2, []) or [])[:top_n]],
+            "4": [str(x) for x in list((trend.mainstats_by_slot or {}).get(4, []) or [])[:top_n]],
+            "6": [str(x) for x in list((trend.mainstats_by_slot or {}).get(6, []) or [])[:top_n]],
+        }
+        entry = {
+            "top_mainstats_by_slot": raw_slot_map,
+            "top_mainstat_combos_246": [
+                list(x)
+                for x in list(trend.top_mainstat_combos_246 or [])[:top_n]
+                if isinstance(x, list)
+            ],
+        }
+        by_slot = self._rune_pref_mainstats_by_slot(entry)
+        for slot in (2, 4, 6):
+            vals = [str(x) for x in list(by_slot.get(int(slot), []) or [])]
+            by_slot[int(slot)] = vals[:top_n]
+        return by_slot
+
+    def _apply_community_trend_to_unit_controls(self, unit_id: int, trend: BuildPreferenceTrend) -> bool:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return False
+
+        self._ensure_editor_page(int(uid))
+
+        slot1_ids, slot2_ids, slot3_ids = self._set_slots_from_community_trend(trend)
+        c1 = self._set1_combo.get(int(uid))
+        c2 = self._set2_combo.get(int(uid))
+        c3 = self._set3_combo.get(int(uid))
+        if c1 is not None and slot1_ids:
+            c1.set_checked_ids(slot1_ids)
+        if c2 is not None and slot2_ids:
+            c2.set_checked_ids(slot2_ids)
+        if c3 is not None and slot3_ids:
+            c3.set_checked_ids(slot3_ids)
+        self._sync_set_combo_constraints_for_unit(int(uid))
+
+        by_slot = self._mainstats_from_community_trend(trend)
+        cmb2 = self._ms2_combo.get(int(uid))
+        cmb4 = self._ms4_combo.get(int(uid))
+        cmb6 = self._ms6_combo.get(int(uid))
+        if cmb2 is not None and by_slot.get(2):
+            cmb2.set_checked_values([str(x) for x in list(by_slot.get(2) or [])])
+        if cmb4 is not None and by_slot.get(4):
+            cmb4.set_checked_values([str(x) for x in list(by_slot.get(4) or [])])
+        if cmb6 is not None and by_slot.get(6):
+            cmb6.set_checked_values([str(x) for x in list(by_slot.get(6) or [])])
+
+        art_attr_focus = self._art_attr_focus_combo.get(int(uid))
+        art_type_focus = self._art_type_focus_combo.get(int(uid))
+        if art_attr_focus is not None:
+            idx_any = art_attr_focus.findData("")
+            if idx_any >= 0:
+                art_attr_focus.setCurrentIndex(int(idx_any))
+        if art_type_focus is not None:
+            idx_any = art_type_focus.findData("")
+            if idx_any >= 0:
+                art_type_focus.setCurrentIndex(int(idx_any))
+        for key, cmb in (("attribute", art_attr_focus), ("type", art_type_focus)):
+            if cmb is None:
+                continue
+            selected = ""
+            for item in list((trend.artifact_focus or {}).get(str(key), []) or []):
+                cand = str(item or "").strip().upper()
+                if cand in ("HP", "ATK", "DEF"):
+                    selected = cand
+                    break
+            if selected:
+                self._set_art_focus_combo_value(cmb, selected)
+
+        art_attr_sub1 = self._art_attr_sub1_combo.get(int(uid))
+        art_attr_sub2 = self._art_attr_sub2_combo.get(int(uid))
+        art_type_sub1 = self._art_type_sub1_combo.get(int(uid))
+        art_type_sub2 = self._art_type_sub2_combo.get(int(uid))
+        for cmb in (art_attr_sub1, art_attr_sub2, art_type_sub1, art_type_sub2):
+            if cmb is None:
+                continue
+            idx_any = cmb.findData(0)
+            if idx_any >= 0:
+                cmb.setCurrentIndex(int(idx_any))
+
+        art_sub_limit = max(1, int(build_trends_artifact_substat_limit()))
+        attr_subs = [
+            int(x)
+            for x in list((trend.artifact_substats or {}).get("attribute", []) or [])
+            if int(x) > 0
+        ][:art_sub_limit]
+        type_subs = [
+            int(x)
+            for x in list((trend.artifact_substats or {}).get("type", []) or [])
+            if int(x) > 0
+        ][:art_sub_limit]
+        if art_attr_sub1 is not None and len(attr_subs) >= 1:
+            self._set_art_sub_combo_value(art_attr_sub1, int(attr_subs[0]))
+        if art_attr_sub2 is not None and len(attr_subs) >= 2:
+            self._set_art_sub_combo_value(art_attr_sub2, int(attr_subs[1]))
+        if art_type_sub1 is not None and len(type_subs) >= 1:
+            self._set_art_sub_combo_value(art_type_sub1, int(type_subs[0]))
+        if art_type_sub2 is not None and len(type_subs) >= 2:
+            self._set_art_sub_combo_value(art_type_sub2, int(type_subs[1]))
+
+        has_signal = bool(
+            slot1_ids
+            or slot2_ids
+            or slot3_ids
+            or by_slot.get(2)
+            or by_slot.get(4)
+            or by_slot.get(6)
+            or attr_subs
+            or type_subs
+            or (trend.artifact_focus or {})
+        )
+        return has_signal
+
+    def _on_load_community_trends_for_unit(self, unit_id: int) -> None:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return
+        if not build_trends_opt_in_enabled():
+            self._show_dialog_status(tr("status.community_trends_disabled"))
+            self._refresh_community_status_label(int(uid))
+            return
+
+        self._ensure_editor_page(int(uid))
+        self._community_trends_loaded = True
+
+        trend: BuildPreferenceTrend | None = None
+        try:
+            trend = self._community_trend_for_unit(int(uid))
+        except Exception:
+            trend = None
+
+        if trend is None:
+            self._community_trend_by_unit.pop(int(uid), None)
+            self._community_trend_missing_units.add(int(uid))
+            self._refresh_community_status_label(int(uid))
+            self._show_dialog_status(tr("status.community_trends_none"))
+            return
+
+        applied = self._apply_community_trend_to_unit_controls(int(uid), trend)
+        if applied:
+            self._community_trend_by_unit[int(uid)] = trend
+            self._community_trend_missing_units.discard(int(uid))
+        else:
+            self._community_trend_by_unit.pop(int(uid), None)
+            self._community_trend_missing_units.add(int(uid))
+        self._refresh_community_status_label(int(uid))
+        if applied:
+            self._show_dialog_status(tr("status.community_trends_loaded", count=1))
+        else:
+            self._show_dialog_status(tr("status.community_trends_none"))
+
+    def _on_load_community_trends_for_all(self) -> None:
+        if not build_trends_opt_in_enabled():
+            self._show_dialog_status(tr("status.community_trends_disabled"))
+            self._refresh_all_community_status_labels()
+            return
+
+        self._ensure_all_editor_pages()
+        unit_ids = [int(uid) for uid in list(self._set1_combo.keys()) if int(uid) > 0]
+        if not unit_ids:
+            return
+
+        unit_master_by_uid: Dict[int, int] = {}
+        for uid in unit_ids:
+            master_id = self._unit_master_id_for_unit(int(uid))
+            if master_id > 0:
+                unit_master_by_uid[int(uid)] = int(master_id)
+        if not unit_master_by_uid:
+            self._show_dialog_status(tr("status.community_trends_none"))
+            return
+
+        trends_by_mid: Dict[int, BuildPreferenceTrend] = {}
+        self._community_trends_loaded = True
+        try:
+            trends_by_mid = fetch_build_preference_trends(
+                mode=self.mode,
+                unit_master_ids=list(set(unit_master_by_uid.values())),
+            )
+        except Exception:
+            trends_by_mid = {}
+
+        applied_count = 0
+        for uid in unit_ids:
+            mid = int(unit_master_by_uid.get(int(uid), 0) or 0)
+            trend = trends_by_mid.get(int(mid))
+            if trend is None:
+                self._community_trend_by_unit.pop(int(uid), None)
+                self._community_trend_missing_units.add(int(uid))
+                self._refresh_community_status_label(int(uid))
+                continue
+            if self._apply_community_trend_to_unit_controls(int(uid), trend):
+                self._community_trend_by_unit[int(uid)] = trend
+                self._community_trend_missing_units.discard(int(uid))
+                applied_count += 1
+            else:
+                self._community_trend_by_unit.pop(int(uid), None)
+                self._community_trend_missing_units.add(int(uid))
+            self._refresh_community_status_label(int(uid))
+
+        if applied_count > 0:
+            self._show_dialog_status(tr("status.community_trends_loaded", count=applied_count))
+        else:
+            self._show_dialog_status(tr("status.community_trends_none"))
+
     def _apply_build_to_unit_controls(self, unit_id: int, build: Build) -> None:
         uid = int(unit_id or 0)
         if uid <= 0:
@@ -1554,6 +1864,10 @@ class BuildDialog(QDialog):
         for unit_id, build in self._initial_build_by_unit.items():
             self._apply_build_to_unit_controls(int(unit_id), copy.deepcopy(build))
         self._restore_unit_list_uid_order(list(self._initial_unit_list_order))
+        self._community_trends_loaded = False
+        self._community_trend_by_unit = {}
+        self._community_trend_missing_units = set()
+        self._refresh_all_community_status_labels()
 
         for team_idx, cmb in self._team_speed_lead_combo_by_team.items():
             target_uid = int(self._initial_team_speed_lead_by_team.get(int(team_idx), 0) or 0)

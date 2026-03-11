@@ -37,10 +37,14 @@ from app.ui.widgets.selection_combos import _UnitSearchComboBox
 
 def _optimize_btn_style() -> str:
     c = _theme.C
+    # In classic theme, blue-on-blue text looks disabled; keep accent text only
+    # for transparent optimize buttons (cyberpunk theme).
+    txt = c["accent"] if str(c.get("opt_bg", "")).lower() == "transparent" else "#ffffff"
     return (
-        f"QPushButton {{ background: {c['opt_bg']}; color: {c['accent']}; border: 1px solid {c['opt_border']}; "
+        f"QPushButton {{ background: {c['opt_bg']}; color: {txt}; border: 1px solid {c['opt_border']}; "
         "border-radius: 4px; padding: 4px 18px; font-weight: bold; }"
         f"QPushButton:hover {{ background: {c['opt_hover']}; border-color: {c['opt_hover_border']}; }}"
+        f"QPushButton:pressed {{ background: {c['opt_border']}; }}"
         f"QPushButton:disabled {{ background: {c['bg_input']}; color: {c['text_disabled']}; border-color: {c['border']}; }}"
     )
 
@@ -243,7 +247,7 @@ def init_arena_rush_builder_ui(
     window.lbl_arena_rush_workers = QLabel(tr("label.workers"))
     window.combo_quality_profile_arena_rush = QComboBox()
     window.combo_quality_profile_arena_rush.addItem(tr("profile.smart"), "gpu_combo")
-    window.combo_quality_profile_arena_rush.addItem(tr("profile.manual"), "max_quality")
+    window.combo_quality_profile_arena_rush.addItem(tr("profile.maximum"), "max_quality")
     idx_gpu_arena = window.combo_quality_profile_arena_rush.findData("gpu_combo")
     window.combo_quality_profile_arena_rush.setCurrentIndex(idx_gpu_arena if idx_gpu_arena >= 0 else 0)
     window.combo_quality_profile_arena_rush.setEnabled(True)

@@ -53,6 +53,7 @@ from app.engine.greedy_optimizer import (
     _rune_stat_total,
     _rune_quality_score,
     _artifact_quality_score,
+    _builds_for_unit_with_cloud_prior,
     _run_pass_with_profile,
 )
 from app.i18n import tr
@@ -1873,7 +1874,7 @@ def _gpu_presceen_rune_ids(
         base_atk = int(unit.base_atk or 0)
         base_def = int(unit.base_def or 0)
 
-        builds = presets.get_unit_builds(req.mode, uid)
+        builds = _builds_for_unit_with_cloud_prior(presets, req, int(uid))
         constraints = _extract_build_constraints(builds or [], req.mode)
 
         # Filter matrices by mainstat constraints (slots 2/4/6)
