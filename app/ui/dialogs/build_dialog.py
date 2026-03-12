@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -248,7 +249,7 @@ class BuildDialog(QDialog):
 
                     row_widget = QWidget()
                     row_layout = QHBoxLayout(row_widget)
-                    row_layout.setContentsMargins(dp(2), dp(2), dp(2), dp(2))
+                    row_layout.setContentsMargins(dp(2), dp(2), dp(8), dp(2))
                     row_layout.setSpacing(dp(4))
 
                     icon_lbl = QLabel()
@@ -258,6 +259,9 @@ class BuildDialog(QDialog):
                     row_layout.addWidget(icon_lbl)
 
                     txt_lbl = QLabel(label)
+                    txt_lbl.setMinimumWidth(0)
+                    txt_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+                    txt_lbl.setWordWrap(False)
                     row_layout.addWidget(txt_lbl, 1)
 
                     spd_text = f"SPD {min_spd_val}" if min_spd_val > 0 else ""
@@ -266,10 +270,11 @@ class BuildDialog(QDialog):
                     row_layout.addWidget(spd_lbl)
 
                     tick_lbl = QLabel(tr("label.spd_tick_short"))
+                    tick_lbl.setFixedWidth(dp(28))
+                    tick_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
                     tick_cmb = _NoScrollComboBox()
-                    tick_cmb.setMinimumWidth(dp(80))
-                    tick_cmb.setMaximumWidth(dp(100))
+                    tick_cmb.setFixedWidth(dp(84))
                     tick_cmb.addItem("-", 0)
                     for tick in allowed_spd_ticks(self.mode):
                         tick_i = int(tick)

@@ -114,8 +114,7 @@ class _SummaryCard(QFrame):
                 QFrame#SummaryCard {{
                     background: {c['card_bg']};
                     border: 1px solid {c['card_border']};
-                    border-left: 3px solid {accent};
-                    border-radius: 4px;
+                    border-radius: 8px;
                 }}
             """)
         else:
@@ -123,8 +122,7 @@ class _SummaryCard(QFrame):
                 QFrame#SummaryCard {{
                     background: {c['card_bg']};
                     border: 1px solid {c['card_border']};
-                    border-top: 3px solid {accent};
-                    border-radius: 8px;
+                    border-radius: 10px;
                 }}
             """)
 
@@ -136,7 +134,7 @@ class _SummaryCard(QFrame):
         title_color = c['accent'] if is_cp else c['text_dim']
         title_weight = "font-weight: bold;" if is_cp else ""
         lbl_title.setStyleSheet(
-            f"color: {title_color}; font-size: 8pt; border: none; background: transparent;"
+            f"color: {title_color}; font-size: 9pt; border: none; background: transparent;"
             f" text-transform: {c['card_title_transform']}; letter-spacing: {c['card_title_spacing']};"
             f" {title_weight}"
         )
@@ -145,7 +143,7 @@ class _SummaryCard(QFrame):
 
         mono = c["mono_font"]
         font_css = f"font-family: {mono};" if mono else ""
-        val_size = "26pt" if is_cp else "22pt"
+        val_size = "24pt" if is_cp else "18pt"
         lbl_val = QLabel(value)
         lbl_val.setStyleSheet(
             f"color: {accent}; font-size: {val_size}; font-weight: bold;"
@@ -170,7 +168,7 @@ class _SummaryCard(QFrame):
         if accent:
             mono = _theme.C["mono_font"]
             font_css = f"font-family: {mono};" if mono else ""
-            val_size = "26pt" if _theme.current_name == "cyberpunk" else "22pt"
+            val_size = "24pt" if _theme.current_name == "cyberpunk" else "18pt"
             self._lbl_val.setStyleSheet(
                 f"color: {accent}; font-size: {val_size}; font-weight: bold;"
                 f" border: none; background: transparent; {font_css}"
@@ -194,10 +192,15 @@ def _make_chart(title: str) -> QChart:
     chart.setBackgroundBrush(QColor(_theme.C["chart_bg"]))
     chart_text = QColor(_theme.C["chart_text"])
     chart.setTitleBrush(chart_text)
-    chart.setTitleFont(QFont("Segoe UI", 9, QFont.Bold))
+    title_font = QFont()
+    title_font.setPointSize(9)
+    title_font.setWeight(QFont.Bold)
+    chart.setTitleFont(title_font)
     legend = chart.legend()
     legend.setLabelColor(chart_text)
-    legend.setFont(QFont("Segoe UI", 8))
+    legend_font = QFont()
+    legend_font.setPointSize(8)
+    legend.setFont(legend_font)
     legend.setAlignment(Qt.AlignBottom)
     chart.setMargins(QMargins(10, 8, 10, 8))
     return chart
@@ -597,9 +600,11 @@ class OverviewWidget(QWidget):
         n_arts = len(acc.artifacts)
 
         self._card_units.update_value(str(n_units))
-        self._card_units.set_subtitle(tr("overview.sub_collected"))
+        self._card_units.set_subtitle("")
         self._card_runes.update_value(f"{n_runes:,}".replace(",", "."))
+        self._card_runes.set_subtitle("")
         self._card_artifacts.update_value(f"{n_arts:,}".replace(",", "."))
+        self._card_artifacts.set_subtitle("")
 
         r_effs = rune_efficiencies(filtered_runes) if filtered_runes else []
         artifacts_t1 = [a for a in acc.artifacts if int(a.type_ or 0) == 1 and a.sec_effects]
@@ -611,29 +616,37 @@ class OverviewWidget(QWidget):
             avg = sum(r_effs) / len(r_effs)
             best = max(r_effs)
             self._card_rune_avg.update_value(f"{avg:.1f}%")
-            self._card_rune_avg.set_subtitle(tr("overview.sub_rune_eff", pct=f"{best:.1f}"))
+            self._card_rune_avg.set_subtitle("")
             self._card_rune_best.update_value(f"{best:.1f}%")
-            self._card_rune_best.set_subtitle(tr("overview.sub_best_rune"))
+            self._card_rune_best.set_subtitle("")
+        else:
+            self._card_rune_avg.set_subtitle("")
+            self._card_rune_best.set_subtitle("")
         if a_effs_t1:
             avg = sum(a_effs_t1) / len(a_effs_t1)
             self._card_art_avg_t1.update_value(f"{avg:.1f}%")
+            self._card_art_avg_t1.set_subtitle("")
         else:
             self._card_art_avg_t1.update_value("—")
+            self._card_art_avg_t1.set_subtitle("")
 
         if a_effs_t2:
             avg = sum(a_effs_t2) / len(a_effs_t2)
             self._card_art_avg_t2.update_value(f"{avg:.1f}%")
+            self._card_art_avg_t2.set_subtitle("")
         else:
             self._card_art_avg_t2.update_value("—")
+            self._card_art_avg_t2.set_subtitle("")
 
         for sid, card in self._set_eff_cards.items():
             vals = [rune_efficiency(r) for r in filtered_runes if int(r.set_id or 0) == sid]
             if vals:
                 avg_v = sum(vals) / len(vals)
                 card.update_value(f"{avg_v:.1f}%")
-                card.set_subtitle(tr("overview.sub_set_eff"))
+                card.set_subtitle("")
             else:
                 card.update_value("\u2014")
+                card.set_subtitle("")
 
     # -- charts ----------------------------------------
     def _clear_grid(self) -> None:

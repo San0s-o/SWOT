@@ -42,7 +42,7 @@ def _optimize_btn_style() -> str:
     txt = c["accent"] if str(c.get("opt_bg", "")).lower() == "transparent" else "#ffffff"
     return (
         f"QPushButton {{ background: {c['opt_bg']}; color: {txt}; border: 1px solid {c['opt_border']}; "
-        "border-radius: 4px; padding: 4px 18px; font-weight: bold; }"
+        "border-radius: 8px; padding: 6px 18px; font-weight: bold; min-height: 28px; }"
         f"QPushButton:hover {{ background: {c['opt_hover']}; border-color: {c['opt_hover_border']}; }}"
         f"QPushButton:pressed {{ background: {c['opt_border']}; }}"
         f"QPushButton:disabled {{ background: {c['bg_input']}; color: {c['text_disabled']}; border-color: {c['border']}; }}"
@@ -52,20 +52,28 @@ def _optimize_btn_style() -> str:
 def _settings_frame_style() -> str:
     c = _theme.C
     return (
-        f"QFrame#OptSettings {{ background: {c['settings_bg']}; border: 1px solid {c['border']}; border-radius: 4px; }}"
+        f"QFrame#OptSettings {{ background: {c['settings_bg']}; border: 1px solid {c['border']}; border-radius: 10px; }}"
         f"QLabel {{ background: transparent; border: none; color: {c['text_dim']}; font-size: 8pt; }}"
+        f"QFrame#OptSettings QComboBox, QFrame#OptSettings QSpinBox {{"
+        " background: transparent; border: none; min-height: 24px; padding: 0 6px; }"
+        "QFrame#OptSettings QComboBox:focus, QFrame#OptSettings QSpinBox:focus { border: none; outline: none; }"
+        f"QFrame#OptSettings QComboBox::drop-down {{ border: none; width: {dp(16)}px; }}"
+        "QFrame#OptSettings QSpinBox::up-button, QFrame#OptSettings QSpinBox::down-button { width: 0px; border: none; }"
+        f"QFrame#OptSettings QComboBox QAbstractItemView {{"
+        f" background: {c['bg_card']}; border: 1px solid {c['border']}; border-radius: 8px; outline: none; padding: 2px; }}"
+        "QFrame#OptSettings QComboBox QAbstractItemView::item { margin: 0; border: none; padding: 6px 8px; }"
     )
 
 
 def _status_lbl_style() -> str:
-    return f"color: {_theme.C['text_dim']}; font-style: italic; font-size: 9pt;"
+    return f"color: {_theme.C['text_dim']}; font-size: 9pt; font-weight: 500;"
 
 
 def _row_clear_style() -> str:
     c = _theme.C
     return (
-        f"QPushButton {{ background: {c['bg_mid']}; color: {c['text_dim']}; border: 1px solid {c['border']}; "
-        "border-radius: 3px; font-size: 8pt; padding: 1px 4px; min-width: 0; }"
+        f"QPushButton {{ background: transparent; color: {c['text_dim']}; border: 1px solid {c['border']}; "
+        "border-radius: 7px; font-size: 8pt; padding: 2px 6px; min-width: 0; }"
         f"QPushButton:hover {{ background: {c['red']}; color: #fff; border-color: {c['red']}; }}"
     )
 

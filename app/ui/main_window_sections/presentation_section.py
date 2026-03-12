@@ -19,39 +19,39 @@ def apply_tab_style(window) -> None:
         }}
         QTabWidget::pane {{
             border: 1px solid {c['tab_border']};
-            border-top: none;
+            border-radius: {dp(10)}px;
             background: {c['tab_pane']};
-            top: -1px;
+            top: {dp(8)}px;
         }}
         QTabBar {{
             qproperty-drawBase: 0;
             background: transparent;
         }}
+        QTabBar::tear {{
+            width: 0px;
+            height: 0px;
+        }}
         QTabBar::tab {{
-            background: {c['tab_bg']};
+            background: transparent;
             color: {c['tab_text']};
-            border: 1px solid {c['tab_border']};
-            border-bottom: none;
-            border-top: 2px solid transparent;
-            border-top-left-radius: 6px;
-            border-top-right-radius: 6px;
-            min-width: 110px;
-            padding: 8px 20px;
-            margin-right: 2px;
+            border: 1px solid transparent;
+            border-radius: {dp(8)}px;
+            min-width: {dp(108)}px;
+            min-height: {dp(20)}px;
+            padding: {dp(8)}px {dp(16)}px;
+            margin-right: {dp(6)}px;
         }}
         QTabBar::tab:selected {{
-            background: {c['tab_pane']};
+            background: {c['bg_mid']};
             color: {c['tab_active_text']};
             border-color: {c['tab_border']};
-            border-top: 2px solid {c['tab_accent']};
-            border-bottom: none;
-            margin-bottom: -1px;
+            border-bottom: 2px solid {c['tab_accent']};
             font-weight: bold;
         }}
         QTabBar::tab:hover:!selected {{
             background: {c['bg_mid']};
             color: {c['tab_hover_text']};
-            border-top: 2px solid {c['tab_hover_accent']};
+            border-color: {c['tab_border']};
         }}
         """
     )

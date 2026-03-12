@@ -29,6 +29,7 @@ from app.engine.efficiency import rune_efficiency
 from app.engine.greedy_optimizer import GreedyUnitResult
 from app.i18n import tr
 from app.ui.dpi import dp
+from app.ui import theme as _theme
 
 
 def _stat_label_tr(key: str) -> str:
@@ -72,12 +73,42 @@ class OptimizeResultDialog(QDialog):
         group_size: int = 3,
         baseline_runes_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
         baseline_artifacts_by_unit: Optional[Dict[int, Dict[int, int]]] = None,
+        show_extra_info: bool = True,
     ):
         super().__init__(parent)
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
         self.setWindowTitle(title)
         self.setMinimumSize(dp(800), dp(500))
         self.setWindowState(Qt.WindowMaximized)
+        c = _theme.C
+        self.setStyleSheet(
+            f"""
+            QListWidget {{
+                border: 1px solid {c['border']};
+                border-radius: {dp(10)}px;
+                background: {c['bg_mid']};
+            }}
+            QFrame#TeamIconBar {{
+                border: 1px solid {c['border']};
+                border-radius: {dp(10)}px;
+                background: {c['bg_card']};
+            }}
+            QFrame[teamCard="true"] {{
+                border: 1px solid {c['border']};
+                border-radius: {dp(8)}px;
+                background: {c['card_bg']};
+            }}
+            QFrame[teamCard="true"][selected="true"] {{
+                border-color: {c['accent']};
+                background: {c['highlight_bg']};
+            }}
+            QFrame[resultPane="true"] {{
+                border: 1px solid {c['card_border']};
+                border-radius: {dp(8)}px;
+                background: {c['card_bg']};
+            }}
+            """
+        )
 
         self._results = list(results)
         self._results_by_key: Dict[int, GreedyUnitResult] = {
@@ -110,6 +141,7 @@ class OptimizeResultDialog(QDialog):
             if int(uid or 0) > 0
         }
         self._has_baseline_compare = bool(self._baseline_runes_by_unit or self._baseline_artifacts_by_unit)
+        self._show_extra_info = bool(show_extra_info)
         self._compare_checkbox: QCheckBox | None = None
         self.saved = False
         self._stats_detailed = True
@@ -122,7 +154,7 @@ class OptimizeResultDialog(QDialog):
             lbl.setWordWrap(True)
             root.addWidget(lbl)
 
-        if self._has_baseline_compare:
+        if self._has_baseline_compare and self._show_extra_info:
             compare_row = QHBoxLayout()
             self._compare_checkbox = QCheckBox(tr("result.compare_before_after"))
             self._compare_checkbox.toggled.connect(self._on_compare_toggle)
@@ -142,6 +174,7 @@ class OptimizeResultDialog(QDialog):
         body.addLayout(right, 1)
 
         self.team_icon_bar = QFrame()
+        self.team_icon_bar.setObjectName("TeamIconBar")
         self.team_icon_bar.setFrameShape(QFrame.StyledPanel)
         self.team_icon_layout = QHBoxLayout(self.team_icon_bar)
         self.team_icon_layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
@@ -151,13 +184,14 @@ class OptimizeResultDialog(QDialog):
         self.detail_container = QWidget()
         self.detail_layout = QHBoxLayout(self.detail_container)
         self.detail_layout.setContentsMargins(0, 0, 0, 0)
-        self.detail_layout.setSpacing(dp(8))
+        self.detail_layout.setSpacing(dp(10))
         right.addWidget(self.detail_container, 1)
 
         self._populate_nav()
 
         btn_bar = QHBoxLayout()
         self.btn_save = QPushButton(tr("btn.save"))
+        self.btn_save.setProperty("primary", True)
         self.btn_save.clicked.connect(self._on_save)
         btn_bar.addWidget(self.btn_save)
         btn_bar.addStretch()
@@ -236,10 +270,12 @@ class OptimizeResultDialog(QDialog):
         for result_key, result in team_results:
             card = QFrame()
             card.setFrameShape(QFrame.StyledPanel)
+            card.setProperty("teamCard", True)
             card.setProperty("selected", int(result_key) == int(selected_result_key))
+            card.setMinimumWidth(dp(116))
             v = QVBoxLayout(card)
-            v.setContentsMargins(dp(6), dp(6), dp(6), dp(6))
-            v.setSpacing(dp(4))
+            v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+            v.setSpacing(dp(5))
 
             icon_lbl = QLabel()
             icon = self._unit_icon_fn(result.unit_id)
@@ -247,6 +283,14 @@ class OptimizeResultDialog(QDialog):
                 icon_lbl.setPixmap(icon.pixmap(dp(72), dp(72)))
             icon_lbl.setAlignment(Qt.AlignCenter)
             v.addWidget(icon_lbl)
+
+            name = str(self._unit_label_fn(result.unit_id) or "").strip()
+            if len(name) > 16:
+                name = name[:15] + "…"
+            name_lbl = QLabel(name)
+            name_lbl.setAlignment(Qt.AlignCenter)
+            name_lbl.setStyleSheet(f"color: {_theme.C['text']}; font-size: {dp(11)}px;")
+            v.addWidget(name_lbl)
 
             runes_by_unit = {int(r.unit_id): (r.runes_by_slot or {}) for _, r in team_results}
             artifacts_by_unit = {int(r.unit_id): (r.artifacts_by_type or {}) for _, r in team_results}
@@ -256,8 +300,13 @@ class OptimizeResultDialog(QDialog):
                 runes_by_unit,
                 artifacts_by_unit,
             )
-            spd_lbl = QLabel(str(spd))
+            spd_lbl = QLabel(f"SPD {int(spd)}")
             spd_lbl.setAlignment(Qt.AlignCenter)
+            mono = _theme.C.get("mono_font", "")
+            mono_css = f"font-family: {mono}; " if mono else ""
+            spd_lbl.setStyleSheet(
+                f"color: {_theme.C['stat_val_color']}; font-size: {dp(11)}px; font-weight: bold; {mono_css}"
+            )
             v.addWidget(spd_lbl)
 
             self.team_icon_layout.addWidget(card)
@@ -291,6 +340,15 @@ class OptimizeResultDialog(QDialog):
         if team_results:
             return [int(r.unit_id) for _, r in team_results]
         return [int(r.unit_id) for r in self._results]
+
+    def _make_result_pane(self) -> tuple[QFrame, QVBoxLayout]:
+        pane = QFrame()
+        pane.setFrameShape(QFrame.StyledPanel)
+        pane.setProperty("resultPane", True)
+        v = QVBoxLayout(pane)
+        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        v.setSpacing(dp(6))
+        return pane, v
 
     def _render_details(self, result_key: int | None) -> None:
         self._render_team_icon_bar(result_key)
@@ -340,23 +398,22 @@ class OptimizeResultDialog(QDialog):
                     self._baseline_artifacts_by_unit,
                 )
 
-        self.detail_layout.addWidget(
-            self._build_stats_tab(
-                unit_id,
-                result,
-                base_stats,
-                total_stats,
-                leader_bonus,
-                totem_bonus,
-                spd_buff_bonus,
-                before_stats=before_stats,
-            )
+        stats_widget = self._build_stats_tab(
+            unit_id,
+            result,
+            base_stats,
+            total_stats,
+            leader_bonus,
+            totem_bonus,
+            spd_buff_bonus,
+            before_stats=before_stats,
         )
+        self.detail_layout.addWidget(stats_widget, 3)
 
         if result.ok and result.runes_by_slot:
-            self.detail_layout.addWidget(self._build_runes_tab(result, unit_id))
+            self.detail_layout.addWidget(self._build_runes_tab(result, unit_id), 4)
         if result.ok and result.artifacts_by_type:
-            self.detail_layout.addWidget(self._build_artifacts_tab(result))
+            self.detail_layout.addWidget(self._build_artifacts_tab(result), 2)
 
     def _build_stats_tab(
         self,
@@ -369,25 +426,24 @@ class OptimizeResultDialog(QDialog):
         spd_buff_bonus: Dict[str, int],
         before_stats: Optional[Dict[str, int]] = None,
     ) -> QWidget:
-        w = QWidget()
-        v = QVBoxLayout(w)
-        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        w, v = self._make_result_pane()
 
         label = self._unit_label_fn(unit_id)
         title = QLabel(f"<b>{label}</b>" if result.ok else f"<b>{label} ({tr('label.error')})</b>")
         title.setTextFormat(Qt.RichText)
         v.addWidget(title)
 
-        rune_ids = list((result.runes_by_slot or {}).values())
-        eff_values = [rune_efficiency(r) for rid in rune_ids if (r := self._rune_lookup.get(int(rid)))]
-        if eff_values:
-            avg_eff = sum(eff_values) / len(eff_values)
-            eff_lbl = QLabel(tr("result.avg_rune_eff", eff=f"{avg_eff:.2f}"))
-        else:
-            eff_lbl = QLabel(tr("result.avg_rune_eff_none"))
-        eff_lbl.setTextFormat(Qt.RichText)
-        eff_lbl.setStyleSheet("color: #bbb;")
-        v.addWidget(eff_lbl)
+        if self._show_extra_info:
+            rune_ids = list((result.runes_by_slot or {}).values())
+            eff_values = [rune_efficiency(r) for rid in rune_ids if (r := self._rune_lookup.get(int(rid)))]
+            if eff_values:
+                avg_eff = sum(eff_values) / len(eff_values)
+                eff_lbl = QLabel(tr("result.avg_rune_eff", eff=f"{avg_eff:.2f}"))
+            else:
+                eff_lbl = QLabel(tr("result.avg_rune_eff_none"))
+            eff_lbl.setTextFormat(Qt.RichText)
+            eff_lbl.setStyleSheet(f"color: {_theme.C['text_dim']};")
+            v.addWidget(eff_lbl)
 
         if not result.ok:
             msg = QLabel(result.message)
@@ -504,28 +560,25 @@ class OptimizeResultDialog(QDialog):
         return w
 
     def _build_runes_tab(self, result: GreedyUnitResult, unit_id: int) -> QWidget:
-        w = QWidget()
-        v = QVBoxLayout(w)
-        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
+        w, v = self._make_result_pane()
+        v.addWidget(QLabel(f"<b>{tr('header.runes')}</b>"))
 
         grid = QGridLayout()
-        grid.setSpacing(dp(6))
+        grid.setHorizontalSpacing(dp(8))
+        grid.setVerticalSpacing(dp(8))
         slots = sorted((result.runes_by_slot or {}).items())
         for idx, (slot, rune_id) in enumerate(slots):
             rune = self._rune_lookup.get(rune_id)
             if not rune:
                 continue
-            row, col = divmod(idx, 2)
+            row, col = divmod(idx, 3)
             grid.addWidget(self._build_rune_frame(rune, slot), row, col)
         v.addLayout(grid)
         v.addStretch()
         return w
 
     def _build_artifacts_tab(self, result: GreedyUnitResult) -> QWidget:
-        w = QWidget()
-        v = QVBoxLayout(w)
-        v.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        v.setSpacing(dp(6))
+        w, v = self._make_result_pane()
         v.addWidget(QLabel(f"<b>{tr('ui.artifacts_title')}</b>"))
 
         for art_type in (1, 2):
@@ -539,7 +592,9 @@ class OptimizeResultDialog(QDialog):
 
             frame = QFrame()
             frame.setFrameShape(QFrame.StyledPanel)
-            frame.setStyleSheet("QFrame { border: 1px solid #444; border-radius: 3px; padding: 4px; }")
+            frame.setStyleSheet(
+                f"QFrame {{ border: 1px solid {_theme.C['card_border']}; border-radius: 8px; padding: 4px; background: {_theme.C['bg_mid']}; }}"
+            )
             fv = QVBoxLayout(frame)
             fv.setContentsMargins(dp(6), dp(4), dp(6), dp(4))
             fv.setSpacing(dp(2))
@@ -555,7 +610,7 @@ class OptimizeResultDialog(QDialog):
             if owner_uid > 0:
                 owner = self._unit_label_fn(owner_uid)
                 owner_lbl = QLabel(tr("ui.current_on", owner=owner))
-                owner_lbl.setStyleSheet("color: #888; font-size: 7pt;")
+                owner_lbl.setStyleSheet(f"color: {_theme.C['text_dim']}; font-size: 7pt;")
                 fv.addWidget(owner_lbl)
 
             sec_lines: List[str] = []
@@ -571,7 +626,7 @@ class OptimizeResultDialog(QDialog):
             if sec_lines:
                 for line in sec_lines:
                     lbl = QLabel(line)
-                    lbl.setStyleSheet("font-size: 8pt;")
+                    lbl.setStyleSheet(f"font-size: 8pt; color: {_theme.C['text']};")
                     fv.addWidget(lbl)
 
             v.addWidget(frame)
@@ -582,9 +637,12 @@ class OptimizeResultDialog(QDialog):
     def _build_rune_frame(self, rune: Rune, slot: int) -> QWidget:
         frame = QFrame()
         frame.setFrameShape(QFrame.StyledPanel)
-        frame.setStyleSheet("QFrame { border: 1px solid #444; border-radius: 3px; padding: 2px; }")
+        frame.setStyleSheet(
+            f"QFrame {{ border: 1px solid {_theme.C['card_border']}; border-radius: 8px; padding: 2px; background: {_theme.C['bg_mid']}; }}"
+        )
+        frame.setMinimumWidth(dp(200))
         main_v = QVBoxLayout(frame)
-        main_v.setSpacing(dp(2))
+        main_v.setSpacing(dp(3))
         main_v.setContentsMargins(dp(6), dp(4), dp(6), dp(4))
 
         owner_uid = self._mode_rune_owner.get(rune.rune_id)
@@ -601,7 +659,9 @@ class OptimizeResultDialog(QDialog):
             icon_lbl.setFixedSize(dp(28), dp(28))
         header.addWidget(icon_lbl)
         set_name = SET_NAMES.get(rune.set_id, f"Set {rune.set_id}")
-        header.addWidget(QLabel(f"<b>{tr('ui.slot')} {slot}</b> | {set_name} | +{rune.upgrade_curr}"))
+        header_lbl = QLabel(f"<b>{tr('ui.slot')} {slot}</b> | {set_name} | +{rune.upgrade_curr}")
+        header_lbl.setTextFormat(Qt.RichText)
+        header.addWidget(header_lbl)
         header.addStretch()
         if owner_uid:
             monster_icon = self._unit_icon_fn(owner_uid)
@@ -614,7 +674,7 @@ class OptimizeResultDialog(QDialog):
         if owner_uid:
             owner = self._unit_label_fn(owner_uid)
             src = QLabel(tr("ui.current_on", owner=owner))
-            src.setStyleSheet("color: #888; font-size: 7pt;")
+            src.setStyleSheet(f"color: {_theme.C['text_dim']}; font-size: 7pt;")
             main_v.addWidget(src)
 
         main_v.addWidget(QLabel(f"{tr('ui.main')}: {self._stat_label(rune.pri_eff)}"))
@@ -642,7 +702,7 @@ class OptimizeResultDialog(QDialog):
                 text = f"<span style='color:#1abc9c'>{text} [Gem]</span>"
             lbl = QLabel(text)
             lbl.setTextFormat(Qt.RichText)
-            lbl.setStyleSheet("font-size: 8pt;")
+            lbl.setStyleSheet(f"font-size: 8pt; color: {_theme.C['text']};")
             main_v.addWidget(lbl)
 
         return frame

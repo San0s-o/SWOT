@@ -9,13 +9,19 @@ from PySide6.QtWidgets import QApplication, QLabel, QProgressDialog
 
 from app.i18n import tr
 from app.ui.async_worker import _TaskWorker
+from app.ui.dpi import dp
 
 
 def build_pass_progress_callback(window, label: QLabel, prefix: str) -> Callable[[int, int], None]:
     def _cb(current_pass: int, total_passes: int) -> None:
-        text = tr("status.pass_progress", prefix=prefix, current=int(current_pass), total=int(total_passes))
+        show_extra = bool(getattr(window, "_show_extra_info_enabled", lambda: False)())
+        if show_extra:
+            text = tr("status.pass_progress", prefix=prefix, current=int(current_pass), total=int(total_passes))
+        else:
+            text = prefix
         label.setText(text)
-        window.statusBar().showMessage(text)
+        if show_extra:
+            window.statusBar().showMessage(text)
         QApplication.processEvents()
 
     return _cb
@@ -26,6 +32,7 @@ def run_with_busy_progress(
     text: str,
     work_fn: Callable[[Callable[[], bool], Callable[[Any], None], Callable[[int, int], None]], Any],
 ) -> Any:
+    show_extra = bool(getattr(window, "_show_extra_info_enabled", lambda: False)())
     dlg = QProgressDialog(text, tr("btn.cancel"), 0, 0, window)
     dlg.setWindowTitle(tr("btn.optimize"))
     dlg.setLabelText(text)
@@ -34,7 +41,23 @@ def run_with_busy_progress(
     dlg.setMinimumDuration(0)
     dlg.setAutoClose(False)
     dlg.setAutoReset(False)
-    dlg.setRange(0, 0)
+    dlg.setRange(0, 100)
+    dlg.setValue(0)
+    dlg.setMinimumWidth(dp(430))
+    dlg.setStyleSheet(
+        f"""
+        QProgressDialog {{
+            min-width: {dp(430)}px;
+        }}
+        QProgressBar {{
+            min-height: {dp(18)}px;
+            border-radius: {dp(8)}px;
+        }}
+        QPushButton {{
+            min-width: {dp(120)}px;
+        }}
+        """
+    )
     dlg.show()
     QApplication.processEvents()
 
@@ -75,9 +98,6 @@ def run_with_busy_progress(
             total = int(progress_state.get("total", 0))
         if total <= 0:
             return
-        if dlg.maximum() == 0:
-            dlg.setRange(0, 100)
-            dlg.setValue(0)
         pct = max(0, min(100, int(round((float(current) / float(total)) * 100.0))))
         if int(current) != int(last_progress_current):
             last_progress_current = int(current)
@@ -87,12 +107,15 @@ def run_with_busy_progress(
         dlg.setValue(pct)
         elapsed_s = max(0, int(round(float(time.monotonic()) - float(start_ts))))
         elapsed_txt = f"{elapsed_s // 60:02d}:{elapsed_s % 60:02d}"
-        if not done_event.is_set() and int(current) >= int(total):
+        if not show_extra:
+            label_text = f"{text} ({pct}%)"
+        elif not done_event.is_set() and int(current) >= int(total):
             label_text = f"{text} (Finalisierung, {current}/{total}, {pct}%, Laufzeit {elapsed_txt})"
         else:
             label_text = f"{text} ({current}/{total}, {pct}%, Laufzeit {elapsed_txt})"
         dlg.setLabelText(label_text)
-        window.statusBar().showMessage(label_text)
+        if show_extra:
+            window.statusBar().showMessage(label_text)
 
     progress_timer = QTimer(dlg)
     progress_timer.timeout.connect(_refresh_progress)

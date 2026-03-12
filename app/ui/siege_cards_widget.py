@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import ClassVar, List, Dict, Optional, Tuple, Any
 
 from PySide6.QtCore import Qt, QSize, QRectF, QEvent
-from PySide6.QtGui import QIcon, QPainter, QColor, QFont, QBrush
+from PySide6.QtGui import QIcon, QPainter, QColor, QFont, QBrush, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QGroupBox, QScrollArea, QPushButton, QGridLayout,
@@ -127,6 +127,110 @@ def _artifact_kind_label(type_id: int) -> str:
     if type_id == 2:
         return tr("artifact.type")
     return str(type_id)
+
+
+def _artifact_quality_tier(art: Artifact | None) -> str:
+    if art is None:
+        return "legend"
+    base_rank = int(getattr(art, "original_rank", 0) or 0)
+    if base_rank <= 0:
+        base_rank = int(getattr(art, "rank", 0) or 0)
+    if base_rank >= 5:
+        return "legend"
+    if base_rank >= 4:
+        return "hero"
+    return "rare"
+
+
+def _artifact_center_slug(art: Artifact | None) -> str:
+    if art is None:
+        return ""
+    t = int(getattr(art, "type_", 0) or 0)
+    attr = int(getattr(art, "attribute", 0) or 0)
+    # SW export values usually:
+    # type 1 (attribute artifacts): 1..5 => fire/water/wind/light/dark
+    # type 2 (type artifacts):      6..9 => attack/defense/hp/support
+    # Some exports provide simplified 1..4 for archetypes; support both.
+    if t == 1:
+        return {
+            1: "fire",
+            2: "water",
+            3: "wind",
+            4: "light",
+            5: "dark",
+        }.get(attr, "")
+    if t == 2:
+        return {
+            6: "attack",
+            7: "defense",
+            8: "hp",
+            9: "support",
+            1: "attack",
+            2: "defense",
+            3: "hp",
+            4: "support",
+        }.get(attr, "")
+    return ""
+
+
+def _artifact_type_icon(type_id: int, quality_tier: str = "legend", art: Artifact | None = None) -> QIcon:
+    t = int(type_id or 0)
+    tier = str(quality_tier or "legend").strip().lower()
+    if tier not in ("rare", "hero", "legend"):
+        tier = "legend"
+    # Preferred Swarfarm filenames:
+    # - element_{rare|hero|legend}.png (attribute artifact)
+    # - archetype_{rare|hero|legend}.png (type artifact)
+    # Backward-compatible fallbacks remain supported.
+    assets_ui = Path(__file__).resolve().parents[1] / "assets" / "ui"
+    center_slug = _artifact_center_slug(art)
+
+    # Preferred rendering: compose ingame-like icon from quality frame + center symbol.
+    # frame: bg_{rare|hero|legend}.png
+    # center: fire/water/wind/light/dark or attack/defense/hp/support
+    bg_path = assets_ui / f"bg_{tier}.png"
+    center_path = assets_ui / f"{center_slug}.png" if center_slug else Path()
+    if bg_path.exists() and center_slug and center_path.exists():
+        bg = QPixmap(str(bg_path))
+        center = QPixmap(str(center_path))
+        if not bg.isNull() and not center.isNull():
+            composed = QPixmap(bg.size())
+            composed.fill(Qt.transparent)
+            painter = QPainter(composed)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.drawPixmap(0, 0, bg)
+            icon_px = max(12, int(min(bg.width(), bg.height()) * 0.44))
+            center_scaled = center.scaled(icon_px, icon_px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            x = int((bg.width() - center_scaled.width()) / 2)
+            y = int((bg.height() - center_scaled.height()) / 2)
+            painter.drawPixmap(x, y, center_scaled)
+            painter.end()
+            return QIcon(composed)
+
+    if t == 1:
+        names = [
+            f"element_{tier}.png",
+            f"artifact_type_attribute_{tier}.png",
+            "artifact_type_attribute.png",
+        ]
+    elif t == 2:
+        names = [
+            f"archetype_{tier}.png",
+            f"artifact_type_type_{tier}.png",
+            "artifact_type_type.png",
+        ]
+    else:
+        names = []
+    icon = QIcon()
+    for name in names:
+        if not name:
+            continue
+        p = assets_ui / name
+        if p.exists():
+            icon = QIcon(str(p))
+            break
+    return icon
+
 
 def _artifact_focus(art: Artifact) -> str:
     if not art.pri_effect:
@@ -375,7 +479,7 @@ class MonsterCard(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
-        layout.setSpacing(dp(4))
+        layout.setSpacing(dp(6))
 
         # ── monster icon + name ──────────────────────────────
         top = QHBoxLayout()
@@ -400,8 +504,10 @@ class MonsterCard(QFrame):
         layout.addLayout(top)
 
         # ── rune set summary + pie side by side ───────────────
-        mid = QHBoxLayout()
-        mid.setSpacing(dp(8))
+        # body: donut/chart + stats + artifacts
+        content = QHBoxLayout()
+        content.setSpacing(dp(12))
+        content.setAlignment(Qt.AlignTop)
 
         # pie chart
         main_stats: List[Tuple[str, int]] = []
@@ -409,13 +515,18 @@ class MonsterCard(QFrame):
             if int(r.slot_no or 0) in (2, 4, 6):
                 key = EFFECT_ID_TO_MAINSTAT_KEY.get(int(r.pri_eff[0] or 0), "?")
                 main_stats.append((key, 1))
+        chart_col = QVBoxLayout()
+        chart_col.setSpacing(dp(0))
+        chart_col.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         if main_stats:
             pie = RunePieChart(main_stats)
-            mid.addWidget(pie, 0, Qt.AlignTop)
+            chart_col.addWidget(pie, 0, Qt.AlignTop | Qt.AlignLeft)
+        content.addLayout(chart_col, 0)
 
-        # stats grid
+        # stats column
         stats_box = QVBoxLayout()
-        stats_box.setSpacing(0)
+        stats_box.setSpacing(dp(2))
+        stats_box.setContentsMargins(0, 0, 0, 0)
 
         # set icons row
         set_ids = [int(r.set_id or 0) for r in equipped_runes]
@@ -423,9 +534,12 @@ class MonsterCard(QFrame):
         for sid in set_ids:
             set_counts[sid] = set_counts.get(sid, 0) + 1
         sets_row = QHBoxLayout()
-        sets_row.setSpacing(dp(2))
+        sets_row.setSpacing(dp(4))
         shown_sets: List[str] = []
-        for sid, cnt in set_counts.items():
+        for sid, _cnt in sorted(
+            set_counts.items(),
+            key=lambda item: (-int(item[1]), str(SET_NAMES.get(int(item[0]), ""))),
+        ):
             sn = SET_NAMES.get(sid, "")
             if sn:
                 shown_sets.append(sn)
@@ -435,11 +549,11 @@ class MonsterCard(QFrame):
                     ilbl.setPixmap(icon.pixmap(dp(20), dp(20)))
                     ilbl.setToolTip(sn)
                     sets_row.addWidget(ilbl)
-        set_text = " / ".join(dict.fromkeys(shown_sets))
+        set_text = " / ".join(dict.fromkeys(shown_sets)) or "-"
         set_lbl = QLabel(f"<b style='font-size:{dp(12)}px'>{set_text}</b>")
         set_lbl.setTextFormat(Qt.RichText)
         sets_row.addWidget(set_lbl)
-        sets_row.addStretch()
+        sets_row.addStretch(1)
         stats_box.addLayout(sets_row)
 
         if equipped_runes:
@@ -451,18 +565,58 @@ class MonsterCard(QFrame):
         eff_lbl.setStyleSheet(f"font-size: {dp(11)}px; color: {_theme.C['text_dim']};")
         stats_box.addWidget(eff_lbl)
 
-        # stats grid (clickable to toggle view mode)
         self._stats_grid = QGridLayout()
-        self._stats_grid.setSpacing(dp(5))
+        self._stats_grid.setHorizontalSpacing(dp(10))
+        self._stats_grid.setVerticalSpacing(dp(4))
         self._stats_grid.setContentsMargins(0, dp(4), 0, 0)
+        self._stats_grid.setColumnMinimumWidth(0, dp(94))
+        self._stats_grid.setColumnMinimumWidth(1, dp(62))
+        self._stats_grid.setColumnMinimumWidth(2, dp(62))
+        self._stats_grid.setAlignment(Qt.AlignTop)
+        self._stats_grid.setColumnStretch(0, 1)
+        self._stats_grid.setColumnStretch(1, 0)
+        self._stats_grid.setColumnStretch(2, 0)
         self._refresh_stats()
         stats_box.addLayout(self._stats_grid)
-        mid.addLayout(stats_box, 1)
-        layout.addLayout(mid)
+        content.addLayout(stats_box, 1)
 
-        # ── rune slot buttons (with rich tooltip on hover) ────
+        # artifacts as larger icons in a dedicated right column
+        art_col = QVBoxLayout()
+        art_col.setSpacing(dp(6))
+        art_col.setContentsMargins(dp(2), dp(2), 0, 0)
+        art_col.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        art_by_type: Dict[int, Artifact] = {int(a.type_ or 0): a for a in self._artifacts}
+        for art_type in (1, 2):
+            art = art_by_type.get(art_type)
+            btn = QPushButton("")
+            btn.setFixedSize(dp(82), dp(82))
+            icon = _artifact_type_icon(int(art_type), _artifact_quality_tier(art), art=art)
+            if not icon.isNull():
+                btn.setIcon(icon)
+                btn.setIconSize(QSize(dp(78), dp(78)))
+            btn.setStyleSheet(
+                "QPushButton {"
+                " background: transparent;"
+                " border: none;"
+                " padding: 0px;"
+                "}"
+                "QPushButton:hover { background: rgba(255,255,255,0.06); border-radius: 6px; }"
+            )
+            if art:
+                btn.setToolTip(_artifact_rich_tooltip(art))
+            else:
+                btn.setEnabled(False)
+                btn.setToolTip(tr("artifact.no_artifact"))
+            art_col.addWidget(btn, 0, Qt.AlignLeft)
+
+        content.addLayout(art_col, 0)
+        layout.addLayout(content)
+
+        # rune slot buttons (with rich tooltip on hover)
         rune_bar = QHBoxLayout()
         rune_bar.setSpacing(dp(4))
+        rune_bar.setContentsMargins(0, dp(2), 0, 0)
+        rune_bar.addStretch()
         rune_by_slot = {int(r.slot_no or 0): r for r in equipped_runes}
         for slot in range(1, 7):
             btn = QPushButton(str(slot))
@@ -488,29 +642,6 @@ class MonsterCard(QFrame):
         rune_bar.addStretch()
         layout.addLayout(rune_bar)
 
-        # artifacts (type 1 = attribute, type 2 = type)
-        art_bar = QHBoxLayout()
-        art_bar.setSpacing(dp(4))
-        art_by_type: Dict[int, Artifact] = {int(a.type_ or 0): a for a in self._artifacts}
-        for art_type in (1, 2):
-            art = art_by_type.get(art_type)
-            btn = QPushButton(_artifact_kind_label(art_type))
-            btn.setFixedHeight(dp(28))
-            if art:
-                focus = _artifact_focus(art)
-                txt = _artifact_kind_label(art_type)
-                if focus:
-                    txt = f"{txt} {focus}"
-                btn.setText(txt)
-                btn.setToolTip(_artifact_rich_tooltip(art))
-            else:
-                btn.setEnabled(False)
-                btn.setToolTip(tr("artifact.no_artifact"))
-            art_bar.addWidget(btn)
-        art_bar.addStretch()
-        layout.addLayout(art_bar)
-
-    # ── stats view toggle ──────────────────────────────────
     def _refresh_stats(self) -> None:
         """Rebuild stats grid based on current view mode."""
         # clear existing widgets
@@ -524,6 +655,18 @@ class MonsterCard(QFrame):
         mode = MonsterCard._view_mode
         _PERCENT_STATS = {"CR", "CD", "RES", "ACC"}
         row = 0
+
+        if mode == 2:
+            hdr_style = f"font-size: {dp(10)}px; color: {_theme.C['text_dim']};"
+            hdr_base = QLabel(tr("header.base"))
+            hdr_base.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            hdr_base.setStyleSheet(hdr_style)
+            hdr_bonus = QLabel(tr("header.runes"))
+            hdr_bonus.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            hdr_bonus.setStyleSheet(hdr_style)
+            self._stats_grid.addWidget(hdr_base, row, 1)
+            self._stats_grid.addWidget(hdr_bonus, row, 2)
+            row += 1
 
         for group in (["HP", "ATK", "DEF", "SPD"], ["CR", "CD", "RES", "ACC"]):
             for label in group:

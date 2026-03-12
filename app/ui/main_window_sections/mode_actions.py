@@ -23,6 +23,12 @@ class TeamSelection:
     unit_ids: List[int]
 
 
+def _user_facing_result_message(window, ok: bool, detailed: str) -> str:
+    if bool(getattr(window, "_show_extra_info_enabled", lambda: False)()):
+        return str(detailed or "")
+    return tr("opt.ok") if bool(ok) else tr("opt.partial_fail")
+
+
 def _store_compare_snapshot_from_build_dialog(window, mode: str, dlg: BuildDialog) -> None:
     mode_key = str(mode or "").strip().lower()
     if not mode_key:
@@ -351,13 +357,14 @@ def on_optimize_siege(window) -> None:
                 ),
             ),
         )
-        window.lbl_siege_validate.setText(res.message)
-        window.statusBar().showMessage(res.message, 7000)
+        final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+        window.lbl_siege_validate.setText(final_msg)
+        window.statusBar().showMessage(final_msg, 7000)
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
         siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
         window._show_optimize_results(
             tr("result.title_siege"),
-            res.message,
+            final_msg,
             res.results,
             unit_team_index=team_idx_by_uid,
             unit_display_order=unit_display_order,
@@ -564,13 +571,14 @@ def on_optimize_wgb(window) -> None:
             ),
         ),
     )
-    window.lbl_wgb_validate.setText(res.message)
-    window.statusBar().showMessage(res.message, 7000)
+    final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+    window.lbl_wgb_validate.setText(final_msg)
+    window.statusBar().showMessage(final_msg, 7000)
     unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
     wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
     window._show_optimize_results(
         tr("result.title_wgb"),
-        res.message,
+        final_msg,
         res.results,
         unit_team_index=team_idx_by_uid,
         unit_display_order=unit_display_order,
@@ -755,12 +763,13 @@ def on_optimize_rta(window) -> None:
             ),
         ),
     )
-    window.lbl_rta_validate.setText(res.message)
-    window.statusBar().showMessage(res.message, 7000)
+    final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+    window.lbl_rta_validate.setText(final_msg)
+    window.statusBar().showMessage(final_msg, 7000)
     unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
     window._show_optimize_results(
         tr("result.title_rta"),
-        res.message,
+        final_msg,
         res.results,
         unit_team_index=team_idx_by_uid,
         unit_display_order=unit_display_order,

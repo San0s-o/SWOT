@@ -88,6 +88,12 @@ def _team_has_spd_buff_by_uid(window, teams: List[List[int]]) -> Dict[int, bool]
     return out
 
 
+def _user_facing_result_message(window, ok: bool, detailed: str) -> str:
+    if bool(getattr(window, "_show_extra_info_enabled", lambda: False)()):
+        return str(detailed or "")
+    return tr("opt.ok") if bool(ok) else tr("opt.partial_fail")
+
+
 def init_team_tab_ui(window) -> None:
     layout = QVBoxLayout(window.tab_team_builder)
 
@@ -335,11 +341,12 @@ def optimize_team(window) -> None:
             ),
         ),
     )
-    window.lbl_team_opt_status.setText(res.message)
-    window.statusBar().showMessage(res.message, 7000)
+    final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+    window.lbl_team_opt_status.setText(final_msg)
+    window.statusBar().showMessage(final_msg, 7000)
     window._show_optimize_results(
         tr("result.title_team", name=team.name),
-        res.message,
+        final_msg,
         res.results,
         mode="siege",
         teams=[team.unit_ids],
@@ -366,4 +373,3 @@ def ensure_siege_team_defaults(window) -> None:
         added = True
     if added:
         window.team_store.save(window.team_config_path)
-

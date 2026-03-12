@@ -8,6 +8,7 @@ from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -31,6 +32,7 @@ _COMMUNITY_BUILD_TRENDS_KEY = "community_build_trends_enabled_full"
 _COMMUNITY_SET_LIMIT_KEY = "community_trends_set_combo_limit_full"
 _COMMUNITY_MAINSTAT_LIMIT_KEY = "community_trends_mainstat_limit_full"
 _COMMUNITY_ART_SUBSTAT_LIMIT_KEY = "community_trends_artifact_substat_limit_full"
+_UI_EXTRA_INFO_KEY = "ui_show_extra_info"
 
 
 def _open_discord_dm(window) -> None:
@@ -145,6 +147,15 @@ def _populate_top_n_combo(combo: QComboBox, max_n: int = 3) -> None:
     combo.blockSignals(False)
 
 
+def ui_show_extra_info_enabled(window) -> bool:
+    data = _load_app_settings(window)
+    return bool(data.get(_UI_EXTRA_INFO_KEY, False))
+
+
+def _set_ui_show_extra_info(window, enabled: bool) -> None:
+    _save_app_settings(window, {_UI_EXTRA_INFO_KEY: bool(enabled)})
+
+
 # ================================================================
 # Init
 # ================================================================
@@ -202,31 +213,44 @@ def init_settings_ui(window) -> None:
     window.lbl_settings_license_feedback = QLabel("")
     license_layout.addWidget(window.lbl_settings_license_feedback)
 
+    main_layout.addWidget(window.grp_settings_license)
+
+    # --- Section 2b: Cloud & Community ---------------------------
+    window.grp_settings_cloud = QGroupBox(tr("settings.group_cloud"))
+    cloud_layout = QVBoxLayout(window.grp_settings_cloud)
+    cloud_layout.setSpacing(dp(6))
+
     window.chk_settings_cloud_learning = QCheckBox(tr("settings.cloud_learning_optin"))
     window.chk_settings_cloud_learning.setChecked(_cloud_learning_optin(window))
     window.chk_settings_cloud_learning.toggled.connect(
         lambda checked: on_settings_cloud_learning_toggled(window, bool(checked))
     )
-    license_layout.addWidget(window.chk_settings_cloud_learning)
+    cloud_layout.addWidget(window.chk_settings_cloud_learning)
 
     window.lbl_settings_cloud_learning_hint = QLabel("")
     window.lbl_settings_cloud_learning_hint.setWordWrap(True)
-    license_layout.addWidget(window.lbl_settings_cloud_learning_hint)
+    window.lbl_settings_cloud_learning_hint.setContentsMargins(dp(20), 0, 0, dp(4))
+    cloud_layout.addWidget(window.lbl_settings_cloud_learning_hint)
 
     window.chk_settings_community_trends = QCheckBox(tr("settings.community_trends_optin"))
     window.chk_settings_community_trends.setChecked(_community_build_trends_optin(window))
     window.chk_settings_community_trends.toggled.connect(
         lambda checked: on_settings_community_trends_toggled(window, bool(checked))
     )
-    license_layout.addWidget(window.chk_settings_community_trends)
+    cloud_layout.addWidget(window.chk_settings_community_trends)
 
     window.lbl_settings_community_trends_hint = QLabel("")
     window.lbl_settings_community_trends_hint.setWordWrap(True)
-    license_layout.addWidget(window.lbl_settings_community_trends_hint)
+    window.lbl_settings_community_trends_hint.setContentsMargins(dp(20), 0, 0, dp(4))
+    cloud_layout.addWidget(window.lbl_settings_community_trends_hint)
 
-    row_set_limit = QHBoxLayout()
+    # Community limits in a form layout for proper alignment
+    limits_form = QFormLayout()
+    limits_form.setContentsMargins(dp(20), dp(4), 0, 0)
+    limits_form.setHorizontalSpacing(dp(12))
+    limits_form.setVerticalSpacing(dp(6))
+
     window.lbl_settings_community_set_limit = QLabel(tr("settings.community_set_limit_label"))
-    row_set_limit.addWidget(window.lbl_settings_community_set_limit)
     window.combo_settings_community_set_limit = QComboBox()
     window.combo_settings_community_set_limit.setFixedWidth(dp(110))
     _populate_top_n_combo(window.combo_settings_community_set_limit)
@@ -236,13 +260,9 @@ def init_settings_ui(window) -> None:
     window.combo_settings_community_set_limit.currentIndexChanged.connect(
         lambda _idx: on_settings_community_set_limit_changed(window)
     )
-    row_set_limit.addWidget(window.combo_settings_community_set_limit)
-    row_set_limit.addStretch(1)
-    license_layout.addLayout(row_set_limit)
+    limits_form.addRow(window.lbl_settings_community_set_limit, window.combo_settings_community_set_limit)
 
-    row_mainstat_limit = QHBoxLayout()
     window.lbl_settings_community_mainstat_limit = QLabel(tr("settings.community_mainstat_limit_label"))
-    row_mainstat_limit.addWidget(window.lbl_settings_community_mainstat_limit)
     window.combo_settings_community_mainstat_limit = QComboBox()
     window.combo_settings_community_mainstat_limit.setFixedWidth(dp(110))
     _populate_top_n_combo(window.combo_settings_community_mainstat_limit)
@@ -252,13 +272,9 @@ def init_settings_ui(window) -> None:
     window.combo_settings_community_mainstat_limit.currentIndexChanged.connect(
         lambda _idx: on_settings_community_mainstat_limit_changed(window)
     )
-    row_mainstat_limit.addWidget(window.combo_settings_community_mainstat_limit)
-    row_mainstat_limit.addStretch(1)
-    license_layout.addLayout(row_mainstat_limit)
+    limits_form.addRow(window.lbl_settings_community_mainstat_limit, window.combo_settings_community_mainstat_limit)
 
-    row_art_sub_limit = QHBoxLayout()
     window.lbl_settings_community_art_substat_limit = QLabel(tr("settings.community_art_substat_limit_label"))
-    row_art_sub_limit.addWidget(window.lbl_settings_community_art_substat_limit)
     window.combo_settings_community_art_substat_limit = QComboBox()
     window.combo_settings_community_art_substat_limit.setFixedWidth(dp(110))
     _populate_top_n_combo(window.combo_settings_community_art_substat_limit, max_n=2)
@@ -268,44 +284,41 @@ def init_settings_ui(window) -> None:
     window.combo_settings_community_art_substat_limit.currentIndexChanged.connect(
         lambda _idx: on_settings_community_art_substat_limit_changed(window)
     )
-    row_art_sub_limit.addWidget(window.combo_settings_community_art_substat_limit)
-    row_art_sub_limit.addStretch(1)
-    license_layout.addLayout(row_art_sub_limit)
+    limits_form.addRow(window.lbl_settings_community_art_substat_limit, window.combo_settings_community_art_substat_limit)
+
+    cloud_layout.addLayout(limits_form)
 
     window.lbl_settings_community_limit_hint = QLabel("")
     window.lbl_settings_community_limit_hint.setWordWrap(True)
-    license_layout.addWidget(window.lbl_settings_community_limit_hint)
+    window.lbl_settings_community_limit_hint.setContentsMargins(dp(20), 0, 0, 0)
+    cloud_layout.addWidget(window.lbl_settings_community_limit_hint)
 
-    main_layout.addWidget(window.grp_settings_license)
+    window.btn_settings_delete_cloud_data = QPushButton(tr("settings.btn_delete_cloud_data"))
+    window.btn_settings_delete_cloud_data.clicked.connect(window._on_settings_delete_cloud_data)
+    cloud_layout.addWidget(window.btn_settings_delete_cloud_data)
 
-    # --- Section 3: Language ------------------------------------
-    window.grp_settings_language = QGroupBox(tr("settings.group_language"))
-    lang_layout = QHBoxLayout(window.grp_settings_language)
+    main_layout.addWidget(window.grp_settings_cloud)
 
-    window.lbl_settings_language = QLabel(tr("settings.label_language"))
-    lang_layout.addWidget(window.lbl_settings_language)
+    # --- Section 3: Appearance (Language + Theme) ----------------
+    window.grp_settings_appearance = QGroupBox(tr("settings.group_appearance"))
+    appearance_form = QFormLayout(window.grp_settings_appearance)
+    appearance_form.setHorizontalSpacing(dp(12))
+    appearance_form.setVerticalSpacing(dp(6))
 
     import app.i18n as i18n
 
+    window.lbl_settings_language = QLabel(tr("settings.label_language"))
     window.combo_settings_language = QComboBox()
-    window.combo_settings_language.setFixedWidth(dp(160))
+    window.combo_settings_language.setFixedWidth(dp(200))
     for code, name in i18n.available_languages().items():
         window.combo_settings_language.addItem(name, code)
     idx = window.combo_settings_language.findData(i18n.get_language())
     if idx >= 0:
         window.combo_settings_language.setCurrentIndex(idx)
     window.combo_settings_language.currentIndexChanged.connect(window._on_settings_language_changed)
-    lang_layout.addWidget(window.combo_settings_language)
-    lang_layout.addStretch(1)
-    main_layout.addWidget(window.grp_settings_language)
-
-    # --- Section 3b: Theme --------------------------------------
-    window.grp_settings_theme = QGroupBox(tr("settings.group_theme"))
-    theme_layout = QHBoxLayout(window.grp_settings_theme)
+    appearance_form.addRow(window.lbl_settings_language, window.combo_settings_language)
 
     window.lbl_settings_theme = QLabel(tr("settings.label_theme"))
-    theme_layout.addWidget(window.lbl_settings_theme)
-
     window.combo_settings_theme = QComboBox()
     window.combo_settings_theme.setFixedWidth(dp(200))
     window.combo_settings_theme.addItem("Classic Dark", "classic")
@@ -316,9 +329,16 @@ def init_settings_ui(window) -> None:
     window.combo_settings_theme.currentIndexChanged.connect(
         lambda idx: _on_theme_changed(window, idx)
     )
-    theme_layout.addWidget(window.combo_settings_theme)
-    theme_layout.addStretch(1)
-    main_layout.addWidget(window.grp_settings_theme)
+    appearance_form.addRow(window.lbl_settings_theme, window.combo_settings_theme)
+
+    window.chk_settings_extra_info = QCheckBox(tr("settings.extra_info_optin"))
+    window.chk_settings_extra_info.setChecked(ui_show_extra_info_enabled(window))
+    window.chk_settings_extra_info.toggled.connect(
+        lambda checked: on_settings_extra_info_toggled(window, bool(checked))
+    )
+    appearance_form.addRow(window.chk_settings_extra_info)
+
+    main_layout.addWidget(window.grp_settings_appearance)
 
     # --- Section 4: Data Management -----------------------------
     window.grp_settings_data = QGroupBox(tr("settings.group_data"))
@@ -421,6 +441,7 @@ def init_settings_ui(window) -> None:
     # Populate dynamic labels
     window._settings_license_worker = None
     window._settings_update_worker = None
+    window._settings_cloud_delete_worker = None
     refresh_settings_import_status(window)
     refresh_settings_license_status(window)
     _refresh_settings_about(window)
@@ -462,18 +483,7 @@ def refresh_settings_license_status(window) -> None:
     if not key:
         window.lbl_settings_license_type.setText(tr("settings.label_no_license"))
         window.lbl_settings_license_key.setText("")
-        window.chk_settings_cloud_learning.setVisible(False)
-        window.chk_settings_community_trends.setVisible(False)
-        window.lbl_settings_community_set_limit.setVisible(False)
-        window.combo_settings_community_set_limit.setVisible(False)
-        window.lbl_settings_community_mainstat_limit.setVisible(False)
-        window.combo_settings_community_mainstat_limit.setVisible(False)
-        window.lbl_settings_community_art_substat_limit.setVisible(False)
-        window.combo_settings_community_art_substat_limit.setVisible(False)
-        window.lbl_settings_cloud_learning_hint.setText("")
-        window.lbl_settings_community_trends_hint.setText("")
-        window.lbl_settings_community_limit_hint.setText("")
-        window.lbl_settings_community_limit_hint.setVisible(False)
+        window.grp_settings_cloud.setVisible(False)
         return
 
     # Mask key: show first 5 and last 4 chars
@@ -499,6 +509,7 @@ def refresh_settings_license_status(window) -> None:
 
     window.lbl_settings_license_type.setText(tr("settings.label_license_type", type=type_text))
     if is_full:
+        window.grp_settings_cloud.setVisible(True)
         enabled = _cloud_learning_optin(window)
         trends_enabled = _community_build_trends_optin(window)
         set_limit = _community_set_limit(window)
@@ -507,26 +518,18 @@ def refresh_settings_license_status(window) -> None:
         window.chk_settings_cloud_learning.blockSignals(True)
         window.chk_settings_cloud_learning.setChecked(bool(enabled))
         window.chk_settings_cloud_learning.blockSignals(False)
-        window.chk_settings_cloud_learning.setVisible(True)
         window.chk_settings_cloud_learning.setEnabled(True)
         window.lbl_settings_cloud_learning_hint.setText(tr("settings.cloud_learning_optin_hint"))
 
         window.chk_settings_community_trends.blockSignals(True)
         window.chk_settings_community_trends.setChecked(bool(trends_enabled))
         window.chk_settings_community_trends.blockSignals(False)
-        window.chk_settings_community_trends.setVisible(True)
         window.chk_settings_community_trends.setEnabled(bool(enabled))
         if bool(enabled):
             window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_optin_hint"))
         else:
             window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_requires_cloud"))
 
-        window.lbl_settings_community_set_limit.setVisible(True)
-        window.combo_settings_community_set_limit.setVisible(True)
-        window.lbl_settings_community_mainstat_limit.setVisible(True)
-        window.combo_settings_community_mainstat_limit.setVisible(True)
-        window.lbl_settings_community_art_substat_limit.setVisible(True)
-        window.combo_settings_community_art_substat_limit.setVisible(True)
         window.combo_settings_community_set_limit.blockSignals(True)
         idx_set = window.combo_settings_community_set_limit.findData(int(set_limit))
         window.combo_settings_community_set_limit.setCurrentIndex(idx_set if idx_set >= 0 else 0)
@@ -545,24 +548,13 @@ def refresh_settings_license_status(window) -> None:
         window.lbl_settings_community_set_limit.setEnabled(bool(enabled))
         window.lbl_settings_community_mainstat_limit.setEnabled(bool(enabled))
         window.lbl_settings_community_art_substat_limit.setEnabled(bool(enabled))
-        window.lbl_settings_community_limit_hint.setVisible(True)
         if bool(enabled):
             window.lbl_settings_community_limit_hint.setText(tr("settings.community_limits_hint"))
         else:
             window.lbl_settings_community_limit_hint.setText(tr("settings.community_trends_requires_cloud"))
+        window.btn_settings_delete_cloud_data.setEnabled(window._settings_cloud_delete_worker is None)
     else:
-        window.chk_settings_cloud_learning.setVisible(False)
-        window.chk_settings_community_trends.setVisible(False)
-        window.lbl_settings_community_set_limit.setVisible(False)
-        window.combo_settings_community_set_limit.setVisible(False)
-        window.lbl_settings_community_mainstat_limit.setVisible(False)
-        window.combo_settings_community_mainstat_limit.setVisible(False)
-        window.lbl_settings_community_art_substat_limit.setVisible(False)
-        window.combo_settings_community_art_substat_limit.setVisible(False)
-        window.lbl_settings_cloud_learning_hint.setText(tr("settings.cloud_learning_optin_unavailable"))
-        window.lbl_settings_community_trends_hint.setText(tr("settings.community_trends_optin_unavailable"))
-        window.lbl_settings_community_limit_hint.setText(tr("settings.community_trends_optin_unavailable"))
-        window.lbl_settings_community_limit_hint.setVisible(True)
+        window.grp_settings_cloud.setVisible(False)
 
 
 def _refresh_settings_about(window) -> None:
@@ -761,6 +753,85 @@ def on_settings_activate_license(window) -> None:
     QThreadPool.globalInstance().start(worker)
 
 
+def on_settings_delete_cloud_data(window) -> None:
+    from app.services.license_service import has_full_access_cached
+
+    if not has_full_access_cached():
+        window.statusBar().showMessage(tr("settings.cloud_delete_unavailable"), 5000)
+        return
+    if window._settings_cloud_delete_worker is not None:
+        return
+
+    dlg_1 = QMessageBox(window)
+    dlg_1.setIcon(QMessageBox.Warning)
+    dlg_1.setWindowTitle(tr("settings.confirm_title"))
+    dlg_1.setText(tr("settings.confirm_delete_cloud_data"))
+    btn_yes_1 = dlg_1.addButton(tr("btn.yes"), QMessageBox.YesRole)
+    dlg_1.addButton(tr("btn.no"), QMessageBox.NoRole)
+    dlg_1.setDefaultButton(btn_yes_1)
+    dlg_1.exec()
+    if dlg_1.clickedButton() is not btn_yes_1:
+        return
+
+    dlg_2 = QMessageBox(window)
+    dlg_2.setIcon(QMessageBox.Warning)
+    dlg_2.setWindowTitle(tr("settings.confirm_title"))
+    dlg_2.setText(tr("settings.confirm_delete_cloud_data_second"))
+    btn_yes_2 = dlg_2.addButton(tr("btn.yes"), QMessageBox.YesRole)
+    dlg_2.addButton(tr("btn.no"), QMessageBox.NoRole)
+    dlg_2.setDefaultButton(btn_yes_2)
+    dlg_2.exec()
+    if dlg_2.clickedButton() is not btn_yes_2:
+        return
+
+    from app.services.cloud_learning_service import CloudDeleteResult, delete_all_cloud_data
+    from app.ui.async_worker import _TaskWorker
+
+    window.btn_settings_delete_cloud_data.setEnabled(False)
+    window.statusBar().showMessage(tr("settings.cloud_delete_in_progress"), 5000)
+
+    worker = _TaskWorker(delete_all_cloud_data)
+    window._settings_cloud_delete_worker = worker
+
+    def _on_finished(result_obj: object) -> None:
+        window._settings_cloud_delete_worker = None
+        window.btn_settings_delete_cloud_data.setEnabled(True)
+        if not isinstance(result_obj, CloudDeleteResult):
+            msg = tr("settings.cloud_delete_failed")
+            window.statusBar().showMessage(msg, 7000)
+            QMessageBox.warning(window, tr("settings.confirm_title"), msg)
+            return
+        if result_obj.ok:
+            msg = tr(
+                "settings.cloud_delete_success",
+                learning_runs=int(result_obj.deleted_learning_runs),
+                build_events=int(result_obj.deleted_build_events),
+            )
+            window.statusBar().showMessage(
+                msg,
+                8000,
+            )
+            QMessageBox.information(window, tr("settings.confirm_title"), msg)
+            return
+        msg = tr("settings.cloud_delete_failed_reason", reason=str(result_obj.message or ""))
+        window.statusBar().showMessage(
+            msg,
+            8000,
+        )
+        QMessageBox.warning(window, tr("settings.confirm_title"), msg)
+
+    def _on_failed(detail: str) -> None:
+        window._settings_cloud_delete_worker = None
+        window.btn_settings_delete_cloud_data.setEnabled(True)
+        msg = tr("settings.cloud_delete_failed")
+        window.statusBar().showMessage(msg, 7000)
+        QMessageBox.warning(window, tr("settings.confirm_title"), msg)
+
+    worker.signals.finished.connect(_on_finished)
+    worker.signals.failed.connect(_on_failed)
+    QThreadPool.globalInstance().start(worker)
+
+
 def on_settings_reset_presets(window) -> None:
     reply = QMessageBox.question(
         window,
@@ -880,6 +951,14 @@ def on_settings_language_changed(window, index: int) -> None:
         window._retranslate_ui()
 
 
+def on_settings_extra_info_toggled(window, enabled: bool) -> None:
+    _set_ui_show_extra_info(window, bool(enabled))
+    if bool(enabled):
+        window.statusBar().showMessage(tr("settings.extra_info_saved_on"), 3000)
+    else:
+        window.statusBar().showMessage(tr("settings.extra_info_saved_off"), 3000)
+
+
 # ================================================================
 # Retranslate
 # ================================================================
@@ -891,8 +970,11 @@ def retranslate_settings(window) -> None:
 
     window.grp_settings_license.setTitle(tr("settings.group_license"))
     window.btn_settings_activate.setText(tr("btn.activate"))
+
+    window.grp_settings_cloud.setTitle(tr("settings.group_cloud"))
     window.chk_settings_cloud_learning.setText(tr("settings.cloud_learning_optin"))
     window.chk_settings_community_trends.setText(tr("settings.community_trends_optin"))
+    window.btn_settings_delete_cloud_data.setText(tr("settings.btn_delete_cloud_data"))
     window.lbl_settings_community_set_limit.setText(tr("settings.community_set_limit_label"))
     window.lbl_settings_community_mainstat_limit.setText(tr("settings.community_mainstat_limit_label"))
     window.lbl_settings_community_art_substat_limit.setText(tr("settings.community_art_substat_limit_label"))
@@ -900,11 +982,10 @@ def retranslate_settings(window) -> None:
     _populate_top_n_combo(window.combo_settings_community_mainstat_limit)
     _populate_top_n_combo(window.combo_settings_community_art_substat_limit, max_n=2)
 
-    window.grp_settings_language.setTitle(tr("settings.group_language"))
+    window.grp_settings_appearance.setTitle(tr("settings.group_appearance"))
     window.lbl_settings_language.setText(tr("settings.label_language"))
-
-    window.grp_settings_theme.setTitle(tr("settings.group_theme"))
     window.lbl_settings_theme.setText(tr("settings.label_theme"))
+    window.chk_settings_extra_info.setText(tr("settings.extra_info_optin"))
 
     window.grp_settings_data.setTitle(tr("settings.group_data"))
     window.btn_settings_reset_presets.setText(tr("settings.btn_reset_presets"))

@@ -77,6 +77,7 @@ def show_optimize_results(
             group_size=int(group_size),
             baseline_runes_by_unit=baseline_runes_by_unit,
             baseline_artifacts_by_unit=baseline_artifacts_by_unit,
+            show_extra_info=bool(window._show_extra_info_enabled()),
         )
         dlg.exec()
     finally:

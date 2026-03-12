@@ -50,6 +50,8 @@ STRINGS: dict[str, str] = {
     "btn.save": "Save",
     "btn.saved": "Saved",
     "btn.delete": "Delete",
+    "btn.yes": "Yes",
+    "btn.no": "No",
     "btn.validate": "Validate",
     "btn.validate_pools": "Validate (Pools/Teams)",
     "btn.builds": "Builds...",
@@ -79,7 +81,7 @@ STRINGS: dict[str, str] = {
     "label.passes": "Passes",
     "label.workers": "Cores",
     "label.mode": "Mode",
-    "profile.smart": "Smart (AI)",
+    "profile.smart": "Smart",
     "profile.fast": "Fast",
     "profile.balanced": "Balanced",
     "profile.manual": "Manual (CPU)",
@@ -624,7 +626,8 @@ STRINGS: dict[str, str] = {
     # -- Settings tab --------------------------------------------
     "settings.group_account": "Account / JSON Import",
     "settings.group_license": "License Management",
-    "settings.group_language": "Language",
+    "settings.group_cloud": "Cloud & Community",
+    "settings.group_appearance": "Appearance",
     "settings.group_data": "Data Management",
     "settings.group_updates": "Updates",
     "settings.group_about": "About",
@@ -661,11 +664,29 @@ STRINGS: dict[str, str] = {
     "settings.community_mainstat_limit_saved": "Community mainstat selection: Top {n}.",
     "settings.community_art_substat_limit_saved": "Community artifact substats: Top {n}.",
     "settings.top_n_option": "Top {n}",
+    "settings.btn_delete_cloud_data": "Delete All Cloud Data",
+    "settings.cloud_delete_unavailable": "Deleting cloud data is available for full licenses only.",
+    "settings.cloud_delete_in_progress": "Deleting cloud data...",
+    "settings.cloud_delete_success": "Cloud data deleted (learning runs: {learning_runs}, build events: {build_events}).",
+    "settings.cloud_delete_failed": "Cloud data could not be deleted.",
+    "settings.cloud_delete_failed_reason": "Cloud data could not be deleted: {reason}",
+    "settings.confirm_delete_cloud_data": (
+        "Really delete ALL cloud data for this license?\n\n"
+        "This permanently removes your uploaded learning runs and community build events from the server.\n"
+        "This action cannot be undone."
+    ),
+    "settings.confirm_delete_cloud_data_second": (
+        "Final confirmation:\n\n"
+        "Your cloud data will be permanently deleted and cannot be restored on any device.\n"
+        "Continue?"
+    ),
 
     "settings.label_language": "Language:",
 
-    "settings.group_theme": "Theme",
     "settings.label_theme": "UI Theme:",
+    "settings.extra_info_optin": "Show extra info (progress/debug details)",
+    "settings.extra_info_saved_on": "Extra info enabled.",
+    "settings.extra_info_saved_off": "Extra info disabled.",
     "settings.theme_applied": "Theme applied. Some views update on next data load.",
 
     "settings.btn_reset_presets": "Reset Build Presets",

@@ -50,6 +50,8 @@ STRINGS: dict[str, str] = {
     "btn.save": "Speichern",
     "btn.saved": "Gespeichert",
     "btn.delete": "Löschen",
+    "btn.yes": "Ja",
+    "btn.no": "Nein",
     "btn.validate": "Validieren",
     "btn.validate_pools": "Validieren (Pools/Teams)",
     "btn.builds": "Builds...",
@@ -79,7 +81,7 @@ STRINGS: dict[str, str] = {
     "label.passes": "Durchläufe",
     "label.workers": "Kerne",
     "label.mode": "Modus",
-    "profile.smart": "Smart (KI)",
+    "profile.smart": "Smart",
     "profile.fast": "Schnell",
     "profile.balanced": "Ausgewogen",
     "profile.manual": "Manuell (CPU)",
@@ -627,7 +629,8 @@ STRINGS: dict[str, str] = {
     # -- Settings tab --------------------------------------------
     "settings.group_account": "Account / JSON Import",
     "settings.group_license": "Lizenzverwaltung",
-    "settings.group_language": "Sprache",
+    "settings.group_cloud": "Cloud & Community",
+    "settings.group_appearance": "Darstellung",
     "settings.group_data": "Datenverwaltung",
     "settings.group_updates": "Updates",
     "settings.group_about": "Über",
@@ -664,11 +667,29 @@ STRINGS: dict[str, str] = {
     "settings.community_mainstat_limit_saved": "Community-Mainstat-Auswahl: Top {n}.",
     "settings.community_art_substat_limit_saved": "Community-Artefakt-Substats: Top {n}.",
     "settings.top_n_option": "Top {n}",
+    "settings.btn_delete_cloud_data": "Alle Cloud-Daten löschen",
+    "settings.cloud_delete_unavailable": "Cloud-Daten löschen ist nur mit Vollversion verfügbar.",
+    "settings.cloud_delete_in_progress": "Cloud-Daten werden gelöscht...",
+    "settings.cloud_delete_success": "Cloud-Daten gelöscht (Learning-Läufe: {learning_runs}, Build-Events: {build_events}).",
+    "settings.cloud_delete_failed": "Cloud-Daten konnten nicht gelöscht werden.",
+    "settings.cloud_delete_failed_reason": "Cloud-Daten konnten nicht gelöscht werden: {reason}",
+    "settings.confirm_delete_cloud_data": (
+        "Wirklich ALLE Cloud-Daten zu dieser Lizenz löschen?\n\n"
+        "Das entfernt deine hochgeladenen Learning-Läufe und Community-Build-Events dauerhaft vom Server.\n"
+        "Diese Aktion kann nicht rückgängig gemacht werden."
+    ),
+    "settings.confirm_delete_cloud_data_second": (
+        "Letzte Bestätigung:\n\n"
+        "Die Cloud-Daten werden dauerhaft gelöscht und sind auf keinem Gerät wiederherstellbar.\n"
+        "Fortfahren?"
+    ),
 
     "settings.label_language": "Sprache:",
 
-    "settings.group_theme": "Design",
     "settings.label_theme": "UI-Theme:",
+    "settings.extra_info_optin": "Zusatzinfos anzeigen (Fortschritt/Debug-Details)",
+    "settings.extra_info_saved_on": "Zusatzinfos aktiviert.",
+    "settings.extra_info_saved_off": "Zusatzinfos deaktiviert.",
     "settings.theme_applied": "Theme angewendet. Einige Ansichten aktualisieren sich beim nächsten Datenladen.",
 
     "settings.btn_reset_presets": "Build-Presets zurücksetzen",

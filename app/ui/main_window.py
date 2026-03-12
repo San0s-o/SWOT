@@ -110,13 +110,16 @@ from app.ui.main_window_sections.settings_section import (
     init_settings_ui as _sec_init_settings_ui,
     refresh_settings_import_status as _sec_refresh_settings_import_status,
     refresh_settings_license_status as _sec_refresh_settings_license_status,
+    ui_show_extra_info_enabled as _sec_ui_show_extra_info_enabled,
     on_settings_import_json as _sec_on_settings_import_json,
     on_settings_clear_snapshot as _sec_on_settings_clear_snapshot,
     on_settings_activate_license as _sec_on_settings_activate_license,
+    on_settings_delete_cloud_data as _sec_on_settings_delete_cloud_data,
     on_settings_reset_presets as _sec_on_settings_reset_presets,
     on_settings_clear_optimizations as _sec_on_settings_clear_optimizations,
     on_settings_clear_teams as _sec_on_settings_clear_teams,
     on_settings_check_update as _sec_on_settings_check_update,
+    on_settings_extra_info_toggled as _sec_on_settings_extra_info_toggled,
     on_settings_language_changed as _sec_on_settings_language_changed,
     retranslate_settings as _sec_retranslate_settings,
 )
@@ -427,7 +430,6 @@ class MainWindow(QMainWindow):
         is_cp = _th.current_name == "cyberpunk"
         # derive inner-tab colours from the active theme
         pane_bg = c["tab_pane"]
-        bar_bg = c["tab_bg"]
         tab_text = c["tab_text"]
         tab_sel_text = c["tab_active_text"] if is_cp else "#e8ecf1"
         tab_accent = c["tab_accent"]
@@ -439,31 +441,37 @@ class MainWindow(QMainWindow):
         tab_widget.setStyleSheet(f"""
             QTabWidget {{ border: none; background: transparent; }}
             QTabWidget::pane {{
-                border: none;
-                border-top: 1px solid {tab_border};
+                border: 1px solid {tab_border};
+                border-radius: {_dp(8)}px;
                 background: {pane_bg};
+                top: {_dp(6)}px;
             }}
-            QTabBar {{ qproperty-drawBase: 0; background: {bar_bg}; }}
+            QTabBar {{
+                qproperty-drawBase: 0;
+                background: transparent;
+            }}
             QTabBar::tab {{
-                background: {bar_bg};
+                background: transparent;
                 color: {tab_text};
-                border: none;
-                border-right: 1px solid {tab_border};
+                border: 1px solid transparent;
                 border-bottom: 2px solid transparent;
+                border-radius: {_dp(7)}px;
                 min-width: {_dp(90)}px;
-                padding: {_dp(6)}px {_dp(18)}px;
-                margin-right: 0px;
+                padding: {_dp(6)}px {_dp(14)}px;
+                margin-right: {_dp(5)}px;
                 {extra_tab}
             }}
             QTabBar::tab:selected {{
-                background: {pane_bg};
+                background: {hover_bg};
                 color: {tab_sel_text};
+                border-color: {tab_border};
                 border-bottom: 2px solid {tab_accent};
                 {extra_sel}
             }}
             QTabBar::tab:hover:!selected {{
                 background: {hover_bg};
                 color: {hover_text};
+                border-color: {tab_border};
             }}
         """)
 
@@ -826,6 +834,9 @@ class MainWindow(QMainWindow):
     def _on_settings_activate_license(self):
         return _sec_on_settings_activate_license(self)
 
+    def _on_settings_delete_cloud_data(self):
+        return _sec_on_settings_delete_cloud_data(self)
+
     def _on_settings_reset_presets(self):
         return _sec_on_settings_reset_presets(self)
 
@@ -838,8 +849,14 @@ class MainWindow(QMainWindow):
     def _on_settings_check_update(self):
         return _sec_on_settings_check_update(self)
 
+    def _on_settings_extra_info_toggled(self, enabled: bool):
+        return _sec_on_settings_extra_info_toggled(self, enabled)
+
     def _on_settings_language_changed(self, index: int):
         return _sec_on_settings_language_changed(self, index)
+
+    def _show_extra_info_enabled(self) -> bool:
+        return bool(_sec_ui_show_extra_info_enabled(self))
 
 
 def _apply_dark_palette(app: QApplication) -> None:

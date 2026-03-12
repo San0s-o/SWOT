@@ -28,6 +28,12 @@ class TeamSelection:
 _ARTIFACT_HINT_CACHE_VERSION = "2026-02-19.2"
 
 
+def _user_facing_result_message(window, ok: bool, detailed: str) -> str:
+    if bool(getattr(window, "_show_extra_info_enabled", lambda: False)()):
+        return str(detailed or "")
+    return tr("opt.ok") if bool(ok) else tr("opt.partial_fail")
+
+
 def _store_compare_snapshot_from_build_dialog(window, mode: str, dlg: BuildDialog) -> None:
     mode_key = str(mode or "").strip().lower()
     if not mode_key:
@@ -1139,8 +1145,9 @@ def on_optimize_arena_rush(window) -> None:
         _run_arena_rush,
     )
 
-    window.lbl_arena_rush_validate.setText(res.message)
-    window.statusBar().showMessage(res.message, 7000)
+    final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+    window.lbl_arena_rush_validate.setText(final_msg)
+    window.statusBar().showMessage(final_msg, 7000)
     window.arena_rush_result_cards.setVisible(False)
 
     combined_results = list(res.defense.results)
@@ -1153,7 +1160,7 @@ def on_optimize_arena_rush(window) -> None:
 
     window._show_optimize_results(
         tr("arena_rush.mode"),
-        res.message,
+        final_msg,
         combined_results,
         mode="arena_rush",
         teams=teams_for_save,
