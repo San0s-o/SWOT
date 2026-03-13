@@ -18,6 +18,7 @@ STRINGS: dict[str, str] = {
 
     # -- Tabs (Gruppen-Tabs) -------------------------------------
     "tab.overview": "Übersicht",
+    "tab.monster_collection": "Monster Collection",
     "tab.siege_group": "Siege",
     "tab.wgb_group": "World Guild Battle",
     "tab.rta_group": "RTA",
@@ -605,6 +606,14 @@ STRINGS: dict[str, str] = {
     "overview.drill_hint_main": "Klick außerhalb der Chart für den Reset",
     "overview.set_eff_chart": "Wichtige Sets Effizienz (Top {n})",
     "overview.art_eff_chart": "Artefakt-Effizienz (Top {n})",
+    "overview.rune_pool_dist_chart": "Runen-Pool Verteilung",
+    "overview.artifact_pool_dist_chart": "Artefakt-Pool Verteilung",
+    "overview.quality_legend": "Legend",
+    "overview.quality_hero": "Hero",
+    "overview.quality_rare": "Rare",
+    "overview.quality_magic": "Magic",
+    "overview.quality_normal": "Normal",
+    "overview.quality_other": "Andere",
     "overview.axis_count": "Anzahl / Rang",
     "overview.axis_eff": "Effizienz (%)",
     "overview.series_current": "Aktuell",
@@ -623,6 +632,16 @@ STRINGS: dict[str, str] = {
     "overview.slot_left": "Links",
     "overview.slot_right": "Rechts",
     "overview.mainstat": "Hauptstat:",
+
+    # -- Monster collection --------------------------------------
+    "collection.no_import": "Bitte zuerst einen Account importieren.",
+    "collection.summary": "6* erweckt: {owned} | Fehlend: {missing}",
+    "collection.section_owned": "6* erweckte Monster (besessen)",
+    "collection.section_missing": "Fehlende Monster (erweckte Formen)",
+    "collection.nat_group": "Nat {stars}",
+    "collection.none": "Keine Einträge.",
+    "collection.tooltip_nat": "Ausgangssterne: {stars}",
+    "collection.tooltip_copies": "{count} Kopien",
 
     # -- RTA overview --------------------------------------------
     "rta.spd_lead": "<b>SPD Lead:</b>",

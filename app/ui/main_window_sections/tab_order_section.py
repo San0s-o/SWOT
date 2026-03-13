@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 
 DEFAULT_TAB_ORDER = [
     "tab_overview",
+    "tab_monster_collection",
     "tab_siege",
     "tab_wgb",
     "tab_rta",

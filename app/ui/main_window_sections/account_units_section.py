@@ -58,6 +58,8 @@ def apply_saved_account(window, account, source_label: str) -> None:
 
     window.lbl_status.setText(tr("main.import_label", source=source_label))
     window.overview_widget.set_data(account)
+    if hasattr(window, "monster_collection_widget"):
+        window.monster_collection_widget.set_context(account, window.monster_db, window.assets_dir)
 
     window._on_tab_changed(window.tabs.currentIndex())
 

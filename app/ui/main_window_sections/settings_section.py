@@ -710,6 +710,8 @@ def on_settings_clear_snapshot(window) -> None:
     window._lazy_view_dirty = {}
     window._arena_rush_state_restore_pending = False
     window.lbl_status.setText(tr("main.no_import"))
+    if hasattr(window, "monster_collection_widget"):
+        window.monster_collection_widget.set_context(None, window.monster_db, window.assets_dir)
     refresh_settings_import_status(window)
     window.statusBar().showMessage(tr("settings.data_cleared", name="Account Snapshot"), 5000)
 

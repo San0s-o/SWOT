@@ -150,6 +150,7 @@ from app.ui.main_window_sections.runtime_section import (
 from app.ui.widgets.reorderable_tab_bar import ReorderableTabBar
 from app.ui.siege_cards_widget import SiegeDefCardsWidget
 from app.ui.overview_widget import OverviewWidget
+from app.ui.monster_collection_widget import MonsterCollectionWidget
 from app.ui.rta_overview_widget import RtaOverviewWidget
 from app.ui.rune_optimization_widget import RuneOptimizationWidget
 from app.ui.artifact_optimization_widget import ArtifactOptimizationWidget
@@ -214,7 +215,10 @@ class MainWindow(QMainWindow):
         self.presets_path = self.config_dir / "build_presets.json"
 
         # Monster DB (offline)
-        self.monster_db = MonsterDB(self.assets_dir / "monsters.json")
+        self.monster_db = MonsterDB(
+            self.assets_dir / "monsters.json",
+            self.project_root / "app" / "domain" / "monster_meta.json",
+        )
         self.monster_db.load()
 
         # Presets/Builds
@@ -262,6 +266,15 @@ class MainWindow(QMainWindow):
         ov.setContentsMargins(0, 0, 0, 0)
         self.overview_widget = OverviewWidget()
         ov.addWidget(self.overview_widget)
+
+        # Monster Collection
+        self.tab_monster_collection = QWidget()
+        self.tabs.addTab(self.tab_monster_collection, tr("tab.monster_collection"))
+        mv = QVBoxLayout(self.tab_monster_collection)
+        mv.setContentsMargins(0, 0, 0, 0)
+        self.monster_collection_widget = MonsterCollectionWidget()
+        self.monster_collection_widget.set_context(None, self.monster_db, self.assets_dir)
+        mv.addWidget(self.monster_collection_widget)
 
         # ── Siege-Gruppe ─────────────────────────────────────────
         self.tab_siege = QWidget()

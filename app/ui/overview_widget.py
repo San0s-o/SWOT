@@ -372,6 +372,38 @@ def _rune_quality_class(rune: Rune) -> int:
     return origin if origin else int(rune.rune_class or 0)
 
 
+def _rune_quality_tier_key(rune: Rune) -> str:
+    cls_id = _rune_quality_class(rune)
+    if cls_id in (5, 6, 15, 16):
+        return "legend"
+    if cls_id in (4, 14):
+        return "hero"
+    if cls_id in (3, 13):
+        return "rare"
+    if cls_id in (2, 12):
+        return "magic"
+    if cls_id in (1, 11):
+        return "normal"
+    return "other"
+
+
+def _artifact_quality_tier_key(art: Artifact) -> str:
+    base_rank = int(getattr(art, "original_rank", 0) or 0)
+    if base_rank <= 0:
+        base_rank = int(art.rank or 0)
+    if base_rank >= 5:
+        return "legend"
+    if base_rank == 4:
+        return "hero"
+    if base_rank == 3:
+        return "rare"
+    if base_rank == 2:
+        return "magic"
+    if base_rank == 1:
+        return "normal"
+    return "other"
+
+
 _GEM_COLOR = "#1abc9c"  # teal for gem-swapped subs
 
 
@@ -1103,6 +1135,8 @@ class OverviewWidget(QWidget):
         self._rune_eff_view: QChartView | None = None
         self._rune_set_view: QChartView | None = None
         self._art_eff_view: QChartView | None = None
+        self._rune_pool_view: QChartView | None = None
+        self._artifact_pool_view: QChartView | None = None
 
     # -- public API ------------------------------------
     def set_data(self, account: AccountData) -> None:
@@ -1200,6 +1234,8 @@ class OverviewWidget(QWidget):
     def _build_charts(self, acc: AccountData) -> None:
         self._clear_grid()
 
+        all_runes = list(acc.runes or [])
+        all_arts = list(acc.artifacts or [])
         filtered_runes = [r for r in acc.runes if int(r.upgrade_curr or 0) >= 12]
         rune_items = (
             [(rune_efficiency(r), r) for r in filtered_runes]
@@ -1213,12 +1249,16 @@ class OverviewWidget(QWidget):
         self._rune_eff_view = self._build_rune_eff_chart(rune_items)
         self._rune_set_view = self._build_rune_set_chart(filtered_runes)
         self._art_eff_view = self._build_art_eff_chart(art_items)
+        self._rune_pool_view = self._build_rune_pool_chart(all_runes)
+        self._artifact_pool_view = self._build_artifact_pool_chart(all_arts)
 
         self._rune_set_view.setMinimumHeight(dp(300))
         self._rune_set_host_layout.addWidget(self._rune_set_view, 1)
 
         self._grid.addWidget(self._rune_eff_view, 0, 0, 1, 2)
         self._grid.addWidget(self._art_eff_view, 1, 0, 1, 2)
+        self._grid.addWidget(self._rune_pool_view, 2, 0, 1, 1)
+        self._grid.addWidget(self._artifact_pool_view, 2, 1, 1, 1)
 
     def _on_top_n_changed(self, _value: int) -> None:
         if self._account is not None:
@@ -1411,6 +1451,52 @@ class OverviewWidget(QWidget):
             s.attachAxis(ax_y)
 
         return _IndexedLineChartView(chart, entries, zoom_callback=self._change_top_n)
+
+    def _build_pool_pie_chart(self, title: str, rows: List[Tuple[str, int, str]]) -> QChartView:
+        chart = _make_chart(title)
+        chart.legend().setVisible(True)
+        series = QPieSeries()
+        non_zero = [(label, int(count), color) for label, count, color in rows if int(count) > 0]
+        if not non_zero:
+            slc = series.append(tr("collection.none"), 1.0)
+            slc.setColor(QColor("#7f8c8d"))
+            slc.setLabelVisible(True)
+            chart.addSeries(series)
+            return _make_chart_view(chart)
+
+        total = float(sum(int(count) for _, count, _ in non_zero))
+        for label, count, color in non_zero:
+            text = f"{label} ({int(count)})"
+            slc = series.append(text, float(count))
+            slc.setColor(QColor(color))
+            # Keep labels readable and compact.
+            slc.setLabelVisible(total <= 1200.0)
+        chart.addSeries(series)
+        return _make_chart_view(chart)
+
+    def _build_rune_pool_chart(self, runes: List[Rune]) -> QChartView:
+        by_tier = Counter(_rune_quality_tier_key(r) for r in (runes or []))
+        rows = [
+            (tr("overview.quality_legend"), int(by_tier.get("legend", 0)), "#e67e22"),
+            (tr("overview.quality_hero"), int(by_tier.get("hero", 0)), "#9b59b6"),
+            (tr("overview.quality_rare"), int(by_tier.get("rare", 0)), "#3498db"),
+            (tr("overview.quality_magic"), int(by_tier.get("magic", 0)), "#2ecc71"),
+            (tr("overview.quality_normal"), int(by_tier.get("normal", 0)), "#95a5a6"),
+            (tr("overview.quality_other"), int(by_tier.get("other", 0)), "#e74c3c"),
+        ]
+        return self._build_pool_pie_chart(tr("overview.rune_pool_dist_chart"), rows)
+
+    def _build_artifact_pool_chart(self, arts: List[Artifact]) -> QChartView:
+        by_tier = Counter(_artifact_quality_tier_key(a) for a in (arts or []))
+        rows = [
+            (tr("overview.quality_legend"), int(by_tier.get("legend", 0)), "#1abc9c"),
+            (tr("overview.quality_hero"), int(by_tier.get("hero", 0)), "#4aa3ff"),
+            (tr("overview.quality_rare"), int(by_tier.get("rare", 0)), "#f39c12"),
+            (tr("overview.quality_magic"), int(by_tier.get("magic", 0)), "#2ecc71"),
+            (tr("overview.quality_normal"), int(by_tier.get("normal", 0)), "#95a5a6"),
+            (tr("overview.quality_other"), int(by_tier.get("other", 0)), "#e74c3c"),
+        ]
+        return self._build_pool_pie_chart(tr("overview.artifact_pool_dist_chart"), rows)
 
 
 

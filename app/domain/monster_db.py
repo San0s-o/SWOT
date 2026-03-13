@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,13 @@ class MonsterInfo:
     icon: str               # relative path like "icons/13403.png" or ""
     leader_skill: Optional[LeaderSkill] = None
     turn_effect_capabilities: Dict[str, int | bool | str] | None = None
+    base_stars: int = 0
+    natural_stars: int = 0
+    awaken_level: int = 0
+    can_awaken: bool = False
+    obtainable: bool = True
+    family_id: int = 0
+    homunculus: bool = False
 
 
 class MonsterDB:
@@ -44,20 +51,23 @@ class MonsterDB:
       ]
     }
     """
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, meta_path: str | Path | None = None):
         self.db_path = Path(db_path)
+        self.meta_path = Path(meta_path) if meta_path else self.db_path.with_name("monster_meta.json")
         self._by_id: Dict[int, MonsterInfo] = {}
 
     def load(self) -> None:
         self._by_id = {}
         if not self.db_path.exists():
             return
+        meta_by_id = self._load_meta_by_id()
         raw = json.loads(self.db_path.read_text(encoding="utf-8", errors="replace"))
         for m in raw.get("monsters", []) or []:
             try:
                 mid = int(m.get("com2us_id") or 0)
                 if mid <= 0:
                     continue
+                meta = dict(meta_by_id.get(mid) or {})
                 ls = self._parse_leader_skill(m)
                 info = MonsterInfo(
                     com2us_id=mid,
@@ -67,13 +77,67 @@ class MonsterDB:
                     icon=str(m.get("icon") or "").strip(),
                     leader_skill=ls,
                     turn_effect_capabilities=self._parse_turn_effect_capabilities(m),
+                    base_stars=self._safe_int(meta.get("base_stars") or m.get("base_stars"), 0),
+                    natural_stars=self._safe_int(meta.get("natural_stars") or m.get("natural_stars"), 0),
+                    awaken_level=self._safe_int(meta.get("awaken_level") or m.get("awaken_level"), 0),
+                    can_awaken=self._safe_bool(meta.get("can_awaken", m.get("can_awaken"))),
+                    obtainable=self._safe_bool(meta.get("obtainable", m.get("obtainable")), True),
+                    family_id=self._safe_int(meta.get("family_id") or m.get("family_id"), 0),
+                    homunculus=self._safe_bool(meta.get("homunculus", m.get("homunculus"))),
                 )
                 self._by_id[mid] = info
             except Exception:
                 continue
 
+    def _load_meta_by_id(self) -> Dict[int, Dict[str, Any]]:
+        if not self.meta_path.exists():
+            return {}
+        try:
+            raw = json.loads(self.meta_path.read_text(encoding="utf-8", errors="replace"))
+            by_id_raw = raw.get("by_com2us_id", raw)
+            if not isinstance(by_id_raw, dict):
+                return {}
+            out: Dict[int, Dict[str, Any]] = {}
+            for key, row in dict(by_id_raw).items():
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    mid = int(key)
+                except Exception:
+                    continue
+                if mid > 0:
+                    out[mid] = dict(row)
+            return out
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return int(default)
+
+    @staticmethod
+    def _safe_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return bool(value)
+        if value is None:
+            return bool(default)
+        if isinstance(value, (int, float)):
+            return bool(value)
+        txt = str(value).strip().lower()
+        if txt in ("1", "true", "yes", "y"):
+            return True
+        if txt in ("0", "false", "no", "n"):
+            return False
+        return bool(default)
+
     def get(self, com2us_id: int) -> Optional[MonsterInfo]:
         return self._by_id.get(int(com2us_id))
+
+    def all_monsters(self) -> List[MonsterInfo]:
+        return list(self._by_id.values())
 
     def name_for(self, com2us_id: int) -> str:
         info = self.get(com2us_id)
@@ -90,6 +154,21 @@ class MonsterDB:
     def archetype_for(self, com2us_id: int) -> str:
         info = self.get(com2us_id)
         return str(info.archetype or "Unknown") if info else "Unknown"
+
+    def base_stars_for(self, com2us_id: int) -> int:
+        info = self.get(com2us_id)
+        return int(info.base_stars or 0) if info else 0
+
+    def natural_stars_for(self, com2us_id: int) -> int:
+        info = self.get(com2us_id)
+        return int(info.natural_stars or 0) if info else 0
+
+    def awaken_level_for(self, com2us_id: int) -> int:
+        info = self.get(com2us_id)
+        return int(info.awaken_level or 0) if info else 0
+
+    def is_awakened_for(self, com2us_id: int) -> bool:
+        return self.awaken_level_for(com2us_id) > 0
 
     def leader_skill_for(self, com2us_id: int) -> Optional[LeaderSkill]:
         info = self.get(com2us_id)

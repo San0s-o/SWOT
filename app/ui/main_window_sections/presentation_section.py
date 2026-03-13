@@ -107,6 +107,7 @@ def retranslate_ui(window) -> None:
 
     # Äußere Gruppen-Tabs
     _set_tab_text("tab_overview", "tab.overview")
+    _set_tab_text("tab_monster_collection", "tab.monster_collection")
     _set_tab_text("tab_siege", "tab.siege_group")
     _set_tab_text("tab_wgb", "tab.wgb_group")
     _set_tab_text("tab_rta", "tab.rta_group")
@@ -254,6 +255,8 @@ def retranslate_ui(window) -> None:
         window.rune_art_inner_tabs.setTabText(1, tr("rune_opt.subtab_artifacts"))
 
     window.overview_widget.retranslate()
+    if hasattr(window, "monster_collection_widget"):
+        window.monster_collection_widget.retranslate()
     window.rta_overview.retranslate()
     window.rune_optimization_widget.retranslate()
     window.artifact_optimization_widget.retranslate()

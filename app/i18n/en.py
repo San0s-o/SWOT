@@ -18,6 +18,7 @@ STRINGS: dict[str, str] = {
 
     # -- Tabs (group tabs) ---------------------------------------
     "tab.overview": "Overview",
+    "tab.monster_collection": "Monster Collection",
     "tab.siege_group": "Siege",
     "tab.wgb_group": "World Guild Battle",
     "tab.rta_group": "RTA",
@@ -596,6 +597,14 @@ STRINGS: dict[str, str] = {
     "overview.drill_hint_main": "Click outside the chart to reset",
     "overview.set_eff_chart": "Important Sets Efficiency (Top {n})",
     "overview.art_eff_chart": "Artifact Efficiency (Top {n})",
+    "overview.rune_pool_dist_chart": "Rune Pool Distribution",
+    "overview.artifact_pool_dist_chart": "Artifact Pool Distribution",
+    "overview.quality_legend": "Legend",
+    "overview.quality_hero": "Hero",
+    "overview.quality_rare": "Rare",
+    "overview.quality_magic": "Magic",
+    "overview.quality_normal": "Normal",
+    "overview.quality_other": "Other",
     "overview.axis_count": "Count / Rank",
     "overview.axis_eff": "Efficiency (%)",
     "overview.series_current": "Current",
@@ -614,6 +623,16 @@ STRINGS: dict[str, str] = {
     "overview.slot_left": "Left",
     "overview.slot_right": "Right",
     "overview.mainstat": "Main stat:",
+
+    # -- Monster collection --------------------------------------
+    "collection.no_import": "Please import an account first.",
+    "collection.summary": "6* awakened: {owned} | Missing: {missing}",
+    "collection.section_owned": "6* awakened monsters (owned)",
+    "collection.section_missing": "Missing monsters (awakened forms)",
+    "collection.nat_group": "Nat {stars}",
+    "collection.none": "No entries.",
+    "collection.tooltip_nat": "Base stars: {stars}",
+    "collection.tooltip_copies": "{count} copies",
 
     # -- RTA overview --------------------------------------------
     "rta.spd_lead": "<b>SPD Lead:</b>",
