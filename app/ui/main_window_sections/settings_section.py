@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from app.i18n import tr
 from app.ui.dpi import dp
 from app.ui import theme as _theme
+from app.ui.toast import show_toast
 
 
 _ABOUT_CREATOR = "San0s"
@@ -42,8 +43,10 @@ def _open_discord_dm(window) -> None:
         opened = QDesktopServices.openUrl(QUrl("https://discord.com/channels/@me"))
     if opened:
         window.statusBar().showMessage(tr("settings.discord_opened", handle=_ABOUT_DISCORD), 6000)
+        show_toast(window, tr("settings.discord_opened", handle=_ABOUT_DISCORD), "success")
     else:
         window.statusBar().showMessage(tr("settings.discord_open_failed", handle=_ABOUT_DISCORD), 6000)
+        show_toast(window, tr("settings.discord_open_failed", handle=_ABOUT_DISCORD), "error")
 
 
 def _settings_path(window) -> Path:
@@ -617,8 +620,10 @@ def on_settings_cloud_learning_toggled(window, enabled: bool) -> None:
         window.lbl_settings_community_limit_hint.setText(tr("settings.community_trends_requires_cloud"))
     if bool(enabled):
         window.statusBar().showMessage(tr("settings.cloud_learning_saved_on"), 4000)
+        show_toast(window, tr("settings.cloud_learning_saved_on"), "success")
     else:
         window.statusBar().showMessage(tr("settings.cloud_learning_saved_off"), 4000)
+        show_toast(window, tr("settings.cloud_learning_saved_off"), "info")
 
 
 def on_settings_community_trends_toggled(window, enabled: bool) -> None:
@@ -640,8 +645,10 @@ def on_settings_community_trends_toggled(window, enabled: bool) -> None:
     _set_community_build_trends_optin(window, bool(enabled))
     if bool(enabled):
         window.statusBar().showMessage(tr("settings.community_trends_saved_on"), 4000)
+        show_toast(window, tr("settings.community_trends_saved_on"), "success")
     else:
         window.statusBar().showMessage(tr("settings.community_trends_saved_off"), 4000)
+        show_toast(window, tr("settings.community_trends_saved_off"), "info")
 
 
 def on_settings_community_set_limit_changed(window) -> None:

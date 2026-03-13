@@ -16,6 +16,7 @@ from app.engine.arena_rush_optimizer import (
 from app.engine.greedy_optimizer import BASELINE_REGRESSION_GUARD_WEIGHT
 from app.engine.arena_rush_timing import OpeningTurnEffect
 from app.i18n import tr
+from app.ui.toast import show_toast
 from app.ui.dialogs.build_dialog import BuildDialog
 
 
@@ -1145,9 +1146,11 @@ def on_optimize_arena_rush(window) -> None:
         _run_arena_rush,
     )
 
-    final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+    _ok = bool(getattr(res, "ok", False))
+    final_msg = _user_facing_result_message(window, _ok, str(getattr(res, "message", "")))
     window.lbl_arena_rush_validate.setText(final_msg)
     window.statusBar().showMessage(final_msg, 7000)
+    show_toast(window, final_msg, "success" if _ok else "warning")
     window.arena_rush_result_cards.setVisible(False)
 
     combined_results = list(res.defense.results)

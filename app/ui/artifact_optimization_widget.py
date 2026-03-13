@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QStyle,
     QStyledItemDelegate,
@@ -188,10 +189,23 @@ class ArtifactOptimizationWidget(QWidget):
         self._account: Optional[AccountData] = None
         self._monster_name_fn = monster_name_fn
         self._updating_filters = False
+        self._search_text: str = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(dp(8), dp(8), dp(8), dp(8))
-        layout.setSpacing(dp(8))
+        layout.setSpacing(dp(6))
+
+        # ── search bar ───────────────────────────────────────────
+        search_row = QHBoxLayout()
+        search_row.setSpacing(dp(6))
+        self._search_box = QLineEdit()
+        self._search_box.setPlaceholderText(tr("art_opt.search_placeholder"))
+        self._search_box.setClearButtonEnabled(True)
+        self._search_box.setMaximumWidth(dp(280))
+        self._search_box.textChanged.connect(self._on_search_changed)
+        search_row.addWidget(self._search_box)
+        search_row.addStretch(1)
+        layout.addLayout(search_row)
 
         top = QHBoxLayout()
         self.lbl_info = QLabel("")
@@ -398,3 +412,29 @@ class ArtifactOptimizationWidget(QWidget):
         self.table.setColumnWidth(5, max_sub_w + 24)
         self.table.setColumnWidth(6, max(120, self.table.columnWidth(6)))
         self.table.setSortingEnabled(True)
+        self._apply_search_filter()
+
+    def _on_search_changed(self, text: str) -> None:
+        self._search_text = text.strip().lower()
+        self._apply_search_filter()
+
+    def _apply_search_filter(self) -> None:
+        needle = self._search_text
+        if not needle:
+            for row in range(self.table.rowCount()):
+                self.table.setRowHidden(row, False)
+            return
+        for row in range(self.table.rowCount()):
+            # Search in: type (0), rank (1), mainstat (4), substats text (5 UserRole), monster (6)
+            haystack_parts = []
+            for col in (0, 1, 4, 6):
+                item = self.table.item(row, col)
+                if item:
+                    haystack_parts.append(item.text().lower())
+            sub_item = self.table.item(row, 5)
+            if sub_item:
+                plain = sub_item.data(Qt.UserRole)
+                if plain:
+                    haystack_parts.append(str(plain).lower())
+            haystack = " ".join(haystack_parts)
+            self.table.setRowHidden(row, needle not in haystack)

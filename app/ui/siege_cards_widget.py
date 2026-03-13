@@ -4,12 +4,12 @@ import weakref
 from pathlib import Path
 from typing import ClassVar, List, Dict, Optional, Tuple, Any
 
-from PySide6.QtCore import Qt, QSize, QRectF, QEvent
+from PySide6.QtCore import Qt, QSize, QRectF, QEvent, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QIcon, QPainter, QColor, QFont, QBrush, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QGroupBox, QScrollArea, QPushButton, QGridLayout,
-    QSizePolicy,
+    QSizePolicy, QGraphicsDropShadowEffect,
 )
 
 from app.domain.models import AccountData, Rune, Unit, Artifact, compute_unit_stats
@@ -477,6 +477,18 @@ class MonsterCard(QFrame):
         """)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
+        # Drop-shadow + hover glow
+        self._elem_accent_color = _elem_accent
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(dp(10))
+        shadow.setOffset(0, dp(2))
+        shadow.setColor(QColor(0, 0, 0, 55))
+        self.setGraphicsEffect(shadow)
+        self._shadow = shadow
+        self._anim_shadow = QPropertyAnimation(shadow, b"blurRadius", self)
+        self._anim_shadow.setDuration(180)
+        self._anim_shadow.setEasingCurve(QEasingCurve.OutCubic)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(dp(8), dp(6), dp(8), dp(6))
         layout.setSpacing(dp(6))
@@ -641,6 +653,24 @@ class MonsterCard(QFrame):
             rune_bar.addWidget(btn)
         rune_bar.addStretch()
         layout.addLayout(rune_bar)
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        accent = QColor(self._elem_accent_color)
+        accent.setAlpha(90)
+        self._shadow.setColor(accent)
+        self._anim_shadow.stop()
+        self._anim_shadow.setStartValue(int(self._shadow.blurRadius()))
+        self._anim_shadow.setEndValue(dp(22))
+        self._anim_shadow.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._shadow.setColor(QColor(0, 0, 0, 55))
+        self._anim_shadow.stop()
+        self._anim_shadow.setStartValue(int(self._shadow.blurRadius()))
+        self._anim_shadow.setEndValue(dp(10))
+        self._anim_shadow.start()
+        super().leaveEvent(event)
 
     def _refresh_stats(self) -> None:
         """Rebuild stats grid based on current view mode."""

@@ -244,9 +244,13 @@ def apply_dark_palette(app: QApplication) -> None:
             padding: {dp(6)}px {dp(14)}px; min-height: {dp(28)}px;
             font-weight: 500;
         }}
-        QPushButton:hover {{ background-color: {c['bg_mid']}; border-color: {c['border_hover']}; }}
-        QPushButton:pressed {{ background-color: {c['bg']}; }}
-        QPushButton:focus {{ border-color: {c['accent']}; outline: none; }}
+        QPushButton:hover {{ background-color: {c['bg_mid']}; border-color: {c['border_hover']}; color: {c['text']}; }}
+        QPushButton:pressed {{ background-color: {c['bg']}; border-color: {c['accent']}; }}
+        QPushButton:focus {{
+            border-color: {c['accent']};
+            outline: 2px solid {c['accent']};
+            outline-offset: 1px;
+        }}
         QPushButton:disabled {{ color: {c['text_disabled']}; border-color: {c['border']}; }}
         QPushButton[danger="true"] {{
             background-color: transparent;
@@ -276,7 +280,12 @@ def apply_dark_palette(app: QApplication) -> None:
             {spin_font}
         }}
         QLineEdit::placeholder {{ color: {c['text_dim']}; }}
-        QLineEdit:focus, QSpinBox:focus {{ border-color: {c['accent']}; }}
+        QLineEdit:focus, QSpinBox:focus {{
+            border-color: {c['accent']};
+            outline: 1px solid {c['accent']};
+            outline-offset: 0px;
+        }}
+        QComboBox:focus {{ border-color: {c['accent']}; }}
         QComboBox QAbstractItemView {{
             background-color: {c['bg_card']}; color: {c['text']};
             selection-background-color: {c['highlight_bg']};
@@ -323,21 +332,31 @@ def apply_dark_palette(app: QApplication) -> None:
             border: 1px solid {c['border']}; border-radius: {dp(10)}px;
             selection-background-color: {c['highlight_bg']}; selection-color: #ffffff;
         }}
-        QTableWidget::item, QTableView::item {{ padding: {dp(6)}px {dp(8)}px; border: none; }}
+        QTableWidget::item, QTableView::item {{ padding: {dp(8)}px {dp(10)}px; border: none; }}
+        QTableWidget::item:selected, QTableView::item:selected {{
+            background-color: {c['highlight_bg']};
+            border-left: 2px solid {c['accent']};
+        }}
         QHeaderView {{ background-color: {c['bg']}; }}
         QHeaderView::section {{
             background-color: {c['bg']}; color: {c['text_dim']};
             border: none; border-bottom: 1px solid {c['border']}; border-right: 1px solid {c['bg']};
-            padding: {dp(7)}px {dp(10)}px;
+            padding: {dp(8)}px {dp(10)}px;
             font-weight: 600;
         }}
 
         QScrollBar:vertical {{ background: transparent; width: {dp(8)}px; margin: 0; }}
-        QScrollBar::handle:vertical {{ background: {c['scrollbar_handle']}; border-radius: {dp(4)}px; min-height: {dp(24)}px; margin: {dp(2)}px; }}
+        QScrollBar::handle:vertical {{
+            background: {c['scrollbar_handle']}; border-radius: {dp(4)}px;
+            min-height: {dp(24)}px; margin: {dp(2)}px;
+        }}
         QScrollBar::handle:vertical:hover {{ background: {c['accent']}; }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         QScrollBar:horizontal {{ background: transparent; height: {dp(8)}px; margin: 0; }}
-        QScrollBar::handle:horizontal {{ background: {c['scrollbar_handle']}; border-radius: {dp(4)}px; min-width: {dp(24)}px; margin: {dp(2)}px; }}
+        QScrollBar::handle:horizontal {{
+            background: {c['scrollbar_handle']}; border-radius: {dp(4)}px;
+            min-width: {dp(24)}px; margin: {dp(2)}px;
+        }}
         QScrollBar::handle:horizontal:hover {{ background: {c['accent']}; }}
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
@@ -378,9 +397,18 @@ def apply_dark_palette(app: QApplication) -> None:
         QMenuBar::item:selected {{ background-color: {c['highlight_bg']}; }}
 
         QCheckBox {{ color: {c['text']}; spacing: {dp(6)}px; }}
-        QCheckBox::indicator {{ width: {dp(14)}px; height: {dp(14)}px; border: 1px solid {c['border']}; border-radius: {dp(3)}px; background: {c['bg_input']}; }}
-        QCheckBox::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
-        QCheckBox::indicator:hover {{ border-color: {c['accent']}; }}
+        QCheckBox::indicator {{
+            width: {dp(16)}px; height: {dp(16)}px;
+            border: 1px solid {c['border']}; border-radius: {dp(4)}px;
+            background: {c['bg_input']};
+        }}
+        QCheckBox::indicator:checked {{
+            background: {c['accent']}; border-color: {c['accent']};
+            image: url("data:image/svg+xml,<svg/>"); /* forces repaint */
+        }}
+        QCheckBox::indicator:hover {{ border-color: {c['accent']}; background: {c['accent_hover']}; }}
+        QCheckBox:focus {{ outline: none; }}
+        QCheckBox::indicator:focus {{ border-color: {c['accent']}; }}
 
         QSplitter::handle {{ background: {c['bg_mid']}; }}
         QSplitter::handle:horizontal {{ width: 1px; }}

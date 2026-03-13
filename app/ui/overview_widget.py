@@ -1,18 +1,19 @@
 ﻿"""Account overview dashboard with summary cards and charts."""
 from __future__ import annotations
 
+import time
 from collections import Counter
 from typing import Callable, List, Optional, Tuple, Any
 
-from PySide6.QtCore import Qt, QMargins, QPointF
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtCore import Qt, QMargins, QPointF, QPropertyAnimation, QEasingCurve, QVariantAnimation, QEvent
+from PySide6.QtGui import QColor, QFont, QPainter, QFontMetrics, QCursor
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
-    QGridLayout, QComboBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea, QApplication,
+    QGridLayout, QComboBox, QGraphicsDropShadowEffect,
 )
 from PySide6.QtCharts import (
     QChart, QChartView, QBarCategoryAxis,
-    QValueAxis, QPieSeries, QLineSeries,
+    QValueAxis, QPieSeries, QLineSeries, QPieSlice,
 )
 
 from app.domain.models import AccountData, Rune, Artifact
@@ -163,8 +164,38 @@ class _SummaryCard(QFrame):
         self._lbl_val = lbl_val
         self._lbl_title = lbl_title
 
+        # Drop-shadow effect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(dp(12))
+        shadow.setOffset(0, dp(3))
+        shadow.setColor(QColor(0, 0, 0, 70))
+        self.setGraphicsEffect(shadow)
+        self._shadow = shadow
+
+        # Animation for hover glow
+        self._anim_shadow = QPropertyAnimation(shadow, b"blurRadius", self)
+        self._anim_shadow.setDuration(200)
+        self._anim_shadow.setEasingCurve(QEasingCurve.OutCubic)
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        accent = QColor(self._accent)
+        accent.setAlpha(100)
+        self._shadow.setColor(accent)
+        self._anim_shadow.stop()
+        self._anim_shadow.setStartValue(int(self._shadow.blurRadius()))
+        self._anim_shadow.setEndValue(dp(24))
+        self._anim_shadow.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._shadow.setColor(QColor(0, 0, 0, 70))
+        self._anim_shadow.stop()
+        self._anim_shadow.setStartValue(int(self._shadow.blurRadius()))
+        self._anim_shadow.setEndValue(dp(12))
+        self._anim_shadow.start()
+        super().leaveEvent(event)
+
     def update_value(self, value: str, accent: str | None = None):
-        self._lbl_val.setText(value)
         if accent:
             mono = _theme.C["mono_font"]
             font_css = f"font-family: {mono};" if mono else ""
@@ -173,6 +204,93 @@ class _SummaryCard(QFrame):
                 f"color: {accent}; font-size: {val_size}; font-weight: bold;"
                 f" border: none; background: transparent; {font_css}"
             )
+        self._animate_value(value)
+
+    def _animate_value(self, new_text: str) -> None:
+        """Animate numeric value change; fall back to instant set for non-numbers."""
+        # Stop any running counter animation
+        if hasattr(self, "_counter_anim") and self._counter_anim:
+            self._counter_anim.stop()
+            self._counter_anim = None
+        try:
+            def _parse_numeric(text: str) -> tuple[float, str, bool, int, str | None]:
+                raw = text.strip()
+                suffix_local = "%"
+                if raw.endswith("%"):
+                    raw = raw[:-1].strip()
+                else:
+                    suffix_local = ""
+                if not raw:
+                    raise ValueError("empty numeric text")
+
+                last_dot = raw.rfind(".")
+                last_comma = raw.rfind(",")
+                dec_sep: str | None = None
+
+                if last_dot >= 0 and last_comma >= 0:
+                    dec_sep = "." if last_dot > last_comma else ","
+                elif last_dot >= 0:
+                    after = raw[last_dot + 1:]
+                    if 0 < len(after) <= 2:
+                        dec_sep = "."
+                elif last_comma >= 0:
+                    after = raw[last_comma + 1:]
+                    if 0 < len(after) <= 2:
+                        dec_sep = ","
+
+                if dec_sep == ".":
+                    normalized = raw.replace(",", "")
+                    decimals = len(raw.rsplit(".", 1)[1])
+                elif dec_sep == ",":
+                    normalized = raw.replace(".", "").replace(",", ".")
+                    decimals = len(raw.rsplit(",", 1)[1])
+                else:
+                    normalized = raw.replace(".", "").replace(",", "")
+                    decimals = 0
+
+                value = float(normalized)
+                use_float_local = dec_sep is not None
+                group_sep: str | None = None
+                if not use_float_local:
+                    if "." in raw and "," not in raw:
+                        group_sep = "."
+                    elif "," in raw and "." not in raw:
+                        group_sep = ","
+                return value, suffix_local, use_float_local, decimals, group_sep
+
+            new_val, suffix, use_float, decimals, group_sep = _parse_numeric(new_text)
+            old_val, _, _, _, _ = _parse_numeric(self._lbl_val.text())
+            if old_val == new_val:
+                self._lbl_val.setText(new_text)
+                return
+            anim = QVariantAnimation(self)
+            anim.setStartValue(old_val)
+            anim.setEndValue(new_val)
+            anim.setDuration(500)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+
+            def _tick(v: float) -> None:
+                if use_float:
+                    prec = max(1, min(2, int(decimals)))
+                    txt = f"{v:.{prec}f}"
+                    if "," in new_text and "." not in new_text:
+                        txt = txt.replace(".", ",")
+                    self._lbl_val.setText(f"{txt}{suffix}")
+                else:
+                    iv = int(round(v))
+                    if group_sep:
+                        txt = f"{iv:,}"
+                        if group_sep == ".":
+                            txt = txt.replace(",", ".")
+                    else:
+                        txt = str(iv)
+                    self._lbl_val.setText(f"{txt}{suffix}")
+
+            anim.valueChanged.connect(_tick)
+            anim.start()
+            self._counter_anim = anim
+        except (ValueError, AttributeError):
+            self._lbl_val.setText(new_text)
 
     def set_subtitle(self, text: str) -> None:
         self._lbl_sub.setText(text)
@@ -231,6 +349,10 @@ def _stat_label(eff_id: int, value: Any) -> str:
     except Exception:
         val = str(value)
     return f"{key} +{val}"
+
+
+def _mainstat_key(eff_id: int) -> str:
+    return EFFECT_ID_TO_MAINSTAT_KEY.get(int(eff_id or 0), f"Eff {int(eff_id or 0)}")
 
 
 def _artifact_mainstat_label(eff_id: int, value: Any) -> str:
@@ -460,6 +582,420 @@ class _IndexedLineChartView(QChartView):
         self._zoom_callback(step)
         event.accept()
 
+
+class _RuneSetDrilldownChartView(QChartView):
+    """Interactive rune pie chart: sets -> slots -> main stats."""
+
+    _LEVEL_SETS = "sets"
+    _LEVEL_SLOTS = "slots"
+    _LEVEL_MAIN = "main"
+
+    def __init__(self, runes: List[Rune], parent=None):
+        chart = _make_chart(tr("overview.set_dist_chart"))
+        super().__init__(chart, parent)
+        self._all_runes = list(runes or [])
+        self._level = self._LEVEL_SETS
+        self._context_label = ""
+        self._active_runes: List[Rune] = list(self._all_runes)
+        self._active_slot = 0
+        self._series: Optional[QPieSeries] = None
+        self._slice_meta: dict[int, dict[str, Any]] = {}
+        self._hovered_slice: Optional[QPieSlice] = None
+        self._current_pie_size = 0.64
+        self._current_hole_size = 0.30
+        self._last_slice_click_ts = 0.0
+        self._palette = [
+            "#3fa9f5", "#f46049", "#31c273", "#f5a623", "#8e6fd1",
+            "#17bebb", "#ff8a3d", "#4e79a7", "#d45087", "#7f8c8d",
+        ]
+
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setMinimumHeight(dp(350))
+        self.setStyleSheet(
+            f"background: {_theme.C['bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: 8px;"
+        )
+        self.setMouseTracking(True)
+        self._init_overlay_ui()
+
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+
+        self._rebuild_sets_level()
+
+    def _init_overlay_ui(self) -> None:
+        self._crumb_label = QLabel(self)
+        self._crumb_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._crumb_label.setStyleSheet(
+            f"color: {_theme.C['text_dim']}; font-size: 8pt;"
+            "background: transparent; border: none; padding: 2px 6px;"
+        )
+
+        self._hint_label = QLabel(self)
+        self._hint_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._hint_label.setStyleSheet(
+            f"color: {_theme.C['text_dim']}; font-size: 8pt;"
+            "background: transparent; border: none; padding: 2px 6px;"
+        )
+        self._hint_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self._center_card = QFrame(self)
+        self._center_card.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._center_card.setStyleSheet(
+            "background: transparent; border: none;"
+        )
+        self._center_hpad = dp(8)
+        self._center_vpad = dp(6)
+        center_layout = QVBoxLayout(self._center_card)
+        center_layout.setContentsMargins(self._center_hpad, self._center_vpad, self._center_hpad, self._center_vpad)
+        center_layout.setSpacing(dp(1))
+
+        self._center_title = QLabel("")
+        self._center_title.setAlignment(Qt.AlignCenter)
+        self._center_title.setStyleSheet(
+            f"color: {_theme.C['text_dim']}; font-weight: 600; background: transparent; border: none;"
+        )
+        center_layout.addWidget(self._center_title)
+
+        self._center_value = QLabel("")
+        self._center_value.setAlignment(Qt.AlignCenter)
+        self._center_value.setStyleSheet(
+            f"color: {_theme.C['text']}; font-weight: 700; background: transparent; border: none;"
+        )
+        center_layout.addWidget(self._center_value)
+
+        self._fade_anim = None
+
+    def _animate_transition(self) -> None:
+        return
+
+    def _update_center_text(self, title: str, value: str) -> None:
+        self._center_title.setText(str(title))
+        self._center_value.setText(str(value))
+        # Refit fonts/geometry after text change to avoid clipping in the donut hole.
+        self._layout_overlay_ui()
+
+    def _base_center_text(self) -> tuple[str, str]:
+        rune_count = len(self._active_runes)
+        if self._level == self._LEVEL_SETS:
+            return tr("overview.drill_center_sets"), tr("overview.drill_center_count", count=rune_count)
+        if self._level == self._LEVEL_SLOTS:
+            return self._context_label, tr("overview.drill_center_count", count=rune_count)
+        return f"{tr('ui.slot')} {int(self._active_slot)}", tr("overview.drill_center_count", count=rune_count)
+
+    def _refresh_overlay_texts(self) -> None:
+        root = tr("overview.drill_breadcrumb_root")
+        if self._level == self._LEVEL_SETS:
+            crumb = root
+            hint = tr("overview.drill_hint_sets")
+        elif self._level == self._LEVEL_SLOTS:
+            crumb = f"{root} / {self._context_label}"
+            hint = tr("overview.drill_hint_slots")
+        else:
+            crumb = f"{root} / {self._context_label} / {tr('ui.slot')} {int(self._active_slot)}"
+            hint = tr("overview.drill_hint_main")
+        self._crumb_label.setText(crumb)
+        self._hint_label.setText(hint)
+        self._crumb_label.setVisible(self._level != self._LEVEL_SETS)
+        self._hint_label.setVisible(self._level != self._LEVEL_SETS)
+        title, value = self._base_center_text()
+        self._update_center_text(title, value)
+        self._layout_overlay_ui()
+
+    def _layout_overlay_ui(self) -> None:
+        pad = dp(10)
+        max_w = max(dp(60), self.width() - 2 * pad)
+
+        self._crumb_label.setMaximumWidth(max_w)
+        self._crumb_label.adjustSize()
+        self._crumb_label.move(pad, pad)
+
+        self._hint_label.setMaximumWidth(max_w)
+        self._hint_label.adjustSize()
+        self._hint_label.move(self.width() - pad - self._hint_label.width(), pad)
+
+        plot = self.chart().plotArea()
+        if plot.isValid():
+            hole_diameter = min(plot.width(), plot.height()) * float(self._current_pie_size) * float(self._current_hole_size)
+            size = int(max(dp(72), min(hole_diameter * 0.96, dp(124))))
+        else:
+            size = dp(74)
+        if plot.isValid():
+            cx = int(plot.center().x())
+            cy = int(plot.center().y())
+        else:
+            cx = self.width() // 2
+            cy = self.height() // 2
+        self._center_card.setGeometry(cx - size // 2, cy - size // 2, size, size)
+        title_pt = max(7, min(10, int(size * 0.12)))
+        value_pt = max(9, min(12, int(size * 0.15)))
+
+        title_font = QFont(self._center_title.font())
+        value_font = QFont(self._center_value.font())
+        title_font.setPointSize(title_pt)
+        value_font.setPointSize(value_pt)
+        self._center_title.setFont(title_font)
+        self._center_value.setFont(value_font)
+
+        # Shrink text slightly if it would clip inside the center hole.
+        available_w = max(dp(36), size - (2 * int(self._center_hpad)) - dp(4))
+        for _ in range(8):
+            t_w = QFontMetrics(self._center_title.font()).horizontalAdvance(self._center_title.text())
+            v_w = QFontMetrics(self._center_value.font()).horizontalAdvance(self._center_value.text())
+            if t_w <= available_w and v_w <= available_w:
+                break
+            if value_pt > 7:
+                value_pt -= 1
+                value_font.setPointSize(value_pt)
+                self._center_value.setFont(value_font)
+                continue
+            if title_pt > 6:
+                title_pt -= 1
+                title_font.setPointSize(title_pt)
+                self._center_title.setFont(title_font)
+                continue
+            break
+        self._center_card.setStyleSheet("QFrame { background: transparent; border: none; }")
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._layout_overlay_ui()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+        super().closeEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: ANN001
+        if self._level == self._LEVEL_SETS:
+            return super().eventFilter(watched, event)
+        if event is None or event.type() not in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            return super().eventFilter(watched, event)
+
+        gpos = self._event_global_pos(event)
+        if gpos is None:
+            return super().eventFilter(watched, event)
+
+        local = self.mapFromGlobal(gpos)
+        if not self.rect().contains(local):
+            self._rebuild_sets_level()
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        super().mouseReleaseEvent(event)
+        if event.button() != Qt.LeftButton:
+            return
+        if self._level == self._LEVEL_SETS:
+            return
+        # Ignore release right after a successful slice click.
+        if (time.monotonic() - float(self._last_slice_click_ts)) < 0.18:
+            return
+        if self._point_hits_donut_ring(event.position()):
+            return
+        self._rebuild_sets_level()
+
+    def _event_global_pos(self, event) -> Any | None:  # noqa: ANN401
+        if hasattr(event, "globalPosition"):
+            return event.globalPosition().toPoint()
+        if hasattr(event, "globalPos"):
+            return event.globalPos()
+        try:
+            return QCursor.pos()
+        except Exception:
+            return None
+
+    def _point_hits_donut_ring(self, pos: QPointF) -> bool:
+        plot = self.chart().plotArea()
+        if not plot.isValid():
+            return False
+        cx = float(plot.center().x())
+        cy = float(plot.center().y())
+        dx = float(pos.x()) - cx
+        dy = float(pos.y()) - cy
+        dist = (dx * dx + dy * dy) ** 0.5
+        outer_r = (min(float(plot.width()), float(plot.height())) * float(self._current_pie_size)) / 2.0
+        inner_r = outer_r * float(self._current_hole_size)
+        return inner_r <= dist <= outer_r
+
+    def _prepare_series(self, title: str) -> None:
+        chart = self.chart()
+        chart.removeAllSeries()
+        chart.setTitle(title)
+        chart.legend().setVisible(False)
+        chart.setMargins(QMargins(dp(34), dp(10), dp(34), dp(10)))
+
+        series = QPieSeries()
+        self._current_hole_size = 0.30
+        series.setHoleSize(self._current_hole_size)
+        if self._level == self._LEVEL_SETS:
+            pie_size = 0.64
+        elif self._level == self._LEVEL_SLOTS:
+            pie_size = 0.68
+        else:
+            pie_size = 0.72
+        self._current_pie_size = float(pie_size)
+        series.setPieSize(pie_size)
+        series.setLabelsVisible(True)
+        series.hovered.connect(self._on_slice_hovered)
+        series.clicked.connect(self._on_slice_clicked)
+
+        chart.addSeries(series)
+        self._series = series
+        self._slice_meta.clear()
+        self._hovered_slice = None
+        self._refresh_overlay_texts()
+        self._animate_transition()
+
+    def _append_slice(self, label: str, count: int, color_hex: str, payload: dict[str, Any]) -> None:
+        if self._series is None:
+            return
+        if int(count) <= 0:
+            return
+        slc = self._series.append(label, float(count))
+        base = QColor(color_hex)
+        slc.setColor(base)
+        slc.setLabelPosition(QPieSlice.LabelOutside)
+        slc.setLabelArmLengthFactor(0.12)
+        slc.setLabelColor(QColor(_theme.C["chart_text"]))
+        slc.setBorderColor(QColor(255, 255, 255, 45))
+        slc.setBorderWidth(1.2)
+        slc.setLabelVisible(True)
+        self._slice_meta[id(slc)] = {"payload": payload, "base_color": base}
+
+    def _rebuild_sets_level(self) -> None:
+        self._level = self._LEVEL_SETS
+        self._context_label = ""
+        self._active_slot = 0
+        self._active_runes = list(self._all_runes)
+        self._prepare_series(tr("overview.set_dist_chart"))
+
+        by_set: dict[int, List[Rune]] = {}
+        for rune in self._all_runes:
+            sid = int(rune.set_id or 0)
+            by_set.setdefault(sid, []).append(rune)
+
+        ranked = sorted(by_set.items(), key=lambda kv: len(kv[1]), reverse=True)
+        top = ranked[:10]
+        top_ids = {sid for sid, _ in top}
+        other_runes: List[Rune] = []
+        for sid, lst in ranked:
+            if sid not in top_ids:
+                other_runes.extend(lst)
+
+        for idx, (sid, lst) in enumerate(top):
+            set_name = SET_NAMES.get(int(sid), f"Set {int(sid)}")
+            self._append_slice(
+                f"{set_name} ({len(lst)})",
+                len(lst),
+                self._palette[idx % len(self._palette)],
+                {"next": self._LEVEL_SLOTS, "runes": list(lst), "context": set_name},
+            )
+
+        if other_runes:
+            self._append_slice(
+                tr("overview.other", count=len(other_runes)),
+                len(other_runes),
+                "#7f8c8d",
+                {"next": self._LEVEL_SLOTS, "runes": list(other_runes), "context": tr("overview.other_sets")},
+            )
+
+    def _rebuild_slots_level(self, runes: List[Rune], context_label: str) -> None:
+        self._level = self._LEVEL_SLOTS
+        self._context_label = str(context_label)
+        self._active_slot = 0
+        self._active_runes = list(runes)
+        self._prepare_series(tr("overview.set_slot_dist_chart", name=self._context_label))
+
+        counts: Counter = Counter(int(r.slot_no or 0) for r in runes if int(r.slot_no or 0) > 0)
+        for slot in range(1, 7):
+            count = int(counts.get(slot, 0))
+            if count <= 0:
+                continue
+            self._append_slice(
+                f"{tr('ui.slot')} {slot} ({count})",
+                count,
+                self._palette[(slot - 1) % len(self._palette)],
+                {
+                    "next": self._LEVEL_MAIN,
+                    "runes": [r for r in runes if int(r.slot_no or 0) == slot],
+                    "slot": int(slot),
+                    "context": self._context_label,
+                },
+            )
+
+    def _rebuild_mainstat_level(self, runes: List[Rune], context_label: str, slot: int) -> None:
+        self._level = self._LEVEL_MAIN
+        self._context_label = str(context_label)
+        self._active_slot = int(slot)
+        self._active_runes = list(runes)
+        self._prepare_series(tr("overview.slot_mainstat_dist_chart", name=self._context_label, slot=int(slot)))
+
+        counts: Counter = Counter()
+        for rune in runes:
+            stat_id = int(rune.pri_eff[0] if rune.pri_eff else 0)
+            if stat_id <= 0:
+                continue
+            counts[stat_id] += 1
+        ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+
+        for idx, (stat_id, count) in enumerate(ranked):
+            label = f"{_mainstat_key(stat_id)} ({int(count)})"
+            self._append_slice(
+                label,
+                int(count),
+                self._palette[idx % len(self._palette)],
+                {"next": "", "runes": [], "slot": int(slot), "context": self._context_label},
+            )
+
+    def _apply_hover_style(self, slc: QPieSlice, active: bool) -> None:
+        meta = self._slice_meta.get(id(slc))
+        if not meta:
+            return
+        base_color = meta["base_color"]
+        if active:
+            slc.setColor(base_color.lighter(125))
+            slc.setExploded(True)
+            slc.setExplodeDistanceFactor(0.08)
+        else:
+            slc.setColor(base_color)
+            slc.setExploded(False)
+            slc.setExplodeDistanceFactor(0.0)
+
+    def _on_slice_hovered(self, slc: QPieSlice, state: bool) -> None:
+        if state:
+            if self._hovered_slice is not None and self._hovered_slice is not slc:
+                self._apply_hover_style(self._hovered_slice, False)
+            self._hovered_slice = slc
+            self._apply_hover_style(slc, True)
+            label = str(slc.label() or "").split(" (", 1)[0].strip()
+            pct = float(slc.percentage() or 0.0) * 100.0
+            self._update_center_text(label, f"{pct:.1f}%")
+        else:
+            self._apply_hover_style(slc, False)
+            if self._hovered_slice is slc:
+                self._hovered_slice = None
+            title, value = self._base_center_text()
+            self._update_center_text(title, value)
+
+    def _on_slice_clicked(self, slc: QPieSlice) -> None:
+        self._last_slice_click_ts = time.monotonic()
+        meta = self._slice_meta.get(id(slc))
+        if not meta:
+            return
+        payload = meta.get("payload") or {}
+        nxt = str(payload.get("next") or "")
+        runes = list(payload.get("runes") or [])
+        context_label = str(payload.get("context") or "")
+        if nxt == self._LEVEL_SLOTS:
+            self._rebuild_slots_level(runes, context_label)
+            return
+        if nxt == self._LEVEL_MAIN:
+            self._rebuild_mainstat_level(runes, context_label, int(payload.get("slot") or 0))
+            return
 
 # ------------------------------------------------------------
 # Overview widget
@@ -815,36 +1351,7 @@ class OverviewWidget(QWidget):
         )
 
     def _build_rune_set_chart(self, runes: List[Rune]) -> QChartView:
-        set_counts: Counter = Counter()
-        for r in runes:
-            sid = int(r.set_id or 0)
-            name = SET_NAMES.get(sid, f"Set {sid}")
-            set_counts[name] += 1
-
-        top = set_counts.most_common(10)
-        other = sum(set_counts.values()) - sum(c for _, c in top)
-
-        series = QPieSeries()
-        palette = [
-            "#3498db", "#e74c3c", "#2ecc71", "#f39c12", "#9b59b6",
-            "#1abc9c", "#e67e22", "#34495e", "#d35400", "#c0392b",
-        ]
-        for i, (name, count) in enumerate(top):
-            slc = series.append(f"{name} ({count})", count)
-            slc.setColor(QColor(palette[i % len(palette)]))
-            slc.setLabelVisible(True)
-            slc.setLabelColor(QColor(_theme.C["chart_text"]))
-        if other > 0:
-            slc = series.append(tr("overview.other", count=other), other)
-            slc.setColor(QColor("#7f8c8d"))
-            slc.setLabelVisible(True)
-            slc.setLabelColor(QColor(_theme.C["chart_text"]))
-
-        chart = _make_chart(tr("overview.set_dist_chart"))
-        chart.addSeries(series)
-        chart.legend().setVisible(False)
-
-        return _make_chart_view(chart)
+        return _RuneSetDrilldownChartView(runes)
 
     def _build_art_eff_chart(self, items: List[Tuple[float, Artifact]]) -> QChartView:
         top_n = int(self._top_n_combo.currentData() or 400)

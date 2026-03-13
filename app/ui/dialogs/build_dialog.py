@@ -218,7 +218,8 @@ class BuildDialog(QDialog):
                 lw.setDefaultDropAction(Qt.MoveAction)
                 lw.setSelectionMode(QAbstractItemView.SingleSelection)
                 lw.setIconSize(QSize(dp(36), dp(36)))
-                lw.setMinimumHeight(dp(140))
+                rows_visible = max(1, int(len(team_units)))
+                lw.setMinimumHeight(max(dp(140), rows_visible * dp(46) + dp(14)))
                 lw.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
                 sortable: List[Tuple[int, int, int, str, int, int]] = []
                 for pos, (uid, label) in enumerate(team_units):
@@ -249,7 +250,7 @@ class BuildDialog(QDialog):
 
                     row_widget = QWidget()
                     row_layout = QHBoxLayout(row_widget)
-                    row_layout.setContentsMargins(dp(2), dp(2), dp(8), dp(2))
+                    row_layout.setContentsMargins(dp(2), dp(4), dp(4), dp(4))
                     row_layout.setSpacing(dp(4))
 
                     icon_lbl = QLabel()
@@ -270,21 +271,28 @@ class BuildDialog(QDialog):
                     row_layout.addWidget(spd_lbl)
 
                     tick_lbl = QLabel(tr("label.spd_tick_short"))
-                    tick_lbl.setFixedWidth(dp(28))
+                    tick_lbl.setFixedWidth(dp(22))
                     tick_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
                     tick_cmb = _NoScrollComboBox()
-                    tick_cmb.setFixedWidth(dp(84))
+                    tick_labels: List[str] = ["-"]
                     tick_cmb.addItem("-", 0)
                     for tick in allowed_spd_ticks(self.mode):
                         tick_i = int(tick)
                         if str(self.mode).strip().lower() != "rta" and tick_i == int(LEO_LOW_SPD_TICK):
                             low_max = int(max_spd_for_tick(tick_i, self.mode) or 0)
                             threshold = int(low_max + 1) if low_max > 0 else 130
-                            tick_cmb.addItem(f"11 (<{threshold})", tick_i)
+                            label_txt = f"11 (<{threshold})"
+                            tick_cmb.addItem(label_txt, tick_i)
+                            tick_labels.append(label_txt)
                             continue
                         spd_bp = min_spd_for_tick(tick_i, self.mode)
-                        tick_cmb.addItem(f"{tick_i} (>={spd_bp})", tick_i)
+                        label_txt = f"{tick_i} (>={spd_bp})"
+                        tick_cmb.addItem(label_txt, tick_i)
+                        tick_labels.append(label_txt)
+                    max_text_px = max((tick_cmb.fontMetrics().horizontalAdvance(t) for t in tick_labels), default=0)
+                    tick_width = max(dp(46), int(max_text_px + dp(30)))
+                    tick_cmb.setFixedWidth(tick_width)
                     idx = tick_cmb.findData(int(spd_tick))
                     tick_cmb.setCurrentIndex(idx if idx >= 0 else 0)
                     tick_cmb.setToolTip(tr("tooltip.spd_tick"))
@@ -347,11 +355,13 @@ class BuildDialog(QDialog):
                         self._team_effect_controls[(int(t), int(uid))] = (spd_buff_chk, atb_boost_chk, atb_boost_spin)
 
                     # Keep tick controls at the far right for consistent alignment.
-                    row_layout.addWidget(tick_lbl)
-                    row_layout.addWidget(tick_cmb)
+                    row_layout.addWidget(tick_lbl, 0, Qt.AlignVCenter)
+                    row_layout.addWidget(tick_cmb, 0, Qt.AlignVCenter)
 
+                    row_min_height = max(row_widget.sizeHint().height(), tick_cmb.sizeHint().height() + dp(8))
+                    row_widget.setMinimumHeight(row_min_height)
                     self._team_spd_tick_combo_by_unit.setdefault(int(uid), []).append(tick_cmb)
-                    it.setSizeHint(row_widget.sizeHint())
+                    it.setSizeHint(QSize(0, int(row_min_height)))
                     lw.setItemWidget(it, row_widget)
                 self._team_order_lists.append(lw)
                 lw.currentItemChanged.connect(

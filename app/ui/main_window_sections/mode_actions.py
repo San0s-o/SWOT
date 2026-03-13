@@ -15,6 +15,7 @@ from app.engine.greedy_optimizer import (
 )
 from app.i18n import tr
 from app.ui.dialogs.build_dialog import BuildDialog
+from app.ui.toast import show_toast
 
 
 @dataclass
@@ -357,9 +358,11 @@ def on_optimize_siege(window) -> None:
                 ),
             ),
         )
-        final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+        _ok = bool(getattr(res, "ok", False))
+        final_msg = _user_facing_result_message(window, _ok, str(getattr(res, "message", "")))
         window.lbl_siege_validate.setText(final_msg)
         window.statusBar().showMessage(final_msg, 7000)
+        show_toast(window, final_msg, "success" if _ok else "warning")
         unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
         siege_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
         window._show_optimize_results(
@@ -571,9 +574,11 @@ def on_optimize_wgb(window) -> None:
             ),
         ),
     )
-    final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+    _ok = bool(getattr(res, "ok", False))
+    final_msg = _user_facing_result_message(window, _ok, str(getattr(res, "message", "")))
     window.lbl_wgb_validate.setText(final_msg)
     window.statusBar().showMessage(final_msg, 7000)
+    show_toast(window, final_msg, "success" if _ok else "warning")
     unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(all_units)}
     wgb_teams = [sel.unit_ids for sel in selections if sel.unit_ids]
     window._show_optimize_results(
@@ -763,9 +768,11 @@ def on_optimize_rta(window) -> None:
             ),
         ),
     )
-    final_msg = _user_facing_result_message(window, bool(getattr(res, "ok", False)), str(getattr(res, "message", "")))
+    _ok = bool(getattr(res, "ok", False))
+    final_msg = _user_facing_result_message(window, _ok, str(getattr(res, "message", "")))
     window.lbl_rta_validate.setText(final_msg)
     window.statusBar().showMessage(final_msg, 7000)
+    show_toast(window, final_msg, "success" if _ok else "warning")
     unit_display_order: Dict[int, int] = {int(uid): idx for idx, uid in enumerate(ids)}
     window._show_optimize_results(
         tr("result.title_rta"),
