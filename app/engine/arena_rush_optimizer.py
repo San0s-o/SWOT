@@ -53,6 +53,7 @@ class ArenaRushRequest:
     offense_quality_profile: str = "balanced"
     defense_candidate_count: int = 1
     rune_top_per_set: int = 0
+    broken_set_excluded_set_ids: set[int] = field(default_factory=set)
     max_runtime_s: float = 300.0
     is_cancelled: object | None = None
     register_solver: object | None = None
@@ -682,6 +683,7 @@ def _optimize_arena_rush_single(
             multi_pass_strategy="greedy_refine",
             quality_profile=str(req.defense_quality_profile),
             rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+            broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
             global_seed_offset=int(defense_global_seed_offset or 0),
             progress_callback=req.progress_callback if callable(req.progress_callback) else None,
             is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
@@ -729,6 +731,7 @@ def _optimize_arena_rush_single(
                     multi_pass_strategy="greedy_refine",
                     quality_profile=str(req.defense_quality_profile),
                     rune_top_per_set=0,
+                    broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
                     global_seed_offset=int(defense_global_seed_offset or 0) + 17,
                     progress_callback=req.progress_callback if callable(req.progress_callback) else None,
                     is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
@@ -961,6 +964,7 @@ def _optimize_arena_rush_single(
             multi_pass_strategy="greedy_refine",
             quality_profile=str(req.offense_quality_profile),
             rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+            broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
             global_seed_offset=int(offense_global_seed_offset or 0),
             progress_callback=req.progress_callback if callable(req.progress_callback) else None,
             is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
@@ -1066,6 +1070,7 @@ def _optimize_arena_rush_single(
                 multi_pass_strategy="greedy_refine",
                 quality_profile=str(req.offense_quality_profile),
                 rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+                broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
                 global_seed_offset=int(offense_global_seed_offset or 0),
                 progress_callback=req.progress_callback if callable(req.progress_callback) else None,
                 is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
@@ -1142,6 +1147,7 @@ def _optimize_arena_rush_single(
                     multi_pass_strategy="greedy_refine",
                     quality_profile="fast",
                     rune_top_per_set=0,
+                    broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
                     global_seed_offset=int(offense_global_seed_offset or 0) + 7331,
                     progress_callback=req.progress_callback if callable(req.progress_callback) else None,
                     is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,
@@ -1272,6 +1278,7 @@ def _optimize_arena_rush_single(
                 multi_pass_strategy="greedy_refine",
                 quality_profile=str(req.offense_quality_profile),
                 rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
+                broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
                 global_seed_offset=(int(offense_global_seed_offset or 0) + (int(team_index) * 1009) + 1),
                 progress_callback=req.progress_callback if callable(req.progress_callback) else None,
                 is_cancelled=req.is_cancelled if callable(req.is_cancelled) else None,

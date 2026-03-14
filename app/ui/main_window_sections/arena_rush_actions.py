@@ -1132,6 +1132,7 @@ def on_optimize_arena_rush(window) -> None:
             offense_quality_profile=str(offense_solver_profile),
             defense_candidate_count=int(defense_candidate_count),
             rune_top_per_set=int(rune_top_per_set),
+            broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
             # Keep Arena Rush local-only and user-cancellable without truncating
             # offense output due to a hard global timeout.
             max_runtime_s=0.0,

@@ -474,6 +474,10 @@ class BuildDialog(QDialog):
         btn_load_preferred_all.setToolTip(tr("tooltip.load_preferred_runes_all"))
         btn_load_preferred_all.clicked.connect(self._on_load_preferred_runes_for_all)
         list_layout.addWidget(btn_load_preferred_all)
+        btn_load_preferred_artifacts_all = QPushButton(tr("btn.load_preferred_artifacts_all"))
+        btn_load_preferred_artifacts_all.setToolTip(tr("tooltip.load_preferred_artifacts_all"))
+        btn_load_preferred_artifacts_all.clicked.connect(self._on_load_preferred_artifacts_for_all)
+        list_layout.addWidget(btn_load_preferred_artifacts_all)
         btn_load_community_all = QPushButton(tr("btn.load_community_trends_all"))
         btn_load_community_all.setToolTip(tr("tooltip.load_community_trends_all"))
         btn_load_community_all.clicked.connect(self._on_load_community_trends_for_all)
@@ -914,6 +918,28 @@ class BuildDialog(QDialog):
         artifact_layout.addRow(tr("header.type_main"), art_type_focus)
         artifact_layout.addRow(tr("header.type_sub1"), art_type_sub1)
         artifact_layout.addRow(tr("header.type_sub2"), art_type_sub2)
+        art_pref_btn_row = QWidget()
+        art_pref_btn_layout = QHBoxLayout(art_pref_btn_row)
+        art_pref_btn_layout.setContentsMargins(0, 0, 0, 0)
+        art_pref_btn_layout.setSpacing(dp(6))
+        btn_load_pref_artifacts = QPushButton(tr("btn.load_preferred_artifacts"))
+        btn_load_pref_artifacts.setToolTip(
+            tr("tooltip.load_preferred_artifacts")
+            if self._has_artifact_pref_for_unit(int(unit_id))
+            else tr("tooltip.load_preferred_artifacts_missing")
+        )
+        btn_load_pref_artifacts.clicked.connect(
+            lambda _checked=False, _uid=int(unit_id): self._on_load_preferred_artifacts_for_unit(_uid)
+        )
+        btn_save_pref_artifacts = QPushButton(tr("btn.save_preferred_artifacts"))
+        btn_save_pref_artifacts.setToolTip(tr("tooltip.save_preferred_artifacts"))
+        btn_save_pref_artifacts.clicked.connect(
+            lambda _checked=False, _uid=int(unit_id): self._on_save_preferred_artifacts_for_unit(_uid)
+        )
+        art_pref_btn_layout.addWidget(btn_load_pref_artifacts)
+        art_pref_btn_layout.addWidget(btn_save_pref_artifacts)
+        art_pref_btn_layout.addStretch(1)
+        artifact_layout.addRow("", art_pref_btn_row)
 
         top_grid = QGridLayout()
         top_grid.setContentsMargins(0, 0, 0, 0)
@@ -1127,6 +1153,47 @@ class BuildDialog(QDialog):
     def _has_rune_pref_for_unit(self, unit_id: int) -> bool:
         return isinstance(self._rune_pref_entry_for_unit(int(unit_id)), dict)
 
+    def _artifact_pref_from_entry(self, entry: Dict[str, Any]) -> Tuple[Dict[str, List[str]], Dict[str, List[int]]]:
+        artifact_focus: Dict[str, List[str]] = {}
+        focus_raw = dict(entry.get("artifact_focus") or {})
+        for key in ("attribute", "type"):
+            selected = ""
+            for item in list(focus_raw.get(key, []) or []):
+                cand = str(item or "").strip().upper()
+                if cand in ("HP", "ATK", "DEF"):
+                    selected = cand
+                    break
+            if selected:
+                artifact_focus[str(key)] = [selected]
+
+        artifact_substats: Dict[str, List[int]] = {}
+        subs_raw = dict(entry.get("artifact_substats") or {})
+        for key in ("attribute", "type"):
+            vals: List[int] = []
+            seen: Set[int] = set()
+            for item in list(subs_raw.get(key, []) or []):
+                try:
+                    eid = int(item or 0)
+                except Exception:
+                    eid = 0
+                if eid <= 0 or eid in seen:
+                    continue
+                seen.add(eid)
+                vals.append(int(eid))
+                if len(vals) >= 2:
+                    break
+            if vals:
+                artifact_substats[str(key)] = list(vals)
+
+        return artifact_focus, artifact_substats
+
+    def _has_artifact_pref_for_unit(self, unit_id: int) -> bool:
+        entry = self._rune_pref_entry_for_unit(int(unit_id))
+        if not isinstance(entry, dict):
+            return False
+        artifact_focus, artifact_substats = self._artifact_pref_from_entry(entry)
+        return bool(artifact_focus or artifact_substats)
+
     def _normalize_mainstat_pref_key(self, value: Any) -> str:
         raw = str(value or "").strip().upper().replace(" ", "")
         if not raw:
@@ -1284,6 +1351,96 @@ class BuildDialog(QDialog):
             6: [str(x) for x in out[6] if str(x) in MAINSTAT_KEYS],
         }
 
+    def _apply_artifact_preferences_to_unit_controls(
+        self,
+        unit_id: int,
+        artifact_focus: Dict[str, List[str]] | None = None,
+        artifact_substats: Dict[str, List[int]] | None = None,
+    ) -> bool:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return False
+
+        self._ensure_editor_page(int(uid))
+        focus_cfg = dict(artifact_focus or {})
+        subs_cfg = dict(artifact_substats or {})
+
+        art_attr_focus = self._art_attr_focus_combo.get(int(uid))
+        art_type_focus = self._art_type_focus_combo.get(int(uid))
+        if art_attr_focus is not None:
+            idx_any = art_attr_focus.findData("")
+            if idx_any >= 0:
+                art_attr_focus.setCurrentIndex(int(idx_any))
+        if art_type_focus is not None:
+            idx_any = art_type_focus.findData("")
+            if idx_any >= 0:
+                art_type_focus.setCurrentIndex(int(idx_any))
+        for key, cmb in (("attribute", art_attr_focus), ("type", art_type_focus)):
+            if cmb is None:
+                continue
+            selected = ""
+            for item in list(focus_cfg.get(str(key), []) or []):
+                cand = str(item or "").strip().upper()
+                if cand in ("HP", "ATK", "DEF"):
+                    selected = cand
+                    break
+            if selected:
+                self._set_art_focus_combo_value(cmb, selected)
+
+        art_attr_sub1 = self._art_attr_sub1_combo.get(int(uid))
+        art_attr_sub2 = self._art_attr_sub2_combo.get(int(uid))
+        art_type_sub1 = self._art_type_sub1_combo.get(int(uid))
+        art_type_sub2 = self._art_type_sub2_combo.get(int(uid))
+        for cmb in (art_attr_sub1, art_attr_sub2, art_type_sub1, art_type_sub2):
+            if cmb is None:
+                continue
+            idx_any = cmb.findData(0)
+            if idx_any >= 0:
+                cmb.setCurrentIndex(int(idx_any))
+
+        attr_subs: List[int] = []
+        seen_attr: Set[int] = set()
+        for item in list(subs_cfg.get("attribute", []) or []):
+            try:
+                eid = int(item or 0)
+            except Exception:
+                eid = 0
+            if eid <= 0 or eid in seen_attr:
+                continue
+            seen_attr.add(eid)
+            attr_subs.append(int(eid))
+            if len(attr_subs) >= 2:
+                break
+
+        type_subs: List[int] = []
+        seen_type: Set[int] = set()
+        for item in list(subs_cfg.get("type", []) or []):
+            try:
+                eid = int(item or 0)
+            except Exception:
+                eid = 0
+            if eid <= 0 or eid in seen_type:
+                continue
+            seen_type.add(eid)
+            type_subs.append(int(eid))
+            if len(type_subs) >= 2:
+                break
+
+        if art_attr_sub1 is not None and len(attr_subs) >= 1:
+            self._set_art_sub_combo_value(art_attr_sub1, int(attr_subs[0]))
+        if art_attr_sub2 is not None and len(attr_subs) >= 2:
+            self._set_art_sub_combo_value(art_attr_sub2, int(attr_subs[1]))
+        if art_type_sub1 is not None and len(type_subs) >= 1:
+            self._set_art_sub_combo_value(art_type_sub1, int(type_subs[0]))
+        if art_type_sub2 is not None and len(type_subs) >= 2:
+            self._set_art_sub_combo_value(art_type_sub2, int(type_subs[1]))
+
+        has_focus = bool(
+            list(focus_cfg.get("attribute", []) or [])
+            or list(focus_cfg.get("type", []) or [])
+        )
+        return bool(has_focus or attr_subs or type_subs)
+
     def _normalized_set_options_for_unit(self, unit_id: int) -> List[List[int]]:
         self._sync_set_combo_constraints_for_unit(int(unit_id))
         c1 = self._set1_combo.get(int(unit_id))
@@ -1353,6 +1510,28 @@ class BuildDialog(QDialog):
             if len(out) >= int(max(1, int(limit or 1))):
                 break
         return out
+
+    def _current_artifact_preferences_for_unit(self, unit_id: int) -> Tuple[Dict[str, List[str]], Dict[str, List[int]]]:
+        uid = int(unit_id or 0)
+        artifact_focus: Dict[str, List[str]] = {}
+        art_attr_focus = self._art_attr_focus_combo.get(int(uid))
+        art_type_focus = self._art_type_focus_combo.get(int(uid))
+        attr_focus_value = str(art_attr_focus.currentData() or "").upper() if art_attr_focus is not None else ""
+        type_focus_value = str(art_type_focus.currentData() or "").upper() if art_type_focus is not None else ""
+        if attr_focus_value in ("HP", "ATK", "DEF"):
+            artifact_focus["attribute"] = [attr_focus_value]
+        if type_focus_value in ("HP", "ATK", "DEF"):
+            artifact_focus["type"] = [type_focus_value]
+
+        artifact_substats: Dict[str, List[int]] = {}
+        attr_subs = self._artifact_substat_ids_for_unit(int(uid), "attribute")
+        type_subs = self._artifact_substat_ids_for_unit(int(uid), "type")
+        if attr_subs:
+            artifact_substats["attribute"] = [int(x) for x in attr_subs[:2]]
+        if type_subs:
+            artifact_substats["type"] = [int(x) for x in type_subs[:2]]
+
+        return artifact_focus, artifact_substats
 
     def _element_name_for_master_id(self, master_id: int) -> str:
         elem_map = {1: "Water", 2: "Fire", 3: "Wind", 4: "Light", 5: "Dark"}
@@ -1431,6 +1610,28 @@ class BuildDialog(QDialog):
         for unit_id in list(self._set1_combo.keys()):
             self._on_load_preferred_runes_for_unit(int(unit_id))
 
+    def _on_load_preferred_artifacts_for_all(self) -> None:
+        """Load preferred artifact focus/substats for all units that have preferences."""
+        self._ensure_all_editor_pages()
+        for unit_id in list(self._set1_combo.keys()):
+            self._on_load_preferred_artifacts_for_unit(int(unit_id))
+
+    def _on_load_preferred_artifacts_for_unit(self, unit_id: int) -> None:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return
+        entry = self._rune_pref_entry_for_unit(int(uid))
+        if not isinstance(entry, dict):
+            return
+        artifact_focus, artifact_substats = self._artifact_pref_from_entry(entry)
+        if not (artifact_focus or artifact_substats):
+            return
+        self._apply_artifact_preferences_to_unit_controls(
+            int(uid),
+            artifact_focus=artifact_focus,
+            artifact_substats=artifact_substats,
+        )
+
     def _on_save_preferred_runes_for_unit(self, unit_id: int) -> None:
         uid = int(unit_id or 0)
         if uid <= 0:
@@ -1456,6 +1657,7 @@ class BuildDialog(QDialog):
 
         main_by_slot = self._current_mainstats_by_slot_for_unit(uid)
         main_combos = self._current_mainstat_combos_246_for_unit(uid, limit=12)
+        artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(uid)
         existing = self._rune_pref_entry_for_unit(uid) or {}
         merged_pref_ids: List[int] = []
         for sid in top_set_ids + [int(x) for x in (existing.get("preferred_set_ids") or []) if int(x) > 0]:
@@ -1481,7 +1683,46 @@ class BuildDialog(QDialog):
                 "6": list(main_by_slot.get(6) or []),
             },
             "top_mainstat_combos_246": list(main_combos),
+            "artifact_focus": dict(artifact_focus),
+            "artifact_substats": dict(artifact_substats),
         }
+        if "base_stars" in existing:
+            payload["base_stars"] = int(existing.get("base_stars", 0) or 0)
+        elif self._account:
+            unit_obj = self._account.units_by_id.get(uid)
+            if unit_obj is not None:
+                payload["base_stars"] = int(getattr(unit_obj, "unit_class", 0) or 0)
+        self._save_rune_pref_entry(master_id=master_id, payload=payload)
+
+    def _on_save_preferred_artifacts_for_unit(self, unit_id: int) -> None:
+        uid = int(unit_id or 0)
+        if uid <= 0:
+            return
+        master_id = self._unit_master_id_for_unit(uid)
+        if master_id <= 0:
+            return
+        existing = self._rune_pref_entry_for_unit(uid) or {}
+        artifact_focus, artifact_substats = self._current_artifact_preferences_for_unit(uid)
+        payload: Dict[str, Any] = {
+            "artifact_focus": dict(artifact_focus),
+            "artifact_substats": dict(artifact_substats),
+        }
+        if "name" in existing:
+            payload["name"] = str(existing.get("name") or "")
+        else:
+            payload["name"] = str(self._unit_label_by_id.get(uid, f"Unit {uid}") or f"Unit {uid}")
+        if "element" in existing:
+            payload["element"] = str(existing.get("element") or "")
+        else:
+            payload["element"] = str(self._element_name_for_master_id(master_id))
+        if "archetype" in existing:
+            payload["archetype"] = str(existing.get("archetype") or "Unknown")
+        else:
+            payload["archetype"] = "Unknown"
+        if "awaken_level" in existing:
+            payload["awaken_level"] = int(existing.get("awaken_level", 1) or 1)
+        else:
+            payload["awaken_level"] = 1
         if "base_stars" in existing:
             payload["base_stars"] = int(existing.get("base_stars", 0) or 0)
         elif self._account:
@@ -1617,58 +1858,25 @@ class BuildDialog(QDialog):
         if cmb6 is not None and by_slot.get(6):
             cmb6.set_checked_values([str(x) for x in list(by_slot.get(6) or [])])
 
-        art_attr_focus = self._art_attr_focus_combo.get(int(uid))
-        art_type_focus = self._art_type_focus_combo.get(int(uid))
-        if art_attr_focus is not None:
-            idx_any = art_attr_focus.findData("")
-            if idx_any >= 0:
-                art_attr_focus.setCurrentIndex(int(idx_any))
-        if art_type_focus is not None:
-            idx_any = art_type_focus.findData("")
-            if idx_any >= 0:
-                art_type_focus.setCurrentIndex(int(idx_any))
-        for key, cmb in (("attribute", art_attr_focus), ("type", art_type_focus)):
-            if cmb is None:
-                continue
-            selected = ""
-            for item in list((trend.artifact_focus or {}).get(str(key), []) or []):
-                cand = str(item or "").strip().upper()
-                if cand in ("HP", "ATK", "DEF"):
-                    selected = cand
-                    break
-            if selected:
-                self._set_art_focus_combo_value(cmb, selected)
-
-        art_attr_sub1 = self._art_attr_sub1_combo.get(int(uid))
-        art_attr_sub2 = self._art_attr_sub2_combo.get(int(uid))
-        art_type_sub1 = self._art_type_sub1_combo.get(int(uid))
-        art_type_sub2 = self._art_type_sub2_combo.get(int(uid))
-        for cmb in (art_attr_sub1, art_attr_sub2, art_type_sub1, art_type_sub2):
-            if cmb is None:
-                continue
-            idx_any = cmb.findData(0)
-            if idx_any >= 0:
-                cmb.setCurrentIndex(int(idx_any))
-
         art_sub_limit = max(1, int(build_trends_artifact_substat_limit()))
-        attr_subs = [
-            int(x)
-            for x in list((trend.artifact_substats or {}).get("attribute", []) or [])
-            if int(x) > 0
-        ][:art_sub_limit]
-        type_subs = [
-            int(x)
-            for x in list((trend.artifact_substats or {}).get("type", []) or [])
-            if int(x) > 0
-        ][:art_sub_limit]
-        if art_attr_sub1 is not None and len(attr_subs) >= 1:
-            self._set_art_sub_combo_value(art_attr_sub1, int(attr_subs[0]))
-        if art_attr_sub2 is not None and len(attr_subs) >= 2:
-            self._set_art_sub_combo_value(art_attr_sub2, int(attr_subs[1]))
-        if art_type_sub1 is not None and len(type_subs) >= 1:
-            self._set_art_sub_combo_value(art_type_sub1, int(type_subs[0]))
-        if art_type_sub2 is not None and len(type_subs) >= 2:
-            self._set_art_sub_combo_value(art_type_sub2, int(type_subs[1]))
+        trend_art_focus = dict(trend.artifact_focus or {})
+        trend_art_subs = {
+            "attribute": [
+                int(x)
+                for x in list((trend.artifact_substats or {}).get("attribute", []) or [])
+                if int(x) > 0
+            ][:art_sub_limit],
+            "type": [
+                int(x)
+                for x in list((trend.artifact_substats or {}).get("type", []) or [])
+                if int(x) > 0
+            ][:art_sub_limit],
+        }
+        artifact_signal = self._apply_artifact_preferences_to_unit_controls(
+            int(uid),
+            artifact_focus=trend_art_focus,
+            artifact_substats=trend_art_subs,
+        )
 
         has_signal = bool(
             slot1_ids
@@ -1677,9 +1885,7 @@ class BuildDialog(QDialog):
             or by_slot.get(2)
             or by_slot.get(4)
             or by_slot.get(6)
-            or attr_subs
-            or type_subs
-            or (trend.artifact_focus or {})
+            or artifact_signal
         )
         return has_signal
 

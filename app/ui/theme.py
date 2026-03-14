@@ -247,9 +247,11 @@ def apply_dark_palette(app: QApplication) -> None:
         QPushButton:hover {{ background-color: {c['bg_mid']}; border-color: {c['border_hover']}; color: {c['text']}; }}
         QPushButton:pressed {{ background-color: {c['bg']}; border-color: {c['accent']}; }}
         QPushButton:focus {{
-            border-color: {c['accent']};
-            outline: 2px solid {c['accent']};
-            outline-offset: 1px;
+            border-color: {c['border']};
+            outline: none;
+        }}
+        QPushButton:default, QPushButton:auto-default {{
+            outline: none;
         }}
         QPushButton:disabled {{ color: {c['text_disabled']}; border-color: {c['border']}; }}
         QPushButton[danger="true"] {{

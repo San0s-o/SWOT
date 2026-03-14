@@ -6,7 +6,7 @@ from collections import Counter
 from typing import Callable, List, Optional, Tuple, Any
 
 from PySide6.QtCore import Qt, QMargins, QPointF, QPropertyAnimation, QEasingCurve, QVariantAnimation, QEvent
-from PySide6.QtGui import QColor, QFont, QPainter, QFontMetrics, QCursor
+from PySide6.QtGui import QColor, QFont, QPainter, QFontMetrics, QCursor, QPen
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea, QApplication,
     QGridLayout, QComboBox, QGraphicsDropShadowEffect,
@@ -320,7 +320,8 @@ def _make_chart(title: str) -> QChart:
     legend_font.setPointSize(8)
     legend.setFont(legend_font)
     legend.setAlignment(Qt.AlignBottom)
-    chart.setMargins(QMargins(10, 8, 10, 8))
+    chart.setMargins(QMargins(dp(10), dp(8), dp(10), dp(8)))
+    chart.setBackgroundRoundness(0)
     return chart
 
 
@@ -524,7 +525,7 @@ class _IndexedLineChartView(QChartView):
         self._popup_layout.addWidget(self._popup_label)
         self.setRenderHint(QPainter.Antialiasing)
         self.setMinimumHeight(dp(320))
-        self.setStyleSheet(f"background: {_theme.C['card_bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: 4px;")
+        self.setStyleSheet(f"background: {_theme.C['card_bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: 8px;")
         self.setMouseTracking(True)
 
     def mouseMoveEvent(self, event) -> None:
@@ -1030,6 +1031,35 @@ class _RuneSetDrilldownChartView(QChartView):
             return
 
 # ------------------------------------------------------------
+# Pool pie chart with hover explode
+# ------------------------------------------------------------
+class _PoolPieChartView(QChartView):
+    def __init__(self, chart: QChart, parent=None):
+        super().__init__(chart, parent)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setMinimumHeight(dp(320))
+        self.setStyleSheet(
+            f"background: {_theme.C['bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: 8px;"
+        )
+        self._hovered: Optional[QPieSlice] = None
+        for series in chart.series():
+            if isinstance(series, QPieSeries):
+                series.hovered.connect(self._on_hovered)
+
+    def _on_hovered(self, slc: QPieSlice, state: bool) -> None:
+        if self._hovered is not None and self._hovered is not slc:
+            self._hovered.setExploded(False)
+            self._hovered = None
+        if state:
+            slc.setExploded(True)
+            slc.setExplodeDistanceFactor(0.06)
+            self._hovered = slc
+        else:
+            slc.setExploded(False)
+            self._hovered = None
+
+
+# ------------------------------------------------------------
 # Overview widget
 # ------------------------------------------------------------
 class OverviewWidget(QWidget):
@@ -1135,8 +1165,6 @@ class OverviewWidget(QWidget):
         self._rune_eff_view: QChartView | None = None
         self._rune_set_view: QChartView | None = None
         self._art_eff_view: QChartView | None = None
-        self._rune_pool_view: QChartView | None = None
-        self._artifact_pool_view: QChartView | None = None
 
     # -- public API ------------------------------------
     def set_data(self, account: AccountData) -> None:
@@ -1234,8 +1262,6 @@ class OverviewWidget(QWidget):
     def _build_charts(self, acc: AccountData) -> None:
         self._clear_grid()
 
-        all_runes = list(acc.runes or [])
-        all_arts = list(acc.artifacts or [])
         filtered_runes = [r for r in acc.runes if int(r.upgrade_curr or 0) >= 12]
         rune_items = (
             [(rune_efficiency(r), r) for r in filtered_runes]
@@ -1249,16 +1275,12 @@ class OverviewWidget(QWidget):
         self._rune_eff_view = self._build_rune_eff_chart(rune_items)
         self._rune_set_view = self._build_rune_set_chart(filtered_runes)
         self._art_eff_view = self._build_art_eff_chart(art_items)
-        self._rune_pool_view = self._build_rune_pool_chart(all_runes)
-        self._artifact_pool_view = self._build_artifact_pool_chart(all_arts)
 
         self._rune_set_view.setMinimumHeight(dp(300))
         self._rune_set_host_layout.addWidget(self._rune_set_view, 1)
 
         self._grid.addWidget(self._rune_eff_view, 0, 0, 1, 2)
         self._grid.addWidget(self._art_eff_view, 1, 0, 1, 2)
-        self._grid.addWidget(self._rune_pool_view, 2, 0, 1, 1)
-        self._grid.addWidget(self._artifact_pool_view, 2, 1, 1, 1)
 
     def _on_top_n_changed(self, _value: int) -> None:
         if self._account is not None:
@@ -1328,19 +1350,19 @@ class OverviewWidget(QWidget):
 
         series_current = QLineSeries()
         series_current.setName(tr("overview.series_current"))
-        series_current.setColor(QColor("#f39c12"))
+        series_current.setPen(QPen(QColor("#f39c12"), 2))
         for idx, (eff, _) in enumerate(current_items, start=1):
             series_current.append(float(idx), float(eff))
 
         series_hero = QLineSeries()
         series_hero.setName(tr("overview.series_hero_max"))
-        series_hero.setColor(QColor("#4aa3ff"))
+        series_hero.setPen(QPen(QColor("#4aa3ff"), 2))
         for idx, (eff, _) in enumerate(hero_items, start=1):
             series_hero.append(float(idx), float(eff))
 
         series_legend = QLineSeries()
         series_legend.setName(tr("overview.series_legend_max"))
-        series_legend.setColor(QColor("#2ecc71"))
+        series_legend.setPen(QPen(QColor("#2ecc71"), 2))
         for idx, (eff, _) in enumerate(legend_items, start=1):
             series_legend.append(float(idx), float(eff))
 
@@ -1373,6 +1395,7 @@ class OverviewWidget(QWidget):
         else:
             ax_y.setRange(0, 100)
         ax_y.setLabelFormat("%.1f")
+        ax_y.setTickCount(6)
         ax_y.setTitleText(tr("overview.axis_eff"))
         _style_bar_axis(ax_y)
         chart.addAxis(ax_y, Qt.AlignLeft)
@@ -1416,7 +1439,7 @@ class OverviewWidget(QWidget):
                 continue
             s = QLineSeries()
             s.setName(names[t])
-            s.setColor(QColor(colors[t]))
+            s.setPen(QPen(QColor(colors[t]), 2))
             wrapped: List[Tuple[float, Any]] = []
             for idx, (eff, art) in enumerate(ranked, start=1):
                 wrapped.append((eff, art))
@@ -1444,6 +1467,7 @@ class OverviewWidget(QWidget):
         else:
             ax_y.setRange(0, 100)
         ax_y.setLabelFormat("%.1f")
+        ax_y.setTickCount(6)
         ax_y.setTitleText(tr("overview.axis_eff"))
         _style_bar_axis(ax_y)
         chart.addAxis(ax_y, Qt.AlignLeft)
@@ -1452,7 +1476,7 @@ class OverviewWidget(QWidget):
 
         return _IndexedLineChartView(chart, entries, zoom_callback=self._change_top_n)
 
-    def _build_pool_pie_chart(self, title: str, rows: List[Tuple[str, int, str]]) -> QChartView:
+    def _build_pool_pie_chart(self, title: str, rows: List[Tuple[str, int, str]]) -> "_PoolPieChartView":
         chart = _make_chart(title)
         chart.legend().setVisible(True)
         series = QPieSeries()
@@ -1472,7 +1496,7 @@ class OverviewWidget(QWidget):
             # Keep labels readable and compact.
             slc.setLabelVisible(total <= 1200.0)
         chart.addSeries(series)
-        return _make_chart_view(chart)
+        return _PoolPieChartView(chart)
 
     def _build_rune_pool_chart(self, runes: List[Rune]) -> QChartView:
         by_tier = Counter(_rune_quality_tier_key(r) for r in (runes or []))

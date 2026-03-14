@@ -4,8 +4,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt, QRect
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -22,11 +22,65 @@ from app.ui import theme as _theme
 from app.ui.dpi import dp
 
 
+class _MonsterIcon(QWidget):
+    """Icon widget that optionally renders a count badge for duplicates."""
+
+    def __init__(self, pixmap: Optional[QPixmap], owned_count: int, icon_px: int, pad_px: int, tooltip: str):
+        super().__init__()
+        self._pixmap = pixmap
+        self._count = owned_count
+        self._icon_px = icon_px
+        self._pad_px = pad_px
+        size = icon_px + pad_px * 2
+        self.setFixedSize(size, size)
+        self.setToolTip(tooltip)
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        # Background
+        p.fillRect(self.rect(), QColor("#1e1e2e"))
+        p.setPen(QColor("#3a3a5a"))
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), self._pad_px, self._pad_px)
+
+        # Icon
+        if self._pixmap and not self._pixmap.isNull():
+            scaled = self._pixmap.scaled(
+                self._icon_px, self._icon_px,
+                Qt.KeepAspectRatio, Qt.SmoothTransformation,
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            p.drawPixmap(x, y, scaled)
+
+        # Badge for duplicates
+        if self._count > 1:
+            badge_r = max(8, self._icon_px // 4)
+            bx = self.width() - badge_r - 1
+            by = self.height() - badge_r - 1
+            p.setBrush(QColor("#e07b00"))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(bx - badge_r, by - badge_r, badge_r * 2, badge_r * 2)
+            p.setPen(QColor("#ffffff"))
+            font = QFont()
+            font.setPixelSize(max(7, badge_r - 2))
+            font.setBold(True)
+            p.setFont(font)
+            p.drawText(
+                QRect(bx - badge_r, by - badge_r, badge_r * 2, badge_r * 2),
+                Qt.AlignCenter,
+                str(self._count),
+            )
+
+        p.end()
+
+
 class MonsterCollectionWidget(QWidget):
     """Small-icon collection overview for owned and missing awakened monsters."""
 
-    _ICON_SIZE = 30
-    _ICON_PAD = 4
+    _ICON_SIZE = 44
+    _ICON_PAD = 3
     _MAX_COLS = 18
 
     def __init__(self, parent: QWidget | None = None):
@@ -93,24 +147,14 @@ class MonsterCollectionWidget(QWidget):
             if int(getattr(u, "unit_master_id", 0) or 0) > 0
         )
         owned_awakened_6 = self._owned_6star_awakened_monsters()
-        missing_awakened = self._missing_awakened_monsters(set(owned_by_master.keys()))
 
         self._summary_label.setText(
-            tr(
-                "collection.summary",
-                owned=len(owned_awakened_6),
-                missing=len(missing_awakened),
-            )
+            tr("collection.summary_owned", owned=len(owned_awakened_6))
         )
 
         self._add_icon_section(
             title=tr("collection.section_owned"),
             monsters=owned_awakened_6,
-            owned_counts=owned_by_master,
-        )
-        self._add_icon_section(
-            title=tr("collection.section_missing"),
-            monsters=missing_awakened,
             owned_counts=owned_by_master,
         )
         self._content.addStretch(1)
@@ -136,35 +180,17 @@ class MonsterCollectionWidget(QWidget):
             by_master[mid] = info
         return self._sorted_collection_infos(by_master.values())
 
-    def _missing_awakened_monsters(self, owned_master_ids: set[int]) -> List[MonsterInfo]:
-        if not self._monster_db:
-            return []
-        candidates: List[MonsterInfo] = []
-        for info in self._monster_db.all_monsters():
-            nat = int(info.natural_stars or 0)
-            if nat < 2 or nat > 5:
-                continue
-            if int(info.awaken_level or 0) != 1:
-                continue
-            if not bool(info.can_awaken):
-                continue
-            if not bool(info.obtainable):
-                continue
-            if bool(info.homunculus):
-                continue
-            if int(info.com2us_id) in owned_master_ids:
-                continue
-            candidates.append(info)
-        return self._sorted_collection_infos(candidates)
+    _ELEMENT_ORDER = {"fire": 0, "water": 1, "wind": 2, "light": 3, "dark": 4}
 
     @staticmethod
     def _sorted_collection_infos(items: Iterable[MonsterInfo]) -> List[MonsterInfo]:
+        _elem = MonsterCollectionWidget._ELEMENT_ORDER
         return sorted(
             list(items),
             key=lambda x: (
                 -int(x.natural_stars or 0),
+                _elem.get(str(x.element or "").lower(), 99),
                 str(x.name or "").lower(),
-                str(x.element or "").lower(),
                 int(x.com2us_id or 0),
             ),
         )
@@ -220,29 +246,21 @@ class MonsterCollectionWidget(QWidget):
 
         self._content.addWidget(section)
 
-    def _icon_label_for(self, info: MonsterInfo, owned_count: int) -> QLabel:
-        lbl = QLabel()
+    def _icon_label_for(self, info: MonsterInfo, owned_count: int) -> QWidget:
         icon_px = dp(self._ICON_SIZE)
         pad_px = dp(self._ICON_PAD)
-        lbl.setFixedSize(icon_px + pad_px * 2, icon_px + pad_px * 2)
-        lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet(
-            f"background: {_theme.C['bg_mid']}; border: 1px solid {_theme.C['card_border']}; border-radius: {dp(4)}px;"
-        )
 
-        pix = self._monster_pixmap(info)
-        if pix is not None and not pix.isNull():
-            lbl.setPixmap(pix.scaled(icon_px, icon_px, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-
-        parts = [
-            str(info.name or f"#{int(info.com2us_id or 0)}"),
-            str(info.element or "Unknown"),
-            tr("collection.tooltip_nat", stars=int(info.natural_stars or 0)),
-        ]
+        tooltip = str(info.name or f"#{int(info.com2us_id or 0)}")
         if owned_count > 1:
-            parts.append(tr("collection.tooltip_copies", count=int(owned_count)))
-        lbl.setToolTip(" | ".join(parts))
-        return lbl
+            tooltip += f" ({owned_count}×)"
+
+        return _MonsterIcon(
+            pixmap=self._monster_pixmap(info),
+            owned_count=owned_count,
+            icon_px=icon_px,
+            pad_px=pad_px,
+            tooltip=tooltip,
+        )
 
     def _monster_pixmap(self, info: MonsterInfo) -> Optional[QPixmap]:
         if not self._assets_dir:

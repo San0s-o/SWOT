@@ -355,6 +355,7 @@ def on_optimize_siege(window) -> None:
                     ),
                     excluded_rune_ids=(excluded_rune_ids if excluded_rune_ids else None),
                     excluded_artifact_ids=(excluded_artifact_ids if excluded_artifact_ids else None),
+                    broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
                 ),
             ),
         )
@@ -571,6 +572,7 @@ def on_optimize_wgb(window) -> None:
                     if (baseline_runes_by_unit or baseline_arts_by_unit)
                     else 0
                 ),
+                broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
             ),
         ),
     )
@@ -765,6 +767,7 @@ def on_optimize_rta(window) -> None:
                     if (baseline_runes_by_unit or baseline_arts_by_unit)
                     else 0
                 ),
+                broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
             ),
         ),
     )

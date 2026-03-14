@@ -21,6 +21,7 @@ import random
 import hashlib
 import statistics
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -109,9 +110,9 @@ _CLOUD_ALPHA_MIN = 0.05
 _CLOUD_ALPHA_MAX = 0.60
 _ADAPTIVE_HISTORY_WINDOW = 24
 _ADAPTIVE_MIN_BATCH_GPU = 80_000
-_ADAPTIVE_MAX_BATCH_GPU = 900_000
+_ADAPTIVE_MAX_BATCH_GPU = 1_200_000
 _ADAPTIVE_MIN_BATCH_CPU = 60_000
-_ADAPTIVE_MAX_BATCH_CPU = 500_000
+_ADAPTIVE_MAX_BATCH_CPU = 650_000
 _ADAPTIVE_DEFAULT_SOLVER_TOP = 80
 _ADAPTIVE_MIN_SOLVER_TOP = 50
 _ADAPTIVE_MAX_SOLVER_TOP = 150
@@ -121,7 +122,7 @@ _GPU_BATCH_SIZE = 500_000
 _CPU_BATCH_SIZE = 300_000
 
 # How many top-K elite combinations to maintain per unit
-_ELITE_SIZE = 300
+_ELITE_SIZE = 240
 
 # Mainstat key â†’ effect_id reverse mapping
 _MAINSTAT_KEY_TO_ID: Dict[str, int] = {v: k for k, v in EFFECT_ID_TO_MAINSTAT_KEY.items()}
@@ -543,22 +544,31 @@ def _score_combinations_full(
     Returns (scores, valid_mask) both of shape (batch,).
     """
     batch = combo_indices.shape[0]
-    # Sum stat vectors across 6 rune slots
-    total_stats = np.zeros((batch, _N_STATS), dtype=np.float32)
-    total_quality = np.zeros(batch, dtype=np.float32)
-    total_efficiency = np.zeros(batch, dtype=np.float32)
-    set_ids_per_slot = np.zeros((batch, 6), dtype=np.int32)
+    combo_indices_i32 = combo_indices.astype(np.int32, copy=False)
+    unique_combos, combo_inverse = np.unique(combo_indices_i32, axis=0, return_inverse=True)
+    unique_batch = int(unique_combos.shape[0])
+
+    # Sub-combo cache: compute rune subtotal signals once per unique rune combination.
+    total_stats_u = np.zeros((unique_batch, _N_STATS), dtype=np.float32)
+    total_quality_u = np.zeros(unique_batch, dtype=np.float32)
+    total_efficiency_u = np.zeros(unique_batch, dtype=np.float32)
+    set_ids_u = np.zeros((unique_batch, 6), dtype=np.int32)
 
     slots = sorted(slot_matrices.keys())
     for col_idx, slot in enumerate(slots):
         mat = slot_matrices[slot]
-        idx = combo_indices[:, col_idx]
+        idx = unique_combos[:, col_idx]
         idx = np.clip(idx, 0, len(mat) - 1)
-        selected = mat[idx]  # (batch, _VEC_LEN)
-        total_stats += selected[:, :_N_STATS]
-        total_quality += selected[:, _COL_QUALITY]
-        total_efficiency += selected[:, _COL_EFFICIENCY]
-        set_ids_per_slot[:, col_idx] = selected[:, _COL_SET_ID].astype(np.int32)
+        selected = mat[idx]  # (unique_batch, _VEC_LEN)
+        total_stats_u += selected[:, :_N_STATS]
+        total_quality_u += selected[:, _COL_QUALITY]
+        total_efficiency_u += selected[:, _COL_EFFICIENCY]
+        set_ids_u[:, col_idx] = selected[:, _COL_SET_ID].astype(np.int32)
+
+    total_stats = total_stats_u[combo_inverse]
+    total_quality = total_quality_u[combo_inverse]
+    total_efficiency = total_efficiency_u[combo_inverse]
+    set_ids_per_slot = set_ids_u[combo_inverse]
 
     # Add artifact quality/efficiency
     if art1_matrix is not None and art1_indices is not None and len(art1_matrix) > 0:
@@ -578,20 +588,22 @@ def _score_combinations_full(
     if set_options:
         # Vectorised set counting: for each required set_id, count how many
         # slots have that set_id
-        sets_valid = np.zeros(batch, dtype=bool)
+        sets_valid_u = np.zeros(unique_batch, dtype=bool)
         for option in set_options:
-            option_ok = np.ones(batch, dtype=bool)
+            option_ok = np.ones(unique_batch, dtype=bool)
             for sid, needed in option.items():
-                count = np.sum(set_ids_per_slot == sid, axis=1)
+                count = np.sum(set_ids_u == sid, axis=1)
                 option_ok &= count >= needed
-            sets_valid |= option_ok
+            sets_valid_u |= option_ok
+        sets_valid = sets_valid_u[combo_inverse]
     else:
         sets_valid = np.ones(batch, dtype=bool)
 
     # ----- Swift set bonus -----
-    swift_count = np.sum(set_ids_per_slot == 3, axis=1)
-    swift_active = (swift_count >= 4).astype(np.float32)
-    swift_bonus = np.floor(float(base_spd) * 0.25) * swift_active
+    swift_count_u = np.sum(set_ids_u == 3, axis=1)
+    swift_active_u = (swift_count_u >= 4).astype(np.float32)
+    swift_bonus_u = np.floor(float(base_spd) * 0.25) * swift_active_u
+    swift_bonus = swift_bonus_u[combo_inverse]
 
     # Final speed
     final_spd = float(base_spd) + total_stats[:, _COL_SPD] + swift_bonus
@@ -648,11 +660,12 @@ def _score_combinations_full(
         stat_score = total_stats @ weights.stat_weights
 
     # Set bonus: reward combos that complete full sets
-    set_bonus = np.zeros(batch, dtype=np.float32)
+    set_bonus_u = np.zeros(unique_batch, dtype=np.float32)
     for sid, size in SET_SIZES.items():
-        count = np.sum(set_ids_per_slot == sid, axis=1)
+        count = np.sum(set_ids_u == sid, axis=1)
         completed_sets = count // size
-        set_bonus += completed_sets.astype(np.float32) * float(size) * 10.0
+        set_bonus_u += completed_sets.astype(np.float32) * float(size) * 10.0
+    set_bonus = set_bonus_u[combo_inverse]
 
     scores = (
         stat_score
@@ -666,6 +679,31 @@ def _score_combinations_full(
     )
 
     return scores, valid
+
+
+def _dedupe_full_combo_batch(
+    combos: np.ndarray,
+    art1_indices: Optional[np.ndarray],
+    art2_indices: Optional[np.ndarray],
+) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
+    """Drop exact duplicate rune+artifact candidates before expensive scoring."""
+    n = int(len(combos))
+    if n <= 1:
+        return combos, art1_indices, art2_indices
+    key = np.full((n, 8), -1, dtype=np.int32)
+    key[:, :6] = combos.astype(np.int32, copy=False)
+    if art1_indices is not None and len(art1_indices) == n:
+        key[:, 6] = art1_indices.astype(np.int32, copy=False)
+    if art2_indices is not None and len(art2_indices) == n:
+        key[:, 7] = art2_indices.astype(np.int32, copy=False)
+    _, unique_idx = np.unique(key, axis=0, return_index=True)
+    if len(unique_idx) == n:
+        return combos, art1_indices, art2_indices
+    unique_idx = np.sort(unique_idx)
+    combos_u = combos[unique_idx]
+    art1_u = art1_indices[unique_idx] if art1_indices is not None and len(art1_indices) == n else art1_indices
+    art2_u = art2_indices[unique_idx] if art2_indices is not None and len(art2_indices) == n else art2_indices
+    return combos_u, art1_u, art2_u
 
 
 # ---------------------------------------------------------------------------
@@ -686,6 +724,73 @@ def _generate_random_combos(
     a1 = rng.integers(0, max(1, n_art1), size=batch_size) if n_art1 > 0 else None
     a2 = rng.integers(0, max(1, n_art2), size=batch_size) if n_art2 > 0 else None
     return combos, a1, a2
+
+
+def _stable_softmax(scores: np.ndarray, temperature: float = 1.0) -> np.ndarray:
+    """Numerically stable softmax with a safe uniform fallback."""
+    arr = np.asarray(scores, dtype=np.float64)
+    n = int(arr.size)
+    if n <= 0:
+        return np.zeros((0,), dtype=np.float64)
+    temp = float(max(1e-6, temperature))
+    shifted = (arr - float(np.max(arr))) / temp
+    shifted = np.clip(shifted, -60.0, 0.0)
+    exp_vals = np.exp(shifted)
+    denom = float(np.sum(exp_vals))
+    if (not np.isfinite(denom)) or denom <= 0.0:
+        return np.full(n, 1.0 / float(n), dtype=np.float64)
+    probs = exp_vals / denom
+    probs = np.where(np.isfinite(probs), probs, 0.0)
+    total = float(np.sum(probs))
+    if total <= 0.0:
+        return np.full(n, 1.0 / float(n), dtype=np.float64)
+    return probs / total
+
+
+def _select_elite_indices(
+    scores: np.ndarray,
+    combos: np.ndarray,
+    art1_indices: Optional[np.ndarray],
+    art2_indices: Optional[np.ndarray],
+    elite_size: int,
+) -> np.ndarray:
+    """Select top elite indices with lightweight deduplication for diversity."""
+    n = int(len(scores))
+    if n <= 0 or elite_size <= 0:
+        return np.zeros((0,), dtype=np.int64)
+
+    oversample = int(max(elite_size, min(n, elite_size * 3)))
+    if oversample < n:
+        candidate_idx = np.argpartition(scores, -oversample)[-oversample:]
+    else:
+        candidate_idx = np.arange(n, dtype=np.int64)
+    candidate_idx = candidate_idx[np.argsort(scores[candidate_idx])[::-1]]
+
+    if len(candidate_idx) <= elite_size:
+        return candidate_idx
+
+    key = np.full((len(candidate_idx), 8), -1, dtype=np.int32)
+    key[:, :6] = combos[candidate_idx].astype(np.int32, copy=False)
+    if art1_indices is not None and len(art1_indices) == n:
+        key[:, 6] = art1_indices[candidate_idx].astype(np.int32, copy=False)
+    if art2_indices is not None and len(art2_indices) == n:
+        key[:, 7] = art2_indices[candidate_idx].astype(np.int32, copy=False)
+
+    # candidate_idx is sorted by score desc, so first occurrence per key is best.
+    _, unique_first = np.unique(key, axis=0, return_index=True)
+    unique_first = np.sort(unique_first)
+    picked = candidate_idx[unique_first]
+    if len(picked) >= elite_size:
+        return picked[:elite_size]
+
+    # If dedupe leaves too few entries, fill with next-best remaining candidates.
+    keep_mask = np.ones(len(candidate_idx), dtype=bool)
+    keep_mask[unique_first] = False
+    remainder = candidate_idx[keep_mask]
+    need = int(elite_size - len(picked))
+    if need > 0 and len(remainder) > 0:
+        picked = np.concatenate([picked, remainder[:need]], axis=0)
+    return picked
 
 
 def _generate_biased_combos(
@@ -709,27 +814,21 @@ def _generate_biased_combos(
         rune_scores += weights.efficiency_weight * mat[:, _COL_EFFICIENCY]
         # Use temperature scaling: sharper distribution focuses on top runes
         temp = max(0.5, rune_scores.std() * 0.3 + 1e-6)
-        rune_scores = rune_scores - rune_scores.max()
-        probs = np.exp(rune_scores / temp)
-        probs = probs / probs.sum()
+        probs = _stable_softmax(rune_scores, temperature=temp)
         combos[:, col] = rng.choice(n, size=batch_size, p=probs)
 
     a1 = None
     if art1_matrix is not None and len(art1_matrix) > 0:
         n = len(art1_matrix)
         a_scores = art1_matrix[:, _ART_COL_QUALITY] + art1_matrix[:, _ART_COL_EFFICIENCY]
-        a_scores = a_scores - a_scores.max()
-        probs = np.exp(a_scores / max(1.0, a_scores.std() + 1e-6))
-        probs = probs / probs.sum()
+        probs = _stable_softmax(a_scores, temperature=max(1.0, a_scores.std() + 1e-6))
         a1 = rng.choice(n, size=batch_size, p=probs)
 
     a2 = None
     if art2_matrix is not None and len(art2_matrix) > 0:
         n = len(art2_matrix)
         a_scores = art2_matrix[:, _ART_COL_QUALITY] + art2_matrix[:, _ART_COL_EFFICIENCY]
-        a_scores = a_scores - a_scores.max()
-        probs = np.exp(a_scores / max(1.0, a_scores.std() + 1e-6))
-        probs = probs / probs.sum()
+        probs = _stable_softmax(a_scores, temperature=max(1.0, a_scores.std() + 1e-6))
         a2 = rng.choice(n, size=batch_size, p=probs)
 
     return combos, a1, a2
@@ -970,7 +1069,7 @@ def _search_unit_combos_full(
     elite_art1: Optional[np.ndarray] = None
     elite_art2: Optional[np.ndarray] = None
     elite_scores: Optional[np.ndarray] = None
-    elite_size = _ELITE_SIZE
+    elite_size = int(max(120, min(_ELITE_SIZE, max(140, batch_size // 1200))))
 
     for cycle in range(n_cycles):
         # Divide batch across strategies
@@ -1002,9 +1101,10 @@ def _search_unit_combos_full(
             parts_a2.append(a2)
         else:
             # Later cycles: mutations + crossover + some fresh random
-            n_mut = batch_size // 3
+            # Later cycles: prioritise exploitative search to reduce runtime.
+            n_mut = batch_size // 2
             n_cross = batch_size // 3
-            n_fresh = batch_size - 2 * n_mut
+            n_fresh = batch_size - n_mut - n_cross
             parts_rune = []
             parts_a1 = []
             parts_a2 = []
@@ -1046,6 +1146,7 @@ def _search_unit_combos_full(
             c_a2 = np.concatenate([x for x in parts_a2 if x is not None], axis=0)
         else:
             c_a2 = None
+        combos, c_a1, c_a2 = _dedupe_full_combo_batch(combos, c_a1, c_a2)
 
         scores, valid = _score_combinations_full(
             slot_matrices, combos,
@@ -1071,12 +1172,8 @@ def _search_unit_combos_full(
             if c_a2 is not None and elite_art2 is not None:
                 c_a2 = np.concatenate([elite_art2, c_a2], axis=0)
 
-        # Select top-K
-        if len(scores) > elite_size:
-            top_idx = np.argpartition(scores, -elite_size)[-elite_size:]
-            top_idx = top_idx[np.argsort(scores[top_idx])[::-1]]
-        else:
-            top_idx = np.argsort(scores)[::-1]
+        # Select top-K with dedupe to keep elite pool diverse.
+        top_idx = _select_elite_indices(scores, combos, c_a1, c_a2, elite_size)
         elite_combos = combos[top_idx]
         elite_scores = scores[top_idx]
         if c_a1 is not None:
@@ -1269,9 +1366,11 @@ def _adaptive_plan_for_run(
         pass_time_s = max(0.5, float(pass_time_s * 0.9))
         solver_top_per_set = max(_ADAPTIVE_MIN_SOLVER_TOP, int(solver_top_per_set - 10))
     elif runtime_ratio < 0.55 and med_ok_ratio >= 0.92:
-        batch_scale *= 1.12
+        batch_scale *= 1.22
         if med_ok_ratio < 0.985:
             pass_limit = min(10, int(pass_limit + 1))
+    elif runtime_ratio < 0.75 and med_ok_ratio >= 0.90:
+        batch_scale *= 1.10
 
     if med_ok_ratio < 0.80:
         batch_scale *= 1.12
@@ -1284,7 +1383,9 @@ def _adaptive_plan_for_run(
         early_stop_patience = 1
 
     if phase1_ratio > 0.62 and runtime_ratio > 0.9:
-        batch_scale *= 0.88
+        batch_scale *= 0.86
+    elif phase1_ratio < 0.42 and runtime_ratio < 0.80 and med_ok_ratio >= 0.90:
+        batch_scale *= 1.08
     if med_gpu_runes > float(extra_rune_cap * 1.5):
         extra_rune_cap = int(max(600, extra_rune_cap * 0.85))
 
@@ -1819,6 +1920,58 @@ def _compute_final_speed(
 
 
 # ---------------------------------------------------------------------------
+# Prescreen batch preparation (CPU side)
+# ---------------------------------------------------------------------------
+def _build_prescreen_batch(
+    slot_matrices: Dict[int, np.ndarray],
+    slot_sizes: Dict[int, int],
+    set_options: List[Dict[int, int]],
+    art1_matrix: Optional[np.ndarray],
+    art2_matrix: Optional[np.ndarray],
+    n_art1: int,
+    n_art2: int,
+    batch_size: int,
+    rng_seed: int,
+    weights: ScoringWeights,
+) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
+    """Prepare one diverse prescreen batch; called in a worker thread."""
+    rng_local = np.random.default_rng(seed=int(rng_seed))
+    n_per = batch_size // 4
+    n_last = batch_size - 3 * n_per
+    parts_rune: List[np.ndarray] = []
+    parts_a1: List[Optional[np.ndarray]] = []
+    parts_a2: List[Optional[np.ndarray]] = []
+
+    c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_per, rng_local)
+    parts_rune.append(c)
+    parts_a1.append(a1)
+    parts_a2.append(a2)
+
+    c, a1, a2 = _generate_biased_combos(slot_matrices, art1_matrix, art2_matrix, weights, n_per, rng_local)
+    parts_rune.append(c)
+    parts_a1.append(a1)
+    parts_a2.append(a2)
+
+    c, a1, a2 = _generate_greedy_seed_combos(slot_matrices, set_options, n_art1, n_art2, n_per, rng_local)
+    parts_rune.append(c)
+    parts_a1.append(a1)
+    parts_a2.append(a2)
+
+    if set_options:
+        c, a1, a2 = _generate_set_aware_combos(slot_matrices, set_options, n_art1, n_art2, n_last, rng_local)
+    else:
+        c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_last, rng_local)
+    parts_rune.append(c)
+    parts_a1.append(a1)
+    parts_a2.append(a2)
+
+    combos = np.concatenate(parts_rune, axis=0)
+    c_a1 = np.concatenate([x for x in parts_a1 if x is not None], axis=0) if n_art1 > 0 else None
+    c_a2 = np.concatenate([x for x in parts_a2 if x is not None], axis=0) if n_art2 > 0 else None
+    return _dedupe_full_combo_batch(combos, c_a1, c_a2)
+
+
+# ---------------------------------------------------------------------------
 # Phase 1: GPU pre-screening to identify best runes from the full pool
 # ---------------------------------------------------------------------------
 def _gpu_presceen_rune_ids(
@@ -1861,6 +2014,7 @@ def _gpu_presceen_rune_ids(
     n_art1 = len(art1_list)
     n_art2 = len(art2_list)
 
+    unit_contexts: List[Dict[str, Any]] = []
     for uid in unit_ids:
         unit = account.units_by_id.get(uid)
         if not unit:
@@ -1899,64 +2053,92 @@ def _gpu_presceen_rune_ids(
 
         if any(slot_sizes.get(s, 0) == 0 for s in range(1, 7)):
             continue
+        unit_contexts.append(
+            {
+                "uid": int(uid),
+                "slot_matrices": slot_matrices,
+                "slot_rune_ids": slot_rune_ids,
+                "slot_sizes": slot_sizes,
+                "set_options": constraints.get("set_options", []),
+                "min_stats_map": constraints.get("min_stats", {}),
+                "min_spd": int(constraints.get("min_spd", 0) or 0),
+                "max_spd": int(constraints.get("max_spd", 0) or 0),
+                "base_spd": int(base_spd),
+                "base_cr": int(base_cr),
+                "base_res": int(base_res),
+                "base_acc": int(base_acc),
+                "base_hp": int(base_hp),
+                "base_atk": int(base_atk),
+                "base_def": int(base_def),
+            }
+        )
 
-        set_options = constraints.get("set_options", [])
-        min_stats_map = constraints.get("min_stats", {})
-        prescreen_elite_size = 2000
+    if not unit_contexts:
+        return promising_rune_ids
 
-        # Generate diverse combos
-        parts_rune: List[np.ndarray] = []
-        parts_a1: List[Optional[np.ndarray]] = []
-        parts_a2: List[Optional[np.ndarray]] = []
+    prescreen_elite_size = 2000
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = None
+        for idx, ctx in enumerate(unit_contexts):
+            if pending is None:
+                pending = executor.submit(
+                    _build_prescreen_batch,
+                    ctx["slot_matrices"],
+                    ctx["slot_sizes"],
+                    ctx["set_options"],
+                    art1_matrix,
+                    art2_matrix,
+                    n_art1,
+                    n_art2,
+                    int(batch_size),
+                    int(rng_np.integers(0, 2**31 - 1)),
+                    weights,
+                )
+            combos, c_a1, c_a2 = pending.result()
+            next_pending = None
+            if idx + 1 < len(unit_contexts):
+                nctx = unit_contexts[idx + 1]
+                next_pending = executor.submit(
+                    _build_prescreen_batch,
+                    nctx["slot_matrices"],
+                    nctx["slot_sizes"],
+                    nctx["set_options"],
+                    art1_matrix,
+                    art2_matrix,
+                    n_art1,
+                    n_art2,
+                    int(batch_size),
+                    int(rng_np.integers(0, 2**31 - 1)),
+                    weights,
+                )
 
-        n_per = batch_size // 4
-        n_last = batch_size - 3 * n_per
-
-        c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_per, rng_np)
-        parts_rune.append(c); parts_a1.append(a1); parts_a2.append(a2)
-
-        c, a1, a2 = _generate_biased_combos(slot_matrices, art1_matrix, art2_matrix, weights, n_per, rng_np)
-        parts_rune.append(c); parts_a1.append(a1); parts_a2.append(a2)
-
-        c, a1, a2 = _generate_greedy_seed_combos(slot_matrices, set_options, n_art1, n_art2, n_per, rng_np)
-        parts_rune.append(c); parts_a1.append(a1); parts_a2.append(a2)
-
-        if set_options:
-            c, a1, a2 = _generate_set_aware_combos(slot_matrices, set_options, n_art1, n_art2, n_last, rng_np)
-        else:
-            c, a1, a2 = _generate_random_combos(slot_sizes, n_art1, n_art2, n_last, rng_np)
-        parts_rune.append(c); parts_a1.append(a1); parts_a2.append(a2)
-
-        combos = np.concatenate(parts_rune, axis=0)
-        c_a1 = np.concatenate([x for x in parts_a1 if x is not None], axis=0) if n_art1 > 0 else None
-        c_a2 = np.concatenate([x for x in parts_a2 if x is not None], axis=0) if n_art2 > 0 else None
-
-        scores, valid = _score_combinations_full(
-            slot_matrices, combos,
+            scores, valid = _score_combinations_full(
+            ctx["slot_matrices"], combos,
             art1_matrix, art2_matrix,
             c_a1, c_a2,
             weights,
-            base_spd, constraints["min_spd"], constraints["max_spd"],
-            base_cr, base_res, base_acc,
-            set_options, min_stats_map,
-            base_hp, base_atk, base_def,
+            ctx["base_spd"], ctx["min_spd"], ctx["max_spd"],
+            ctx["base_cr"], ctx["base_res"], ctx["base_acc"],
+            ctx["set_options"], ctx["min_stats_map"],
+            ctx["base_hp"], ctx["base_atk"], ctx["base_def"],
             gpu_scorer=gpu_scorer,
         )
-        scores = np.where(valid, scores, scores - 1e6)
+            scores = np.where(valid, scores, scores - 1e6)
 
-        k = min(prescreen_elite_size, len(scores))
-        if k < len(scores):
-            top_idx = np.argpartition(scores, -k)[-k:]
-        else:
-            top_idx = np.arange(len(scores))
-        top_combos = combos[top_idx]
+            k = min(prescreen_elite_size, len(scores))
+            if k < len(scores):
+                top_idx = np.argpartition(scores, -k)[-k:]
+            else:
+                top_idx = np.arange(len(scores))
+            top_combos = combos[top_idx]
 
-        for i in range(len(top_combos)):
-            combo = top_combos[i]
-            for col, slot in enumerate(sorted(slot_rune_ids.keys())):
-                idx = int(combo[col])
-                if 0 <= idx < len(slot_rune_ids[slot]):
-                    promising_rune_ids.add(slot_rune_ids[slot][idx])
+            for i in range(len(top_combos)):
+                combo = top_combos[i]
+                for col, slot in enumerate(sorted(ctx["slot_rune_ids"].keys())):
+                    ridx = int(combo[col])
+                    if 0 <= ridx < len(ctx["slot_rune_ids"][slot]):
+                        promising_rune_ids.add(ctx["slot_rune_ids"][slot][ridx])
+            pending = next_pending
 
     return promising_rune_ids
 
