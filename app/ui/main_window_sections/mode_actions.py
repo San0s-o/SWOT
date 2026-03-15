@@ -896,6 +896,8 @@ def restore_team_selections(window, mode: str = "all") -> None:
                         idx = row[s].findData(uid, role=Qt.UserRole)
                         if idx >= 0:
                             row[s].setCurrentIndex(idx)
+                            if hasattr(row[s], "_sync_line_edit_to_current"):
+                                row[s]._sync_line_edit_to_current()
 
         siege_checks = data.get("siege_optimize_checks")
         if isinstance(siege_checks, list):
@@ -921,3 +923,5 @@ def restore_team_selections(window, mode: str = "all") -> None:
                         idx = row[s].findData(uid, role=Qt.UserRole)
                         if idx >= 0:
                             row[s].setCurrentIndex(idx)
+                            if hasattr(row[s], "_sync_line_edit_to_current"):
+                                row[s]._sync_line_edit_to_current()

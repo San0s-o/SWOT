@@ -147,6 +147,23 @@ def try_restore_snapshot(window) -> None:
             )
 
 
+def _auto_take_siege_if_empty(window) -> None:
+    """If all siege builder combos are still empty after restore, auto-take from account."""
+    if not window.account:
+        return
+    combos = getattr(window, "siege_team_combos", [])
+    if not combos:
+        return
+    has_any = any(
+        int(cmb.currentData() or 0) != 0
+        for row in combos
+        for cmb in row
+    )
+    if not has_any:
+        from app.ui.main_window_sections.mode_actions import on_take_current_siege
+        on_take_current_siege(window)
+
+
 def icon_for_master_id(window, master_id: int) -> QIcon:
     cached = window._icon_cache.get(int(master_id))
     if cached is not None:
@@ -364,6 +381,7 @@ def ensure_unit_dropdowns_populated(window, tab: QWidget | None = None) -> None:
     window._unit_dropdowns_populated = bool(all_combos) and len(populated_ids) >= len(all_combos)
 
     # After first population of siege/wgb combos, restore saved team selections.
+    # For siege: if no saved selections exist, auto-take from account data.
     tab_key = _unit_combo_tab_key(window, target_tab)
     if tab_key in ("siege", "wgb"):
         try:
@@ -371,3 +389,8 @@ def ensure_unit_dropdowns_populated(window, tab: QWidget | None = None) -> None:
             restore_team_selections(window, mode=tab_key)
         except Exception:
             pass
+        if tab_key == "siege":
+            try:
+                _auto_take_siege_if_empty(window)
+            except Exception:
+                pass
