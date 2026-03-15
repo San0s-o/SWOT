@@ -530,10 +530,28 @@ class BuildDialog(QDialog):
         self.showMaximized()
 
     def accept(self) -> None:
+        # Commit any in-progress spinbox edits (value may not yet be committed
+        # if the user typed but didn't press Enter or click away first).
+        focused = QApplication.focusWidget()
+        if focused is not None:
+            focused.clearFocus()
+        for spin_dict in (
+            self._min_spd_spin, self._min_hp_spin, self._min_atk_spin,
+            self._min_def_spin, self._min_cr_spin, self._min_cd_spin,
+            self._min_res_spin, self._min_acc_spin,
+        ):
+            for spin in spin_dict.values():
+                try:
+                    spin.interpretText()
+                except Exception:
+                    pass
         try:
             self.apply_to_store()
         except ValueError as exc:
             QMessageBox.critical(self, "Builds", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Builds", f"Fehler beim Speichern:\n{exc}")
             return
         super().accept()
 
@@ -550,7 +568,8 @@ class BuildDialog(QDialog):
         uid = int(unit_id or 0)
         if uid <= 0:
             return -1
-        existing = int(self._uid_to_stack_index.get(uid, -1) or -1)
+        _raw = self._uid_to_stack_index.get(uid)
+        existing = int(_raw) if _raw is not None else -1
         if existing >= 0 and existing < self._unit_editor_stack.count():
             return int(existing)
         builds = self.preset_store.get_unit_builds(self.mode, uid)
@@ -968,10 +987,21 @@ class BuildDialog(QDialog):
             for lbl in min_base_prefix_labels.values():
                 lbl.setVisible(use_base)
 
+        _tracked_mode = [min_mode]  # mutable to track last applied mode
+
         def _on_min_mode_changed() -> None:
-            mode = str(min_mode_combo.currentData() or "with_base")
-            for key, spin in min_spins.items():
-                spin.setValue(self._min_value_for_build(current_min, key, mode, base_stats))
+            new_mode = str(min_mode_combo.currentData() or "with_base")
+            old_mode = _tracked_mode[0]
+            if new_mode != old_mode:
+                for key, spin in min_spins.items():
+                    cur_val = int(spin.value())
+                    if key in _MIN_BASE_STATS:
+                        base = int(base_stats.get(key, 0) or 0)
+                        if old_mode == "with_base" and new_mode == "without_base":
+                            spin.setValue(base + cur_val)
+                        elif old_mode == "without_base" and new_mode == "with_base":
+                            spin.setValue(max(0, cur_val - base))
+                _tracked_mode[0] = new_mode
             _sync_min_mode_ui()
 
         min_mode_combo.currentIndexChanged.connect(lambda *_args: _on_min_mode_changed())

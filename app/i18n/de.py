@@ -635,8 +635,8 @@ STRINGS: dict[str, str] = {
 
     # -- Monster collection --------------------------------------
     "collection.no_import": "Bitte zuerst einen Account importieren.",
-    "collection.summary": "6* erweckt: {owned} | Fehlend: {missing}",
-    "collection.section_owned": "6* erweckte Monster (besessen)",
+    "collection.summary": "6* erweckt: {owned}",
+    "collection.section_owned": "6* erweckte Monster",
     "collection.section_missing": "Fehlende Monster (erweckte Formen)",
     "collection.nat_group": "Nat {stars}",
     "collection.none": "Keine Einträge.",

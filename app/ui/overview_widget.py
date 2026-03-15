@@ -5,15 +5,15 @@ import time
 from collections import Counter
 from typing import Callable, List, Optional, Tuple, Any
 
-from PySide6.QtCore import Qt, QMargins, QPointF, QPropertyAnimation, QEasingCurve, QVariantAnimation, QEvent
-from PySide6.QtGui import QColor, QFont, QPainter, QFontMetrics, QCursor
+from PySide6.QtCore import Qt, QMargins, QPointF, QPropertyAnimation, QEasingCurve, QVariantAnimation, QEvent, QRectF
+from PySide6.QtGui import QColor, QFont, QPainter, QFontMetrics, QCursor, QPen
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea, QApplication,
     QGridLayout, QComboBox, QGraphicsDropShadowEffect,
 )
 from PySide6.QtCharts import (
     QChart, QChartView, QBarCategoryAxis,
-    QValueAxis, QPieSeries, QLineSeries, QPieSlice,
+    QValueAxis, QPieSeries, QLineSeries, QPieSlice, QSplineSeries,
 )
 
 from app.domain.models import AccountData, Rune, Artifact
@@ -527,7 +527,118 @@ class _IndexedLineChartView(QChartView):
         self.setStyleSheet(f"background: {_theme.C['card_bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: 4px;")
         self.setMouseTracking(True)
 
+        # rubber-band selection state
+        self._drag_start: Optional[QPointF] = None
+        self._drag_current: Optional[QPointF] = None
+        self._is_zoomed: bool = False
+
+        # overlay widget for the selection rectangle
+        self._rubber_band = QFrame(self)
+        self._rubber_band.setStyleSheet(
+            "background: rgba(74, 163, 255, 25); border: 1px solid #4aa3ff;"
+        )
+        self._rubber_band.hide()
+
+    # -- rubber-band zoom helpers -----------------------
+
+    def _apply_zoom(self, x1: float, x2: float) -> None:
+        """Zoom axes to the given X range and fit Y accordingly."""
+        if not self._entries:
+            return
+        start_idx = max(0, int(round(x1)) - 1)
+        end_idx = min(len(self._entries[0][2]), int(round(x2)))
+        if end_idx <= start_idx:
+            return
+        for ax in self.chart().axes(Qt.Horizontal):
+            ax.setRange(x1, x2)
+        self._fit_y(start_idx, end_idx)
+        self._is_zoomed = True
+
+    def _reset_zoom(self) -> None:
+        if not self._entries:
+            return
+        n = len(self._entries[0][2])
+        for ax in self.chart().axes(Qt.Horizontal):
+            ax.setRange(1, n)
+        self._fit_y(0, n)
+        self._is_zoomed = False
+
+    def _fit_y(self, start_idx: int, end_idx: int) -> None:
+        all_vals: List[float] = []
+        for _, _, items, _ in self._entries:
+            for i in range(start_idx, min(end_idx, len(items))):
+                all_vals.append(float(items[i][0]))
+        if not all_vals:
+            return
+        min_v, max_v = min(all_vals), max(all_vals)
+        pad = max(2.0, (max_v - min_v) * 0.12)
+        for ax in self.chart().axes(Qt.Vertical):
+            ax.setRange(max(0.0, min_v - pad), max_v + pad)
+
+    def _update_rubber_band(self) -> None:
+        if self._drag_start is None or self._drag_current is None:
+            self._rubber_band.hide()
+            return
+        plot = self.chart().plotArea()
+        x1 = max(self._drag_start.x(), plot.left())
+        x2 = min(self._drag_current.x(), plot.right())
+        if x1 > x2:
+            x1, x2 = x2, x1
+        y1 = plot.top()
+        y2 = plot.bottom()
+        self._rubber_band.setGeometry(int(x1), int(y1), max(1, int(x2 - x1)), int(y2 - y1))
+        self._rubber_band.show()
+
+    # -- mouse events ----------------------------------
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            pos = event.position()
+            if self.chart().plotArea().contains(pos):
+                self._drag_start = pos
+                self._drag_current = pos
+                self._popup.hide()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._is_zoomed:
+            self._reset_zoom()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._drag_start is not None:
+            end = event.position()
+            start = self._drag_start
+            self._drag_start = None
+            self._drag_current = None
+            self._rubber_band.hide()
+
+            if self._entries:
+                plot = self.chart().plotArea()
+                px1 = max(start.x(), plot.left())
+                px2 = min(end.x(), plot.right())
+                if px1 > px2:
+                    px1, px2 = px2, px1
+                if px2 - px1 > 8:
+                    ref_series = self._entries[0][1]
+                    v1 = self.chart().mapToValue(QPointF(px1, 0), ref_series)
+                    v2 = self.chart().mapToValue(QPointF(px2, 0), ref_series)
+                    self._apply_zoom(max(1.0, v1.x()), min(float(len(self._entries[0][2])), v2.x()))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def mouseMoveEvent(self, event) -> None:
+        if self._drag_start is not None:
+            self._drag_current = event.position()
+            self._update_rubber_band()
+            event.accept()
+            return
+        # original tooltip logic below
         pos = event.position()
         plot = self.chart().plotArea()
         if not plot.contains(pos):
@@ -598,6 +709,9 @@ class _IndexedLineChartView(QChartView):
     def leaveEvent(self, event) -> None:
         self._active_key = None
         self._popup.hide()
+        self._drag_start = None
+        self._drag_current = None
+        self._rubber_band.hide()
         super().leaveEvent(event)
 
     def wheelEvent(self, event) -> None:
@@ -1135,8 +1249,6 @@ class OverviewWidget(QWidget):
         self._rune_eff_view: QChartView | None = None
         self._rune_set_view: QChartView | None = None
         self._art_eff_view: QChartView | None = None
-        self._rune_pool_view: QChartView | None = None
-        self._artifact_pool_view: QChartView | None = None
 
     # -- public API ------------------------------------
     def set_data(self, account: AccountData) -> None:
@@ -1234,8 +1346,6 @@ class OverviewWidget(QWidget):
     def _build_charts(self, acc: AccountData) -> None:
         self._clear_grid()
 
-        all_runes = list(acc.runes or [])
-        all_arts = list(acc.artifacts or [])
         filtered_runes = [r for r in acc.runes if int(r.upgrade_curr or 0) >= 12]
         rune_items = (
             [(rune_efficiency(r), r) for r in filtered_runes]
@@ -1249,16 +1359,11 @@ class OverviewWidget(QWidget):
         self._rune_eff_view = self._build_rune_eff_chart(rune_items)
         self._rune_set_view = self._build_rune_set_chart(filtered_runes)
         self._art_eff_view = self._build_art_eff_chart(art_items)
-        self._rune_pool_view = self._build_rune_pool_chart(all_runes)
-        self._artifact_pool_view = self._build_artifact_pool_chart(all_arts)
-
         self._rune_set_view.setMinimumHeight(dp(300))
         self._rune_set_host_layout.addWidget(self._rune_set_view, 1)
 
         self._grid.addWidget(self._rune_eff_view, 0, 0, 1, 2)
         self._grid.addWidget(self._art_eff_view, 1, 0, 1, 2)
-        self._grid.addWidget(self._rune_pool_view, 2, 0, 1, 1)
-        self._grid.addWidget(self._artifact_pool_view, 2, 1, 1, 1)
 
     def _on_top_n_changed(self, _value: int) -> None:
         if self._account is not None:
@@ -1326,21 +1431,24 @@ class OverviewWidget(QWidget):
             hero_items.append((hero_eff, payload))
             legend_items.append((legend_eff, payload))
 
-        series_current = QLineSeries()
+        series_current = QSplineSeries()
         series_current.setName(tr("overview.series_current"))
-        series_current.setColor(QColor("#f39c12"))
+        _pen = QPen(QColor("#f39c12")); _pen.setWidthF(2.5)
+        series_current.setPen(_pen)
         for idx, (eff, _) in enumerate(current_items, start=1):
             series_current.append(float(idx), float(eff))
 
-        series_hero = QLineSeries()
+        series_hero = QSplineSeries()
         series_hero.setName(tr("overview.series_hero_max"))
-        series_hero.setColor(QColor("#4aa3ff"))
+        _pen = QPen(QColor("#4aa3ff")); _pen.setWidthF(1.5)
+        series_hero.setPen(_pen)
         for idx, (eff, _) in enumerate(hero_items, start=1):
             series_hero.append(float(idx), float(eff))
 
-        series_legend = QLineSeries()
+        series_legend = QSplineSeries()
         series_legend.setName(tr("overview.series_legend_max"))
-        series_legend.setColor(QColor("#2ecc71"))
+        _pen = QPen(QColor("#2ecc71")); _pen.setWidthF(1.5)
+        series_legend.setPen(_pen)
         for idx, (eff, _) in enumerate(legend_items, start=1):
             series_legend.append(float(idx), float(eff))
 
@@ -1414,9 +1522,10 @@ class OverviewWidget(QWidget):
             ranked = sorted(by_type[t], key=lambda x: x[0], reverse=True)[:top_n]
             if not ranked:
                 continue
-            s = QLineSeries()
+            s = QSplineSeries()
             s.setName(names[t])
-            s.setColor(QColor(colors[t]))
+            _pen = QPen(QColor(colors[t])); _pen.setWidthF(2.0)
+            s.setPen(_pen)
             wrapped: List[Tuple[float, Any]] = []
             for idx, (eff, art) in enumerate(ranked, start=1):
                 wrapped.append((eff, art))

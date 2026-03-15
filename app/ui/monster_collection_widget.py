@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from collections import Counter
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -21,13 +21,20 @@ from app.i18n import tr
 from app.ui import theme as _theme
 from app.ui.dpi import dp
 
+# Element display order (Fire → Water → Wind → Light → Dark → rest)
+_ELEMENT_ORDER: Dict[str, int] = {
+    "Fire": 0,
+    "Water": 1,
+    "Wind": 2,
+    "Light": 3,
+    "Dark": 4,
+}
+
+_ICON_SIZE_BASE = 58   # logical px at 2K reference DPI
+
 
 class MonsterCollectionWidget(QWidget):
-    """Small-icon collection overview for owned and missing awakened monsters."""
-
-    _ICON_SIZE = 30
-    _ICON_PAD = 4
-    _MAX_COLS = 18
+    """Monster collection: owned awakened monsters, sorted by element & name."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -45,10 +52,18 @@ class MonsterCollectionWidget(QWidget):
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.setStyleSheet(
-            f"QScrollArea {{ border: 1px solid {_theme.C['card_border']}; border-radius: {dp(8)}px; background: {_theme.C['bg']}; }}"
+            f"QScrollArea {{ border: 1px solid {_theme.C['card_border']}; "
+            f"border-radius: {dp(8)}px; background: {_theme.C['bg']}; }}"
         )
         outer.addWidget(self._scroll, 1)
+
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(120)
+        self._resize_timer.timeout.connect(self._rebuild)
 
         self._container = QWidget()
         self._container.setStyleSheet(f"background: {_theme.C['bg']};")
@@ -59,6 +74,26 @@ class MonsterCollectionWidget(QWidget):
 
         self._rebuild()
 
+    # -- dynamic column count --------------------------
+
+    def _icon_cell_size(self) -> int:
+        return dp(_ICON_SIZE_BASE) + dp(3) * 2 + dp(4)  # icon + 2×pad + spacing
+
+    def _max_cols(self) -> int:
+        vp = self._scroll.viewport()
+        w = vp.width() if vp else self.width()
+        # subtract container margins (2×8) and a small safety buffer
+        available = w - dp(16) - dp(8)
+        cols = max(1, available // self._icon_cell_size())
+        return int(cols)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._account and self._monster_db:
+            self._resize_timer.start()
+
+    # -- public API ------------------------------------
+
     def set_context(self, account: Optional[AccountData], monster_db: MonsterDB, assets_dir: Path) -> None:
         self._account = account
         self._monster_db = monster_db
@@ -67,6 +102,8 @@ class MonsterCollectionWidget(QWidget):
 
     def retranslate(self) -> None:
         self._rebuild()
+
+    # -- internal --------------------------------------
 
     def _clear_content(self) -> None:
         while self._content.count():
@@ -87,38 +124,22 @@ class MonsterCollectionWidget(QWidget):
             self._content.addStretch(1)
             return
 
-        owned_by_master = Counter(
-            int(u.unit_master_id)
-            for u in (self._account.units_by_id or {}).values()
-            if int(getattr(u, "unit_master_id", 0) or 0) > 0
-        )
-        owned_awakened_6 = self._owned_6star_awakened_monsters()
-        missing_awakened = self._missing_awakened_monsters(set(owned_by_master.keys()))
+        owned = self._owned_awakened_monsters()
+        unique_count = len({info.com2us_id for info in owned})
 
-        self._summary_label.setText(
-            tr(
-                "collection.summary",
-                owned=len(owned_awakened_6),
-                missing=len(missing_awakened),
-            )
-        )
+        self._summary_label.setText(tr("collection.summary", owned=unique_count))
 
         self._add_icon_section(
             title=tr("collection.section_owned"),
-            monsters=owned_awakened_6,
-            owned_counts=owned_by_master,
-        )
-        self._add_icon_section(
-            title=tr("collection.section_missing"),
-            monsters=missing_awakened,
-            owned_counts=owned_by_master,
+            monsters=owned,
         )
         self._content.addStretch(1)
 
-    def _owned_6star_awakened_monsters(self) -> List[MonsterInfo]:
+    def _owned_awakened_monsters(self) -> List[MonsterInfo]:
+        """Return one MonsterInfo per owned unit (duplicates included), 6★ awakened."""
         if not self._account or not self._monster_db:
             return []
-        by_master: Dict[int, MonsterInfo] = {}
+        result: List[MonsterInfo] = []
         for unit in (self._account.units_by_id or {}).values():
             if int(getattr(unit, "unit_class", 0) or 0) < 6:
                 continue
@@ -130,56 +151,17 @@ class MonsterCollectionWidget(QWidget):
                 continue
             if int(info.awaken_level or 0) <= 0:
                 continue
-            nat = int(info.natural_stars or 0)
-            if nat <= 0:
+            if int(info.natural_stars or 0) <= 0:
                 continue
-            by_master[mid] = info
-        return self._sorted_collection_infos(by_master.values())
+            result.append(info)
+        return _sort_monsters(result)
 
-    def _missing_awakened_monsters(self, owned_master_ids: set[int]) -> List[MonsterInfo]:
-        if not self._monster_db:
-            return []
-        candidates: List[MonsterInfo] = []
-        for info in self._monster_db.all_monsters():
-            nat = int(info.natural_stars or 0)
-            if nat < 2 or nat > 5:
-                continue
-            if int(info.awaken_level or 0) != 1:
-                continue
-            if not bool(info.can_awaken):
-                continue
-            if not bool(info.obtainable):
-                continue
-            if bool(info.homunculus):
-                continue
-            if int(info.com2us_id) in owned_master_ids:
-                continue
-            candidates.append(info)
-        return self._sorted_collection_infos(candidates)
-
-    @staticmethod
-    def _sorted_collection_infos(items: Iterable[MonsterInfo]) -> List[MonsterInfo]:
-        return sorted(
-            list(items),
-            key=lambda x: (
-                -int(x.natural_stars or 0),
-                str(x.name or "").lower(),
-                str(x.element or "").lower(),
-                int(x.com2us_id or 0),
-            ),
-        )
-
-    def _add_icon_section(
-        self,
-        *,
-        title: str,
-        monsters: List[MonsterInfo],
-        owned_counts: Counter[int],
-    ) -> None:
+    def _add_icon_section(self, *, title: str, monsters: List[MonsterInfo]) -> None:
         section = QFrame()
         section.setObjectName("CollectionSection")
         section.setStyleSheet(
-            f"QFrame#CollectionSection {{ background: {_theme.C['card_bg']}; border: 1px solid {_theme.C['card_border']}; border-radius: {dp(8)}px; }}"
+            f"QFrame#CollectionSection {{ background: {_theme.C['card_bg']}; "
+            f"border: 1px solid {_theme.C['card_border']}; border-radius: {dp(8)}px; }}"
         )
         lay = QVBoxLayout(section)
         lay.setContentsMargins(dp(10), dp(10), dp(10), dp(10))
@@ -196,10 +178,13 @@ class MonsterCollectionWidget(QWidget):
             self._content.addWidget(section)
             return
 
+        # Group by nat stars, then render
         by_nat: Dict[int, List[MonsterInfo]] = {}
         for info in monsters:
             nat = int(info.natural_stars or 0)
             by_nat.setdefault(nat, []).append(info)
+
+        max_cols = self._max_cols()
 
         for nat in sorted(by_nat.keys(), reverse=True):
             row_label = QLabel(tr("collection.nat_group", stars=int(nat)))
@@ -211,20 +196,24 @@ class MonsterCollectionWidget(QWidget):
             grid.setContentsMargins(0, 0, 0, 0)
             grid.setHorizontalSpacing(dp(4))
             grid.setVerticalSpacing(dp(4))
+            grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
             for idx, info in enumerate(by_nat[nat]):
-                r = idx // int(self._MAX_COLS)
-                c = idx % int(self._MAX_COLS)
-                grid.addWidget(self._icon_label_for(info, int(owned_counts.get(int(info.com2us_id), 0))), r, c)
+                r = idx // max_cols
+                c = idx % max_cols
+                grid.addWidget(self._icon_label_for(info), r, c)
+
             lay.addWidget(grid_host)
 
         self._content.addWidget(section)
 
-    def _icon_label_for(self, info: MonsterInfo, owned_count: int) -> QLabel:
+    def _icon_label_for(self, info: MonsterInfo) -> QLabel:
+        icon_px = dp(_ICON_SIZE_BASE)
+        pad_px = dp(3)
+        total = icon_px + pad_px * 2
+
         lbl = QLabel()
-        icon_px = dp(self._ICON_SIZE)
-        pad_px = dp(self._ICON_PAD)
-        lbl.setFixedSize(icon_px + pad_px * 2, icon_px + pad_px * 2)
+        lbl.setFixedSize(total, total)
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setStyleSheet(
             f"background: {_theme.C['bg_mid']}; border: 1px solid {_theme.C['card_border']}; border-radius: {dp(4)}px;"
@@ -234,14 +223,7 @@ class MonsterCollectionWidget(QWidget):
         if pix is not None and not pix.isNull():
             lbl.setPixmap(pix.scaled(icon_px, icon_px, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
-        parts = [
-            str(info.name or f"#{int(info.com2us_id or 0)}"),
-            str(info.element or "Unknown"),
-            tr("collection.tooltip_nat", stars=int(info.natural_stars or 0)),
-        ]
-        if owned_count > 1:
-            parts.append(tr("collection.tooltip_copies", count=int(owned_count)))
-        lbl.setToolTip(" | ".join(parts))
+        lbl.setToolTip(str(info.name or f"#{int(info.com2us_id or 0)}"))
         return lbl
 
     def _monster_pixmap(self, info: MonsterInfo) -> Optional[QPixmap]:
@@ -254,3 +236,16 @@ class MonsterCollectionWidget(QWidget):
         if not p.exists():
             return None
         return QPixmap(str(p))
+
+
+def _sort_monsters(items: Iterable[MonsterInfo]) -> List[MonsterInfo]:
+    """Sort by nat stars (desc), element order, then name (asc)."""
+    return sorted(
+        list(items),
+        key=lambda x: (
+            -int(x.natural_stars or 0),
+            _ELEMENT_ORDER.get(str(x.element or "").strip(), 99),
+            str(x.name or "").lower(),
+            int(x.com2us_id or 0),
+        ),
+    )

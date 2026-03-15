@@ -626,8 +626,8 @@ STRINGS: dict[str, str] = {
 
     # -- Monster collection --------------------------------------
     "collection.no_import": "Please import an account first.",
-    "collection.summary": "6* awakened: {owned} | Missing: {missing}",
-    "collection.section_owned": "6* awakened monsters (owned)",
+    "collection.summary": "6* awakened: {owned}",
+    "collection.section_owned": "6* awakened monsters",
     "collection.section_missing": "Missing monsters (awakened forms)",
     "collection.nat_group": "Nat {stars}",
     "collection.none": "No entries.",
