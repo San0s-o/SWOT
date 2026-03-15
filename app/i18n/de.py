@@ -75,6 +75,9 @@ STRINGS: dict[str, str] = {
     "btn.load_preferred_runes": "Bevorzugte Runen laden",
     "btn.load_preferred_runes_all": "Bevorzugte Runen für alle laden",
     "btn.save_preferred_runes": "Bevorzugte Runen speichern",
+    "btn.load_preferred_artifacts": "Bevorzugte Artefakte laden",
+    "btn.load_preferred_artifacts_all": "Bevorzugte Artefakte für alle laden",
+    "btn.save_preferred_artifacts": "Bevorzugte Artefakte speichern",
     "btn.load_community_trends": "Community-Trend laden",
     "btn.load_community_trends_all": "Community-Trends für alle laden",
 
@@ -120,6 +123,10 @@ STRINGS: dict[str, str] = {
     "tooltip.load_preferred_runes_all": "Lädt bevorzugte Runen-Kombis und Mainstats aus monster_rune_set_preferences.json für alle Monster.",
     "tooltip.load_preferred_runes_missing": "Keine Runen-Prefs für dieses Monster in monster_rune_set_preferences.json gefunden.",
     "tooltip.save_preferred_runes": "Speichert die aktuell gewählten Runen-Sets und Mainstats als Monster-Prefs in monster_rune_set_preferences.json.",
+    "tooltip.load_preferred_artifacts": "Lädt bevorzugte Artefakt-Mainstats und Substats aus monster_rune_set_preferences.json für dieses Monster.",
+    "tooltip.load_preferred_artifacts_all": "Lädt bevorzugte Artefakt-Mainstats und Substats aus monster_rune_set_preferences.json für alle Monster.",
+    "tooltip.load_preferred_artifacts_missing": "Keine Artefakt-Prefs für dieses Monster in monster_rune_set_preferences.json gefunden.",
+    "tooltip.save_preferred_artifacts": "Speichert die aktuell gewählten Artefakt-Mainstats und Substats als Monster-Prefs in monster_rune_set_preferences.json.",
     "tooltip.load_community_trends": "Lädt Community-Build-Trends (Sets/Mainstats/Artefakte) für dieses Monster.",
     "tooltip.load_community_trends_all": "Lädt Community-Build-Trends (Sets/Mainstats/Artefakte) für alle Monster.",
     "tooltip.set_multi": "Mehrfachauswahl. Nach erster Auswahl nur gleich große Sets (2er/4er).",
@@ -635,8 +642,9 @@ STRINGS: dict[str, str] = {
 
     # -- Monster collection --------------------------------------
     "collection.no_import": "Bitte zuerst einen Account importieren.",
-    "collection.summary": "6* erweckt: {owned}",
-    "collection.section_owned": "6* erweckte Monster",
+    "collection.summary": "6* erweckt: {owned} | Fehlend: {missing}",
+    "collection.summary_owned": "6* erweckte Monster: {owned}",
+    "collection.section_owned": "6* erweckte Monster (besessen)",
     "collection.section_missing": "Fehlende Monster (erweckte Formen)",
     "collection.nat_group": "Nat {stars}",
     "collection.none": "Keine Einträge.",
@@ -725,6 +733,16 @@ STRINGS: dict[str, str] = {
     "settings.btn_reset_presets": "Build-Presets zurücksetzen",
     "settings.btn_clear_optimizations": "Gespeicherte Optimierungen löschen",
     "settings.btn_clear_teams": "Teams löschen",
+    "settings.broken_set_exclude_label": "Sets für Broken-Slots ausschließen:",
+    "settings.broken_set_exclude_placeholder": "z. B. Violent, Will oder 13,15",
+    "settings.broken_set_exclude_hint": (
+        "Wenn ein Build nur teilweise Set-Vorgaben nutzt (z. B. Swift + broken), "
+        "werden diese Sets auf Broken-Slots blockiert, damit sie für andere Builds frei bleiben."
+    ),
+    "settings.broken_set_exclude_saved": "Ausgeschlossene Broken-Slot-Sets gespeichert: {sets}",
+    "settings.broken_set_exclude_saved_with_unknown": (
+        "Gespeichert. Unbekannte Set-Einträge ignoriert: {unknown}"
+    ),
     "settings.confirm_reset_presets": "Wirklich alle Build-Presets auf Standard zurücksetzen?",
     "settings.confirm_clear_optimizations": "Wirklich alle gespeicherten Optimierungen löschen?",
     "settings.confirm_clear_teams": "Wirklich alle Teams löschen?",

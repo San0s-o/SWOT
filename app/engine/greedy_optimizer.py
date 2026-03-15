@@ -1566,6 +1566,7 @@ class GreedyRequest:
     unit_speed_tiebreak_weight: Dict[int, int] | None = None
     excluded_rune_ids: Set[int] | None = None
     excluded_artifact_ids: Set[int] | None = None
+    broken_set_excluded_set_ids: Set[int] | None = None
     unit_fixed_runes_by_slot: Dict[int, Dict[int, int]] | None = None
     unit_fixed_artifacts_by_type: Dict[int, Dict[int, int]] | None = None
     unit_baseline_runes_by_slot: Dict[int, Dict[int, int]] | None = None
@@ -2490,6 +2491,7 @@ def _solve_single_unit_best(
     arena_rush_damage_bias: bool = False,
     unit_archetype: str = "",
     artifact_hints: Optional[Dict[str, Any]] = None,
+    broken_set_excluded_set_ids: Optional[Set[int]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None,
     register_solver: Optional[Callable[[object], None]] = None,
     mode: str = "normal",
@@ -2671,6 +2673,11 @@ def _solve_single_unit_best(
                     if bias > 0:
                         option_bias_terms.append(bias * vo)
                 needed = _count_required_set_pieces([str(s) for s in opt])
+                excluded_set_ids = {
+                    int(sid)
+                    for sid in (broken_set_excluded_set_ids or set())
+                    if int(sid or 0) > 0
+                }
                 replacement_vars: List[cp_model.IntVar] = []
 
                 for set_id, pieces in needed.items():
@@ -2697,6 +2704,14 @@ def _solve_single_unit_best(
                         model.Add(sum(replacement_vars) <= intangible_piece_count_expr).OnlyEnforceIf(vo)
                     else:
                         model.Add(sum(replacement_vars) == 0).OnlyEnforceIf(vo)
+
+                # Prevent excluded sets from being consumed in broken slots.
+                # For sets required by the selected option, allow exactly those required pieces.
+                for excluded_sid in sorted(excluded_set_ids):
+                    excluded_needed = int(needed.get(int(excluded_sid), 0) or 0)
+                    excluded_vars = set_choice_vars.get(int(excluded_sid), [])
+                    excluded_count = sum(excluded_vars) if excluded_vars else 0
+                    model.Add(excluded_count <= int(excluded_needed)).OnlyEnforceIf(vo)
 
         # min stat thresholds
         min_stats = dict(getattr(b, "min_stats", {}) or {})
@@ -3848,6 +3863,7 @@ def _run_pass_with_profile(
             ),
             unit_archetype=str((req.unit_archetype_by_uid or {}).get(int(uid), "") or ""),
             artifact_hints=dict(artifact_hints_for_unit),
+            broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
             is_cancelled=req.is_cancelled,
             register_solver=req.register_solver,
             mode=str(req.mode),

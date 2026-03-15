@@ -75,6 +75,9 @@ STRINGS: dict[str, str] = {
     "btn.load_preferred_runes": "Load preferred runes",
     "btn.load_preferred_runes_all": "Load preferred runes for all",
     "btn.save_preferred_runes": "Save preferred runes",
+    "btn.load_preferred_artifacts": "Load preferred artifacts",
+    "btn.load_preferred_artifacts_all": "Load preferred artifacts for all",
+    "btn.save_preferred_artifacts": "Save preferred artifacts",
     "btn.load_community_trends": "Load community trend",
     "btn.load_community_trends_all": "Load community trends for all",
 
@@ -120,6 +123,10 @@ STRINGS: dict[str, str] = {
     "tooltip.load_preferred_runes_all": "Load preferred rune set combinations and mainstats from monster_rune_set_preferences.json for all monsters.",
     "tooltip.load_preferred_runes_missing": "No rune preferences found for this monster in monster_rune_set_preferences.json.",
     "tooltip.save_preferred_runes": "Save currently selected rune sets and mainstats as monster preferences in monster_rune_set_preferences.json.",
+    "tooltip.load_preferred_artifacts": "Load preferred artifact mains and substats from monster_rune_set_preferences.json for this monster.",
+    "tooltip.load_preferred_artifacts_all": "Load preferred artifact mains and substats from monster_rune_set_preferences.json for all monsters.",
+    "tooltip.load_preferred_artifacts_missing": "No artifact preferences found for this monster in monster_rune_set_preferences.json.",
+    "tooltip.save_preferred_artifacts": "Save currently selected artifact mains and substats as monster preferences in monster_rune_set_preferences.json.",
     "tooltip.load_community_trends": "Load community build trends (sets/mainstats/artifacts) for this monster.",
     "tooltip.load_community_trends_all": "Load community build trends (sets/mainstats/artifacts) for all monsters.",
     "tooltip.set_multi": "Multi-select. After first selection only same-size sets (2-piece/4-piece).",
@@ -626,8 +633,9 @@ STRINGS: dict[str, str] = {
 
     # -- Monster collection --------------------------------------
     "collection.no_import": "Please import an account first.",
-    "collection.summary": "6* awakened: {owned}",
-    "collection.section_owned": "6* awakened monsters",
+    "collection.summary": "6* awakened: {owned} | Missing: {missing}",
+    "collection.summary_owned": "6* awakened monsters: {owned}",
+    "collection.section_owned": "6* awakened monsters (owned)",
     "collection.section_missing": "Missing monsters (awakened forms)",
     "collection.nat_group": "Nat {stars}",
     "collection.none": "No entries.",
@@ -722,6 +730,16 @@ STRINGS: dict[str, str] = {
     "settings.btn_reset_presets": "Reset Build Presets",
     "settings.btn_clear_optimizations": "Clear Saved Optimizations",
     "settings.btn_clear_teams": "Clear Teams",
+    "settings.broken_set_exclude_label": "Exclude sets for broken slots:",
+    "settings.broken_set_exclude_placeholder": "e.g. Violent, Will or 13,15",
+    "settings.broken_set_exclude_hint": (
+        "If a build uses partial set options (e.g. Swift + broken), these sets are blocked "
+        "for broken slots so they remain available for other builds."
+    ),
+    "settings.broken_set_exclude_saved": "Broken-slot excluded sets saved: {sets}",
+    "settings.broken_set_exclude_saved_with_unknown": (
+        "Saved. Unknown set tokens ignored: {unknown}"
+    ),
     "settings.confirm_reset_presets": "Really reset all build presets to defaults?",
     "settings.confirm_clear_optimizations": "Really delete all saved optimizations?",
     "settings.confirm_clear_teams": "Really delete all teams?",

@@ -111,6 +111,7 @@ from app.ui.main_window_sections.settings_section import (
     refresh_settings_import_status as _sec_refresh_settings_import_status,
     refresh_settings_license_status as _sec_refresh_settings_license_status,
     ui_show_extra_info_enabled as _sec_ui_show_extra_info_enabled,
+    broken_slot_excluded_set_ids as _sec_broken_slot_excluded_set_ids,
     on_settings_import_json as _sec_on_settings_import_json,
     on_settings_clear_snapshot as _sec_on_settings_clear_snapshot,
     on_settings_activate_license as _sec_on_settings_activate_license,
@@ -870,6 +871,9 @@ class MainWindow(QMainWindow):
 
     def _show_extra_info_enabled(self) -> bool:
         return bool(_sec_ui_show_extra_info_enabled(self))
+
+    def _broken_slot_excluded_set_ids(self) -> set[int]:
+        return set(_sec_broken_slot_excluded_set_ids(self))
 
 
 def _apply_dark_palette(app: QApplication) -> None:

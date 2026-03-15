@@ -5,7 +5,7 @@ import time
 from typing import Any, Callable, Dict
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool, QEventLoop
-from PySide6.QtWidgets import QApplication, QLabel, QProgressDialog
+from PySide6.QtWidgets import QApplication, QLabel, QProgressDialog, QPushButton
 
 from app.i18n import tr
 from app.ui.async_worker import _TaskWorker
@@ -55,9 +55,18 @@ def run_with_busy_progress(
         }}
         QPushButton {{
             min-width: {dp(120)}px;
+            outline: none;
+        }}
+        QPushButton:focus {{
+            outline: none;
         }}
         """
     )
+    cancel_btn = QPushButton(tr("btn.cancel"), dlg)
+    cancel_btn.setAutoDefault(False)
+    cancel_btn.setDefault(False)
+    cancel_btn.setFocusPolicy(Qt.NoFocus)
+    dlg.setCancelButton(cancel_btn)
     dlg.show()
     QApplication.processEvents()
 

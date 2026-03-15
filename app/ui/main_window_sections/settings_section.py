@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 
 from PySide6.QtCore import Qt, QSize, QThreadPool, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon
@@ -24,6 +25,7 @@ from app.i18n import tr
 from app.ui.dpi import dp
 from app.ui import theme as _theme
 from app.ui.toast import show_toast
+from app.domain.presets import SET_ID_BY_NAME, SET_NAMES
 
 
 _ABOUT_CREATOR = "San0s"
@@ -34,6 +36,7 @@ _COMMUNITY_SET_LIMIT_KEY = "community_trends_set_combo_limit_full"
 _COMMUNITY_MAINSTAT_LIMIT_KEY = "community_trends_mainstat_limit_full"
 _COMMUNITY_ART_SUBSTAT_LIMIT_KEY = "community_trends_artifact_substat_limit_full"
 _UI_EXTRA_INFO_KEY = "ui_show_extra_info"
+_BROKEN_SET_EXCLUDE_IDS_KEY = "broken_slot_excluded_set_ids"
 
 
 def _open_discord_dm(window) -> None:
@@ -157,6 +160,53 @@ def ui_show_extra_info_enabled(window) -> bool:
 
 def _set_ui_show_extra_info(window, enabled: bool) -> None:
     _save_app_settings(window, {_UI_EXTRA_INFO_KEY: bool(enabled)})
+
+
+def _broken_slot_excluded_set_ids(window) -> set[int]:
+    data = _load_app_settings(window)
+    raw = data.get(_BROKEN_SET_EXCLUDE_IDS_KEY, [])
+    out: set[int] = set()
+    if isinstance(raw, list):
+        for item in raw:
+            try:
+                sid = int(item or 0)
+            except Exception:
+                sid = 0
+            if sid > 0 and int(sid) in SET_NAMES:
+                out.add(int(sid))
+    return out
+
+
+def _set_broken_slot_excluded_set_ids(window, set_ids: set[int]) -> None:
+    ids = sorted([int(sid) for sid in (set_ids or set()) if int(sid) > 0 and int(sid) in SET_NAMES])
+    _save_app_settings(window, {_BROKEN_SET_EXCLUDE_IDS_KEY: ids})
+
+
+def _format_set_ids_for_input(set_ids: set[int]) -> str:
+    names = [str(SET_NAMES.get(int(sid), str(int(sid)))) for sid in sorted(set_ids)]
+    return ", ".join(names)
+
+
+def _parse_set_ids_from_input(raw: str) -> tuple[set[int], list[str]]:
+    by_name_ci = {str(name).strip().lower(): int(sid) for name, sid in SET_ID_BY_NAME.items()}
+    out: set[int] = set()
+    unknown: list[str] = []
+    tokens = [str(tok).strip() for tok in re.split(r"[,\n;]+", str(raw or "")) if str(tok).strip()]
+    for token in tokens:
+        sid = 0
+        try:
+            sid = int(token)
+        except Exception:
+            sid = int(by_name_ci.get(str(token).lower(), 0) or 0)
+        if sid > 0 and int(sid) in SET_NAMES:
+            out.add(int(sid))
+        elif token:
+            unknown.append(token)
+    return out, unknown
+
+
+def broken_slot_excluded_set_ids(window) -> set[int]:
+    return set(_broken_slot_excluded_set_ids(window))
 
 
 # ================================================================
@@ -358,6 +408,27 @@ def init_settings_ui(window) -> None:
     window.btn_settings_clear_teams = QPushButton(tr("settings.btn_clear_teams"))
     window.btn_settings_clear_teams.clicked.connect(window._on_settings_clear_teams)
     data_layout.addWidget(window.btn_settings_clear_teams)
+
+    window.lbl_settings_broken_set_exclude = QLabel(tr("settings.broken_set_exclude_label"))
+    data_layout.addWidget(window.lbl_settings_broken_set_exclude)
+
+    row_broken_sets = QHBoxLayout()
+    window.edit_settings_broken_set_exclude = QLineEdit()
+    window.edit_settings_broken_set_exclude.setPlaceholderText(tr("settings.broken_set_exclude_placeholder"))
+    window.edit_settings_broken_set_exclude.setText(
+        _format_set_ids_for_input(_broken_slot_excluded_set_ids(window))
+    )
+    row_broken_sets.addWidget(window.edit_settings_broken_set_exclude, 1)
+    window.btn_settings_broken_set_exclude_save = QPushButton(tr("btn.save"))
+    window.btn_settings_broken_set_exclude_save.clicked.connect(
+        lambda: on_settings_broken_set_exclude_save(window)
+    )
+    row_broken_sets.addWidget(window.btn_settings_broken_set_exclude_save)
+    data_layout.addLayout(row_broken_sets)
+
+    window.lbl_settings_broken_set_exclude_hint = QLabel(tr("settings.broken_set_exclude_hint"))
+    window.lbl_settings_broken_set_exclude_hint.setWordWrap(True)
+    data_layout.addWidget(window.lbl_settings_broken_set_exclude_hint)
     main_layout.addWidget(window.grp_settings_data)
 
     # --- Section 5: Updates -------------------------------------
@@ -968,6 +1039,23 @@ def on_settings_extra_info_toggled(window, enabled: bool) -> None:
         window.statusBar().showMessage(tr("settings.extra_info_saved_off"), 3000)
 
 
+def on_settings_broken_set_exclude_save(window) -> None:
+    raw = str(window.edit_settings_broken_set_exclude.text() or "")
+    parsed, unknown = _parse_set_ids_from_input(raw)
+    _set_broken_slot_excluded_set_ids(window, parsed)
+    window.edit_settings_broken_set_exclude.setText(_format_set_ids_for_input(parsed))
+    if unknown:
+        window.statusBar().showMessage(
+            tr("settings.broken_set_exclude_saved_with_unknown", unknown=", ".join(unknown)),
+            6000,
+        )
+    else:
+        window.statusBar().showMessage(
+            tr("settings.broken_set_exclude_saved", sets=_format_set_ids_for_input(parsed) or "None"),
+            5000,
+        )
+
+
 # ================================================================
 # Retranslate
 # ================================================================
@@ -1000,6 +1088,10 @@ def retranslate_settings(window) -> None:
     window.btn_settings_reset_presets.setText(tr("settings.btn_reset_presets"))
     window.btn_settings_clear_optimizations.setText(tr("settings.btn_clear_optimizations"))
     window.btn_settings_clear_teams.setText(tr("settings.btn_clear_teams"))
+    window.lbl_settings_broken_set_exclude.setText(tr("settings.broken_set_exclude_label"))
+    window.edit_settings_broken_set_exclude.setPlaceholderText(tr("settings.broken_set_exclude_placeholder"))
+    window.lbl_settings_broken_set_exclude_hint.setText(tr("settings.broken_set_exclude_hint"))
+    window.btn_settings_broken_set_exclude_save.setText(tr("btn.save"))
 
     window.grp_settings_updates.setTitle(tr("settings.group_updates"))
     window.btn_settings_check_update.setText(tr("settings.btn_check_update"))

@@ -338,6 +338,7 @@ def optimize_team(window) -> None:
                     if (baseline_runes_by_unit or baseline_arts_by_unit)
                     else 0
                 ),
+                broken_set_excluded_set_ids=set(window._broken_slot_excluded_set_ids() or set()),
             ),
         ),
     )
