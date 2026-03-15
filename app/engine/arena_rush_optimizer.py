@@ -650,6 +650,11 @@ def _optimize_arena_rush_single(
     ordered_defense = _unit_order_from_presets(presets, req.mode, defense_unit_ids)
     defense_turn_order = dict(req.defense_unit_team_turn_order or {}) or _default_turn_order(ordered_defense)
     defense_team_index = {int(uid): 0 for uid in ordered_defense}
+    if callable(req.progress_callback):
+        try:
+            req.progress_callback(0, 1, f"Verteidigung optimieren ({len(ordered_defense)} Einheiten)")
+        except Exception:
+            pass
     defense_result = optimize_greedy(
         account,
         presets,
@@ -930,6 +935,11 @@ def _optimize_arena_rush_single(
             if ui not in offense_team_has_spd_buff_by_uid:
                 offense_team_has_spd_buff_by_uid[ui] = bool(has_team_spd_buff)
 
+    if callable(req.progress_callback):
+        try:
+            req.progress_callback(0, 1, f"Angriffsteams optimieren ({len(all_offense_units_in_order)} Einheiten)")
+        except Exception:
+            pass
     global_offense_result = optimize_greedy(
         account,
         presets,
@@ -1197,6 +1207,11 @@ def _optimize_arena_rush_single(
         current_ok_count = int(sum(1 for r in team_res_list if bool(r.ok)))
         needs_repair = bool(int(penalty) > 0 or int(current_ok_count) < int(len(unit_ids)))
         if needs_repair:
+            if callable(req.progress_callback):
+                try:
+                    req.progress_callback(0, 1, f"Angriffsteam {team_index + 1} · Aufstellung verfeinern ({len(expected_order)} Einheiten)")
+                except Exception:
+                    pass
             # Keep baseline-compare influence in the main offense solve, but
             # relax it in repair so hard feasibility/order issues can be fixed.
             repair_guard_weight = max(0, int(req.baseline_regression_guard_weight or 0) // 6)
@@ -1276,7 +1291,7 @@ def _optimize_arena_rush_single(
                 multi_pass_enabled=bool(int(req.offense_pass_count) > 1),
                 multi_pass_count=max(1, int(req.offense_pass_count)),
                 multi_pass_strategy="greedy_refine",
-                quality_profile=str(req.offense_quality_profile),
+                quality_profile="balanced" if str(req.offense_quality_profile) == "gpu_combo" else str(req.offense_quality_profile),
                 rune_top_per_set=max(0, int(req.rune_top_per_set or 0)),
                 broken_set_excluded_set_ids=set(req.broken_set_excluded_set_ids or set()),
                 global_seed_offset=(int(offense_global_seed_offset or 0) + (int(team_index) * 1009) + 1),
@@ -1627,6 +1642,11 @@ def optimize_arena_rush(account: AccountData, presets: BuildStore, req: ArenaRus
         for idx in range(int(candidate_count)):
             if (callable(base_cancel) and bool(base_cancel())) or bool(_deadline_reached()):
                 break
+            if callable(req.progress_callback) and int(candidate_count) > 1:
+                try:
+                    req.progress_callback(0, 1, f"Optimierungsversuch {idx + 1} von {candidate_count}")
+                except Exception:
+                    pass
             ridx, candidate = _run_candidate(int(idx))
             evaluated += 1
             if callable(req.progress_callback):

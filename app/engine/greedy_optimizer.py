@@ -2832,6 +2832,12 @@ def _solve_single_unit_best(
     if swift_piece_vars:
         model.Add(swift_count >= 4).OnlyEnforceIf(swift_set_active)
         model.Add(swift_count <= 3).OnlyEnforceIf(swift_set_active.Not())
+        # When optimizing speed-first for a turn-order position-1 monster with Swift in
+        # the set options, commit to Swift immediately.  This removes non-Swift option
+        # variables from the search space so the two-pass speed→quality solve stays
+        # tractable even when many alternative sets (e.g. Violent) are also configured.
+        if bool(force_speed_priority):
+            model.Add(swift_set_active == 1)
     else:
         model.Add(swift_set_active == 0)
 
@@ -3396,13 +3402,17 @@ def _solve_single_unit_best(
             register_solver(solver)
         except Exception:
             pass
-    solver.parameters.max_time_in_seconds = float(time_limit_s)
     solver.parameters.num_search_workers = int(workers)
+    # Fix 2: Stop when within 0.1% of optimal — negligible quality difference for rune builds.
+    solver.parameters.relative_gap_limit = 0.001
 
     if is_cancelled and is_cancelled():
         return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
 
     if speed_hard_priority or bool(force_speed_priority):
+        # Fix 1: Phase 1 (max speed) uses a short time cap — in practice done in <0.1s.
+        # Phase 2 (quality) gets the full time budget.
+        solver.parameters.max_time_in_seconds = min(1.5, float(time_limit_s) * 0.25)
         model.Maximize(final_speed_expr)
         status = solver.Solve(model)
         if is_cancelled and is_cancelled():
@@ -3415,10 +3425,12 @@ def _solve_single_unit_best(
             # Keep speed near optimum but allow small slack so quality can win.
             model.Add(final_speed_expr >= keep_speed_min)
             model.Maximize(sum(quality_terms) + (int(speed_tiebreak_weight) * final_speed_expr))
+            solver.parameters.max_time_in_seconds = float(time_limit_s)
             status = solver.Solve(model)
             if is_cancelled and is_cancelled():
                 return GreedyUnitResult(uid, False, tr("opt.cancelled"), runes_by_slot={})
     else:
+        solver.parameters.max_time_in_seconds = float(time_limit_s)
         if str(objective_mode) == "efficiency":
             # In refinement we prioritize efficiency; speed only breaks ties.
             model.Maximize((sum(quality_terms) * 1000) + (int(speed_tiebreak_weight) * final_speed_expr))

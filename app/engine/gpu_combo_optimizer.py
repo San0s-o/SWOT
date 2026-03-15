@@ -28,6 +28,34 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+try:
+    import os as _os
+    import sys as _sys
+    if _sys.platform == "win32":
+        # On Windows, CuPy needs CUDA DLLs (cublas etc.) in the DLL search path.
+        # If nvidia-*-cu12 wheels are installed, register their bin/ dirs.
+        try:
+            import importlib.util as _ilu
+            _nvidia_root = _ilu.find_spec("nvidia")
+            if _nvidia_root and _nvidia_root.submodule_search_locations:
+                for _nvidia_pkg_dir in _nvidia_root.submodule_search_locations:
+                    for _entry in _os.scandir(_nvidia_pkg_dir):
+                        if not _entry.is_dir():
+                            continue
+                        _bin = _os.path.join(_entry.path, "bin")
+                        if _os.path.isdir(_bin):
+                            try:
+                                _os.add_dll_directory(_bin)
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+    import cupy as _cp
+    _CUPY_AVAILABLE = int(_cp.cuda.runtime.getDeviceCount()) > 0
+except Exception:
+    _cp = None
+    _CUPY_AVAILABLE = False
+
 from app.domain.models import AccountData, Rune, Artifact
 from app.domain.presets import (
     BuildStore,
@@ -109,8 +137,8 @@ _AB_MAX_OK_RATIO_DROP = 0.0
 _CLOUD_ALPHA_MIN = 0.05
 _CLOUD_ALPHA_MAX = 0.60
 _ADAPTIVE_HISTORY_WINDOW = 24
-_ADAPTIVE_MIN_BATCH_GPU = 80_000
-_ADAPTIVE_MAX_BATCH_GPU = 1_200_000
+_ADAPTIVE_MIN_BATCH_GPU = 120_000
+_ADAPTIVE_MAX_BATCH_GPU = 3_000_000
 _ADAPTIVE_MIN_BATCH_CPU = 60_000
 _ADAPTIVE_MAX_BATCH_CPU = 650_000
 _ADAPTIVE_DEFAULT_SOLVER_TOP = 80
@@ -118,7 +146,7 @@ _ADAPTIVE_MIN_SOLVER_TOP = 50
 _ADAPTIVE_MAX_SOLVER_TOP = 150
 
 # Combination batch sizes for GPU pre-screening
-_GPU_BATCH_SIZE = 500_000
+_GPU_BATCH_SIZE = 1_500_000
 _CPU_BATCH_SIZE = 300_000
 
 # How many top-K elite combinations to maintain per unit
@@ -518,6 +546,133 @@ def _filter_runes_by_mainstat(
 # ---------------------------------------------------------------------------
 # Vectorised combination scoring with full constraint checking
 # ---------------------------------------------------------------------------
+
+def _score_combinations_cupy(
+    slot_matrices_gpu: Dict[int, Any],
+    combo_indices: np.ndarray,
+    art1_matrix_gpu: Optional[Any],
+    art2_matrix_gpu: Optional[Any],
+    art1_indices: Optional[np.ndarray],
+    art2_indices: Optional[np.ndarray],
+    weights: "ScoringWeights",
+    base_spd: int,
+    min_spd: int,
+    max_spd: int,
+    base_cr: int,
+    base_res: int,
+    base_acc: int,
+    set_options: List[Dict[int, int]],
+    min_stats: Dict[str, int],
+    base_hp: int,
+    base_atk: int,
+    base_def: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """CuPy-native batch scoring — all heavy ops run on GPU. Returns numpy."""
+    cp = _cp
+    batch = int(combo_indices.shape[0])
+
+    combo_gpu = cp.asarray(combo_indices.astype(np.int32))
+
+    total_stats = cp.zeros((batch, _N_STATS), dtype=cp.float32)
+    total_quality = cp.zeros(batch, dtype=cp.float32)
+    total_efficiency = cp.zeros(batch, dtype=cp.float32)
+    set_ids = cp.zeros((batch, 6), dtype=cp.int32)
+
+    for col_idx, slot in enumerate(sorted(slot_matrices_gpu.keys())):
+        mat = slot_matrices_gpu[slot]
+        idx = cp.clip(combo_gpu[:, col_idx], 0, len(mat) - 1)
+        selected = mat[idx]
+        total_stats += selected[:, :_N_STATS]
+        total_quality += selected[:, _COL_QUALITY]
+        total_efficiency += selected[:, _COL_EFFICIENCY]
+        set_ids[:, col_idx] = selected[:, _COL_SET_ID].astype(cp.int32)
+
+    if art1_matrix_gpu is not None and art1_indices is not None and len(art1_matrix_gpu) > 0:
+        a1_idx = cp.clip(cp.asarray(art1_indices), 0, len(art1_matrix_gpu) - 1)
+        a1_sel = art1_matrix_gpu[a1_idx]
+        total_quality += a1_sel[:, _ART_COL_QUALITY]
+        total_efficiency += a1_sel[:, _ART_COL_EFFICIENCY]
+    if art2_matrix_gpu is not None and art2_indices is not None and len(art2_matrix_gpu) > 0:
+        a2_idx = cp.clip(cp.asarray(art2_indices), 0, len(art2_matrix_gpu) - 1)
+        a2_sel = art2_matrix_gpu[a2_idx]
+        total_quality += a2_sel[:, _ART_COL_QUALITY]
+        total_efficiency += a2_sel[:, _ART_COL_EFFICIENCY]
+
+    # Set validation
+    if set_options:
+        sets_valid = cp.zeros(batch, dtype=cp.bool_)
+        for option in set_options:
+            option_ok = cp.ones(batch, dtype=cp.bool_)
+            for sid, needed in option.items():
+                count = cp.sum(set_ids == sid, axis=1)
+                option_ok &= count >= needed
+            sets_valid |= option_ok
+    else:
+        sets_valid = cp.ones(batch, dtype=cp.bool_)
+
+    # Swift set bonus
+    swift_count = cp.sum(set_ids == 3, axis=1)
+    swift_bonus = cp.floor(float(base_spd) * 0.25) * (swift_count >= 4).astype(cp.float32)
+
+    final_spd = float(base_spd) + total_stats[:, _COL_SPD] + swift_bonus
+
+    valid = cp.ones(batch, dtype=cp.bool_)
+    valid &= sets_valid
+    if int(min_spd) > 0:
+        valid &= final_spd >= float(min_spd)
+    if int(max_spd) > 0:
+        valid &= final_spd <= float(max_spd)
+
+    _MIN_STAT_COL_GPU = {
+        "CR": _COL_CR, "CD": _COL_CD, "RES": _COL_RES,
+        "ACC": _COL_ACC, "HP%": _COL_HPP, "ATK%": _COL_ATKP, "DEF%": _COL_DEFP,
+    }
+    for stat_key, threshold in (min_stats or {}).items():
+        if int(threshold) <= 0:
+            continue
+        if stat_key == "SPD":
+            valid &= final_spd >= float(threshold)
+        elif stat_key == "SPD_NO_BASE":
+            valid &= total_stats[:, _COL_SPD] + swift_bonus >= float(threshold)
+        elif stat_key in _MIN_STAT_COL_GPU:
+            col = _MIN_STAT_COL_GPU[stat_key]
+            base_val = 0.0
+            if stat_key == "CR":
+                base_val = float(base_cr)
+            elif stat_key == "RES":
+                base_val = float(base_res)
+            elif stat_key == "ACC":
+                base_val = float(base_acc)
+            valid &= (base_val + total_stats[:, col]) >= float(threshold)
+
+    cr_overcap = cp.maximum(0.0, float(base_cr) + total_stats[:, _COL_CR] - 100.0)
+    res_overcap = cp.maximum(0.0, float(base_res) + total_stats[:, _COL_RES] - 100.0)
+    acc_overcap = cp.maximum(0.0, float(base_acc) + total_stats[:, _COL_ACC] - 100.0)
+
+    # Native GPU matmul — faster than ONNX for cupy arrays
+    stat_weights_gpu = cp.asarray(weights.stat_weights)
+    stat_score = total_stats @ stat_weights_gpu
+
+    # Set completion bonus
+    set_bonus = cp.zeros(batch, dtype=cp.float32)
+    for sid, size in SET_SIZES.items():
+        count = cp.sum(set_ids == sid, axis=1)
+        set_bonus += (count // size).astype(cp.float32) * float(size) * 10.0
+
+    scores = (
+        stat_score
+        + float(weights.quality_weight) * total_quality
+        + float(weights.efficiency_weight) * total_efficiency
+        + float(weights.speed_priority) * final_spd
+        + float(weights.set_bonus_weight) * set_bonus
+        - 20.0 * cr_overcap
+        - 16.0 * res_overcap
+        - 16.0 * acc_overcap
+    )
+
+    return cp.asnumpy(scores), cp.asnumpy(valid)
+
+
 def _score_combinations_full(
     slot_matrices: Dict[int, np.ndarray],  # slot -> (N_slot, _VEC_LEN)
     combo_indices: np.ndarray,             # (batch, 6) â€“ indices into slot matrices
@@ -1064,6 +1219,17 @@ def _search_unit_combos_full(
     set_options = constraints.get("set_options", [])
     min_stats_map = constraints.get("min_stats", {})
 
+    # Upload rune/artifact matrices to GPU once if CuPy is available
+    _use_cupy = _CUPY_AVAILABLE and _cp is not None
+    if _use_cupy:
+        _gpu_slot_matrices = {s: _cp.asarray(m) for s, m in slot_matrices.items()}
+        _gpu_art1 = _cp.asarray(art1_matrix) if art1_matrix is not None else None
+        _gpu_art2 = _cp.asarray(art2_matrix) if art2_matrix is not None else None
+    else:
+        _gpu_slot_matrices = slot_matrices
+        _gpu_art1 = art1_matrix
+        _gpu_art2 = art2_matrix
+
     # Evolutionary search
     elite_combos: Optional[np.ndarray] = None
     elite_art1: Optional[np.ndarray] = None
@@ -1148,17 +1314,29 @@ def _search_unit_combos_full(
             c_a2 = None
         combos, c_a1, c_a2 = _dedupe_full_combo_batch(combos, c_a1, c_a2)
 
-        scores, valid = _score_combinations_full(
-            slot_matrices, combos,
-            art1_matrix, art2_matrix,
-            c_a1, c_a2,
-            weights,
-            base_spd, min_spd, max_spd,
-            base_cr, base_res, base_acc,
-            set_options, min_stats_map,
-            base_hp, base_atk, base_def,
-            gpu_scorer=gpu_scorer,
-        )
+        if _use_cupy:
+            scores, valid = _score_combinations_cupy(
+                _gpu_slot_matrices, combos,
+                _gpu_art1, _gpu_art2,
+                c_a1, c_a2,
+                weights,
+                base_spd, min_spd, max_spd,
+                base_cr, base_res, base_acc,
+                set_options, min_stats_map,
+                base_hp, base_atk, base_def,
+            )
+        else:
+            scores, valid = _score_combinations_full(
+                slot_matrices, combos,
+                art1_matrix, art2_matrix,
+                c_a1, c_a2,
+                weights,
+                base_spd, min_spd, max_spd,
+                base_cr, base_res, base_acc,
+                set_options, min_stats_map,
+                base_hp, base_atk, base_def,
+                gpu_scorer=gpu_scorer,
+            )
 
         # Penalise invalid heavily but don't discard (might relax later)
         scores = np.where(valid, scores, scores - 1e6)
@@ -1299,7 +1477,7 @@ def _adaptive_plan_for_run(
 
     req_time = max(0.4, float(getattr(req, "time_limit_per_unit_s", 1.0) or 1.0))
     time_budget_s = float(req_time * unit_count * 4.0)
-    pass_limit = int(min(8, max(3, unit_count)))
+    pass_limit = 3
     pass_time_s = float(max(0.5, req_time * 0.7))
     solver_top_per_set = int(max(_ADAPTIVE_MIN_SOLVER_TOP, int(_ADAPTIVE_DEFAULT_SOLVER_TOP)))
     req_top = int(getattr(req, "rune_top_per_set", 0) or 0)
@@ -1391,7 +1569,7 @@ def _adaptive_plan_for_run(
 
     batch_size = _clamp_int(int(round(batch_size * batch_scale)), min_batch, max_batch)
     solver_top_per_set = _clamp_int(int(solver_top_per_set), _ADAPTIVE_MIN_SOLVER_TOP, _ADAPTIVE_MAX_SOLVER_TOP)
-    pass_limit = _clamp_int(int(pass_limit), 3, 10)
+    pass_limit = _clamp_int(int(pass_limit), 3, 4)
     min_passes = _clamp_int(
         int(max(2, min(min_passes, pass_limit - int(max(0, early_stop_patience - 1))))),
         2,
@@ -2488,7 +2666,6 @@ def _validate_candidate_with_replays(
         "candidate_total": float(candidate_total),
         "cases": per_case,
     }
-
 
 def optimize_gpu_combo(
     account: AccountData,
